@@ -1,0 +1,34 @@
+[workspace]
+members = [
+  "backend",
+  "crates/margin-core",
+  "apps/desktop/src-tauri"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+authors = ["Margin"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+async-stream = "0.3"
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+tauri = "2"
+tauri-build = "2"
+thiserror = "2.0"
+tokio = { version = "1.48", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+uuid = { version = "1.18", features = ["serde", "v4"] }
+proptest = "1.6"

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Margin",
+  "version": "0.1.0",
+  "identifier": "app.margin.desktop",
+  "build": {
+    "beforeDevCommand": {
+      "script": "node scripts/dev-web-or-reuse.mjs",
+      "cwd": "../../..",
+      "wait": false
+    },
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "npm --workspace @margin/web run build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Margin",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 680
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

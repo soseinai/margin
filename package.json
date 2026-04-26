@@ -1,0 +1,22 @@
+{
+  "name": "margin",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev:web": "node scripts/dev-web-or-reuse.mjs",
+    "build:web": "npm --workspace @margin/web run build",
+    "dev:api": "cargo run -p margin-api",
+    "check:api": "cargo check --workspace",
+    "dev:desktop": "npm --workspace @margin/desktop run tauri dev",
+    "build:desktop": "npm --workspace @margin/desktop run tauri build",
+    "test:web": "npm --workspace @margin/web run test",
+    "generate:api": "openapi-typescript http://127.0.0.1:4317/openapi.json -o apps/web/src/lib/generated/api.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.10.1"
+  }
+}
