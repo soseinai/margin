@@ -2,14 +2,16 @@
   color: var(--text);
   background: var(--app-bg);
   color-scheme: light;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --app-bg: #f5f6f8;
   --surface: #ffffff;
   --surface-muted: #f8fafc;
   --surface-soft: #f1f5f9;
+  --active-line-bg: #eef4ff;
   --text: #202124;
   --text-strong: #1f2937;
   --text-muted: #5f6368;
@@ -34,6 +36,17 @@
   --suggestion-label: #b06000;
   --code-bg: #f1f5f9;
   --code-text: #334155;
+  --syntax-keyword: #7c3aed;
+  --syntax-name: #075985;
+  --syntax-function: #0f766e;
+  --syntax-type: #7c2d12;
+  --syntax-number: #166534;
+  --syntax-string: #9a3412;
+  --syntax-atom: #b45309;
+  --syntax-operator: #475569;
+  --syntax-punctuation: #64748b;
+  --syntax-comment: #64748b;
+  --syntax-meta: #4338ca;
   --connector: #7c91b2;
   --neutral-dot: #9aa0a6;
   --error-bg: #fce8e6;
@@ -55,6 +68,7 @@
     --surface: #202124;
     --surface-muted: #1b1d20;
     --surface-soft: #292c31;
+    --active-line-bg: #253654;
     --text: #eceff3;
     --text-strong: #f8fafc;
     --text-muted: #a9b0bc;
@@ -79,6 +93,17 @@
     --suggestion-label: #f3ba72;
     --code-bg: #292c31;
     --code-text: #d7deea;
+    --syntax-keyword: #ff8bd1;
+    --syntax-name: #9ecbff;
+    --syntax-function: #7dd3fc;
+    --syntax-type: #f0abfc;
+    --syntax-number: #b5f1a4;
+    --syntax-string: #f2cc60;
+    --syntax-atom: #ffb86c;
+    --syntax-operator: #dbeafe;
+    --syntax-punctuation: #cbd5e1;
+    --syntax-comment: #9aa8bd;
+    --syntax-meta: #c4b5fd;
     --connector: #68758a;
     --neutral-dot: #69717d;
     --error-bg: #3a2020;
@@ -253,6 +278,34 @@ textarea:focus {
   gap: 8px;
 }
 
+.editing-mode-toggle {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.editing-mode-toggle button {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.editing-mode-toggle button.active {
+  background: var(--surface);
+  border-color: var(--border-muted);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-card);
+}
+
 .presence-dot {
   align-items: center;
   background: var(--surface);
@@ -327,7 +380,7 @@ textarea:focus {
 .paper-column {
   display: grid;
   gap: 16px;
-  flex: 0 1 760px;
+  flex: 0 1 820px;
   min-width: 0;
 }
 
@@ -336,7 +389,7 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: 2px;
   box-shadow: var(--shadow-paper);
-  line-height: 1.68;
+  line-height: 1.62;
   min-height: calc(100vh - 150px);
   padding: 64px 72px;
   width: 100%;
@@ -348,7 +401,7 @@ textarea:focus {
   color: var(--text);
   letter-spacing: 0;
   line-height: 1.25;
-  margin: 0 0 18px;
+  margin: 0 0 12px;
 }
 
 .document-surface h1 {
@@ -359,7 +412,7 @@ textarea:focus {
 .document-surface h2 {
   font-size: 22px;
   font-weight: 500;
-  margin-top: 34px;
+  margin-top: 26px;
 }
 
 .document-surface h3 {
@@ -370,8 +423,8 @@ textarea:focus {
 .document-surface p,
 .document-surface ul {
   color: var(--text);
-  font-size: 15.5px;
-  margin: 0 0 18px;
+  font-size: 14px;
+  margin: 0 0 14px;
 }
 
 .live-preview-surface {
@@ -386,10 +439,9 @@ textarea:focus {
 .live-preview-editor .cm-editor {
   background: transparent;
   color: var(--text);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 15.5px;
-  line-height: 1.68;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
   outline: none;
 }
 
@@ -443,29 +495,29 @@ textarea:focus {
 }
 
 .live-preview-editor .cm-live-heading-1 {
-  font-size: 34px;
+  font-size: 31px;
   font-weight: 620;
-  padding: 0 0 20px;
+  padding: 0 0 14px;
 }
 
 .live-preview-editor .cm-live-heading-2 {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 560;
-  padding: 30px 0 12px;
+  padding: 22px 0 8px;
 }
 
 .live-preview-editor .cm-live-heading-3 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 560;
-  padding: 22px 0 8px;
+  padding: 16px 0 6px;
 }
 
 .live-preview-editor .cm-live-heading-4,
 .live-preview-editor .cm-live-heading-5,
 .live-preview-editor .cm-live-heading-6 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 560;
-  padding: 16px 0 6px;
+  padding: 12px 0 4px;
 }
 
 .live-preview-editor .cm-live-list-line {
@@ -536,10 +588,9 @@ textarea:focus {
 }
 
 .live-preview-editor .cm-live-codeblock-line {
-  background: var(--surface-muted);
+  background: var(--code-bg);
   color: var(--code-text);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13.5px;
   line-height: 1.58;
   margin-left: -12px;
@@ -548,16 +599,62 @@ textarea:focus {
 }
 
 .live-preview-editor .cm-live-code-fence-hidden-line {
-  background: var(--surface-muted);
+  background: var(--code-bg);
   color: transparent;
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13.5px;
   line-height: 1.58;
   margin-left: -12px;
   margin-right: -12px;
   padding: 2px 12px;
   user-select: none;
+}
+
+.live-preview-editor .cm-live-code-fence-hidden-line * {
+  color: transparent !important;
+}
+
+.markdown-code-widget {
+  background: var(--code-bg);
+  border-radius: 7px;
+  color: var(--code-text);
+  cursor: text;
+  margin: 12px -10px 22px;
+  min-height: 86px;
+  overflow: hidden;
+  padding: 26px 34px 28px;
+  position: relative;
+}
+
+.markdown-code-widget:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-action) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.markdown-code-widget pre {
+  margin: 0;
+  overflow-x: auto;
+}
+
+.markdown-code-widget code {
+  color: var(--code-text);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  min-height: 24px;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.markdown-code-language {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+  position: absolute;
+  right: 28px;
+  top: 22px;
 }
 
 .live-preview-editor .cm-live-bold {
@@ -573,8 +670,7 @@ textarea:focus {
   border: 1px solid var(--border-muted);
   border-radius: 4px;
   color: var(--code-text);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   padding: 1px 4px;
 }
@@ -587,9 +683,8 @@ textarea:focus {
 }
 
 .live-preview-editor .cm-active-source-line {
-  background: var(--surface-muted);
+  background: var(--active-line-bg);
   border-radius: 7px;
-  box-shadow: inset 3px 0 0 var(--primary);
   color: var(--text-strong);
   line-height: inherit;
   margin-left: -12px;
@@ -626,21 +721,21 @@ textarea:focus {
 }
 
 .live-preview-editor .cm-live-heading-1.cm-active-source-line {
-  padding: 0 12px 20px;
+  padding: 0 12px 14px;
 }
 
 .live-preview-editor .cm-live-heading-2.cm-active-source-line {
-  padding: 30px 12px 12px;
+  padding: 22px 12px 8px;
 }
 
 .live-preview-editor .cm-live-heading-3.cm-active-source-line {
-  padding: 22px 12px 8px;
+  padding: 16px 12px 6px;
 }
 
 .live-preview-editor .cm-live-heading-4.cm-active-source-line,
 .live-preview-editor .cm-live-heading-5.cm-active-source-line,
 .live-preview-editor .cm-live-heading-6.cm-active-source-line {
-  padding: 16px 12px 6px;
+  padding: 12px 12px 4px;
 }
 
 .live-preview-editor .cm-live-list-line.cm-active-source-line {
@@ -657,8 +752,7 @@ textarea:focus {
 
 .live-preview-editor .cm-live-table-source-line {
   color: var(--text-strong);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13.5px;
   line-height: 1.58;
 }
@@ -1270,8 +1364,7 @@ blockquote {
   background: transparent;
   color: var(--text);
   display: grid;
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11.5px;
   grid-template-columns: 16px minmax(0, 1fr);
   line-height: 1.45;

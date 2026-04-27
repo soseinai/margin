@@ -8,9 +8,11 @@
     insertNewlineAndIndent
   } from '@codemirror/commands';
   import { markdown } from '@codemirror/lang-markdown';
-  import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+  import { languages } from '@codemirror/language-data';
+  import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
   import { ChangeSet, EditorState, StateEffect, StateField, type Extension, type Line, type Range } from '@codemirror/state';
   import { Decoration, EditorView, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+  import { highlightCode, tags as t } from '@lezer/highlight';
   import { onMount, tick } from 'svelte';
   import { api } from './lib/api';
   import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
@@ -21,11 +23,13 @@
   let publishResult: PublishResponse | null = null;
   let editorMarkdown = '';
   let baseMarkdown = '';
+  let trackingBaseMarkdown = '';
   let pendingEditThreads: ThreadView[] = [];
   let selectedQuote = '';
   let commentBody = '';
   let replacementBody = '';
   let mode: 'comment' | 'suggest' = 'comment';
+  let editingMode: EditingMode = 'suggest';
   let error = '';
   let saving = false;
   let liveStatus = 'offline';
@@ -51,13 +55,34 @@
   let localFileName = '';
   let saveState: 'idle' | 'dirty' | 'saving' | 'saved' = 'idle';
   let saveMessage = '';
+  let cursorStatus = 'Line 1, Column 1';
   let reviewEvents: EventSource | null = null;
-  let unlistenNativeInsertMenu: (() => void) | null = null;
+  let unlistenNativeEditorMenus: (() => void) | null = null;
   const syncedEditKeys = new Set<string>();
 
   const reviewer = 'Aisha Fenton';
   const gutterCardGap = 14;
   const gutterReservedTop = 86;
+  const marginSyntaxHighlightStyle = HighlightStyle.define([
+    { tag: t.keyword, color: 'var(--syntax-keyword)', fontWeight: '650' },
+    { tag: [t.atom, t.bool, t.special(t.variableName)], color: 'var(--syntax-atom)' },
+    { tag: [t.number, t.integer, t.float], color: 'var(--syntax-number)' },
+    { tag: [t.string, t.character, t.regexp], color: 'var(--syntax-string)' },
+    { tag: [t.name, t.variableName, t.propertyName, t.attributeName, t.labelName], color: 'var(--syntax-name)' },
+    {
+      tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))],
+      color: 'var(--syntax-function)'
+    },
+    { tag: [t.typeName, t.className, t.namespace], color: 'var(--syntax-type)' },
+    {
+      tag: [t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.definitionOperator],
+      color: 'var(--syntax-operator)'
+    },
+    { tag: [t.punctuation, t.separator, t.bracket, t.squareBracket, t.paren, t.brace], color: 'var(--syntax-punctuation)' },
+    { tag: t.comment, color: 'var(--syntax-comment)', fontStyle: 'italic' },
+    { tag: [t.meta, t.processingInstruction, t.moduleKeyword, t.controlKeyword], color: 'var(--syntax-meta)' },
+    { tag: t.invalid, color: 'var(--error-text)' }
+  ]);
   const markdownFileTypes = [
     {
       description: 'Markdown documents',
@@ -92,6 +117,9 @@
 
   type SuggestionStatus = 'applied' | 'rejected' | 'resolved';
   type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
+  type EditingMode = 'edit' | 'suggest';
+  type MarkdownFormatKind = 'bold' | 'italic' | 'code' | 'link';
+  type NativeFileCommand = 'new' | 'open' | 'save' | 'save-as';
 
   type TauriEvent<T> = {
     payload: T;
@@ -190,12 +218,15 @@
     start: number;
     end: number;
     kind: 'line' | 'fenced-code' | 'list' | 'indented' | 'table';
+    fence?: FenceInfo;
     table?: MarkdownTable;
   };
 
   type FenceInfo = {
     marker: '`' | '~';
     length: number;
+    info: string;
+    language: string;
   };
 
   type ListInfo = {
@@ -363,6 +394,69 @@
     }
   }
 
+  class MarkdownCodeBlockWidget extends WidgetType {
+    code = '';
+    language = '';
+    label = '';
+    startLine = 1;
+
+    constructor(code: string, language: string, startLine: number) {
+      super();
+      this.code = code;
+      this.language = language;
+      this.label = codeLanguageLabel(language);
+      this.startLine = startLine;
+    }
+
+    eq(other: WidgetType) {
+      return (
+        other instanceof MarkdownCodeBlockWidget &&
+        other.code === this.code &&
+        other.language === this.language &&
+        other.startLine === this.startLine
+      );
+    }
+
+    toDOM(view: EditorView) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'markdown-code-widget';
+      wrapper.tabIndex = 0;
+      wrapper.setAttribute('role', 'button');
+      wrapper.setAttribute('aria-label', 'Edit Markdown code block');
+
+      if (this.label) {
+        const label = document.createElement('span');
+        label.className = 'markdown-code-language';
+        label.textContent = this.label;
+        wrapper.append(label);
+      }
+
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      pre.append(code);
+      wrapper.append(pre);
+      renderHighlightedCode(code, this.code, this.language);
+
+      const editBlock = (event: Event) => {
+        event.preventDefault();
+        const line = view.state.doc.line(Math.min(this.startLine + 1, view.state.doc.lines));
+        view.dispatch({ selection: { anchor: line.from } });
+        view.focus();
+      };
+
+      wrapper.addEventListener('mousedown', editBlock);
+      wrapper.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') editBlock(event);
+      });
+
+      return wrapper;
+    }
+
+    ignoreEvent() {
+      return false;
+    }
+  }
+
   class MarkdownTableWidget extends WidgetType {
     table: MarkdownTable;
     startLine = 1;
@@ -512,6 +606,8 @@
 
   $: threads = [...persistedThreads, ...pendingEditThreads].sort((a, b) => a.line - b.line);
   $: selectionReady = selectedQuote.trim().length > 0 && review;
+  $: wordCount = countWords(editorMarkdown);
+  $: document.title = `${localFileMode && saveState === 'dirty' ? '* ' : ''}${documentData?.file_path ?? 'Margin'} - Margin`;
   $: marginItems = layoutMarginItems(
     threads,
     selectedQuote,
@@ -540,6 +636,8 @@
         documentData = doc;
         editorMarkdown = doc.markdown;
         baseMarkdown = doc.markdown;
+        trackingBaseMarkdown = doc.markdown;
+        editingMode = 'suggest';
         documentSessionKey = `repo:${doc.id}:${doc.source_commit}`;
         draftChanges = ChangeSet.empty(doc.markdown.length);
         review = await api.createReview({
@@ -557,15 +655,19 @@
     }
 
     load();
-    setupNativeInsertMenuListener();
+    setupNativeEditorMenuListeners();
     window.addEventListener('resize', updateAnchorPositions);
     window.addEventListener('keydown', handleGlobalShortcut);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('drop', handleWindowDrop);
     return () => {
       window.removeEventListener('resize', updateAnchorPositions);
       window.removeEventListener('keydown', handleGlobalShortcut);
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      unlistenNativeInsertMenu?.();
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('drop', handleWindowDrop);
+      unlistenNativeEditorMenus?.();
       reviewEvents?.close();
     };
   });
@@ -589,16 +691,25 @@
       const tableBlock = blockForLine(tableBlocks, line.number);
 
       if (fencedBlock) {
-        const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
-        const classes = active
-          ? `cm-live-codeblock-line ${activeSourceClass(activeBlock, line.number)}`
-          : boundary
-            ? 'cm-live-code-fence-hidden-line'
-            : 'cm-live-codeblock-line';
+        if (active) {
+          ranges.push(
+            Decoration.line({
+              class: `cm-live-codeblock-line ${activeSourceClass(activeBlock, line.number)}`
+            }).range(line.from)
+          );
+          continue;
+        }
 
-        ranges.push(Decoration.line({ class: classes }).range(line.from));
-        if (!active && boundary && line.from < line.to) {
-          ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.to));
+        if (line.number === fencedBlock.start) {
+          const blockEnd = state.doc.line(fencedBlock.end);
+          const preview = codeBlockPreview(state, fencedBlock);
+          ranges.push(
+            Decoration.replace({
+              widget: new MarkdownCodeBlockWidget(preview.code, preview.language, fencedBlock.start),
+              block: true
+            }).range(line.from, blockEnd.to)
+          );
+          lineNumber = fencedBlock.end;
         }
         continue;
       }
@@ -847,7 +958,7 @@
 
       if (openFence) {
         if (isClosingFence(text, openFence.fence)) {
-          blocks.push({ start: openFence.line, end: lineNumber, kind: 'fenced-code' });
+          blocks.push({ start: openFence.line, end: lineNumber, kind: 'fenced-code', fence: openFence.fence });
           openFence = null;
         }
         continue;
@@ -857,25 +968,121 @@
       if (fence) openFence = { line: lineNumber, fence };
     }
 
-    if (openFence) {
-      blocks.push({ start: openFence.line, end: state.doc.lines, kind: 'fenced-code' });
-    }
-
     return blocks;
   }
 
   function openingFence(text: string): FenceInfo | null {
-    const match = /^\s*(`{3,}|~{3,})/.exec(text);
+    const match = /^\s*(`{3,}|~{3,})(.*)$/.exec(text);
     if (!match) return null;
 
     const marker = match[1][0] as '`' | '~';
-    return { marker, length: match[1].length };
+    const info = match[2].trim();
+    return { marker, length: match[1].length, info, language: codeLanguageFromInfo(info) };
   }
 
   function isClosingFence(text: string, fence: FenceInfo) {
     const trimmed = text.trim();
     if (!trimmed || trimmed[0] !== fence.marker || trimmed.length < fence.length) return false;
     return [...trimmed].every((character) => character === fence.marker);
+  }
+
+  function codeBlockPreview(state: EditorState, block: SourceBlock) {
+    const firstCodeLine = block.start + 1;
+    const lastCodeLine = block.end - 1;
+    if (firstCodeLine > lastCodeLine) {
+      return { code: '', language: block.fence?.language ?? '' };
+    }
+
+    return {
+      code: state.sliceDoc(state.doc.line(firstCodeLine).from, state.doc.line(lastCodeLine).to),
+      language: block.fence?.language ?? ''
+    };
+  }
+
+  function codeLanguageFromInfo(info: string) {
+    const token = info.split(/\s+/)[0] ?? '';
+    return token
+      .replace(/^\{?\.?/, '')
+      .replace(/[},].*$/, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function codeLanguageLabel(language: string) {
+    if (!language) return '';
+
+    const labels: Record<string, string> = {
+      bash: 'Bash',
+      css: 'CSS',
+      html: 'HTML',
+      js: 'JavaScript',
+      json: 'JSON',
+      jsx: 'JSX',
+      md: 'Markdown',
+      py: 'Python',
+      rs: 'Rust',
+      sh: 'Shell',
+      ts: 'TypeScript',
+      tsx: 'TSX',
+      yaml: 'YAML',
+      yml: 'YAML'
+    };
+    const description = codeLanguageDescription(language);
+
+    return labels[language] ?? description?.name ?? language[0].toUpperCase() + language.slice(1);
+  }
+
+  function codeLanguageDescription(language: string) {
+    if (!language) return null;
+    const normalized = language.toLowerCase();
+    return (
+      languages.find(
+        (description) =>
+          description.name.toLowerCase() === normalized ||
+          description.alias.includes(normalized) ||
+          description.extensions.includes(normalized)
+      ) ?? null
+    );
+  }
+
+  function renderHighlightedCode(element: HTMLElement, code: string, language: string) {
+    renderPlainCode(element, code);
+
+    const description = codeLanguageDescription(language);
+    if (!description) return;
+
+    description
+      .load()
+      .then((support) => {
+        if (!element.isConnected) return;
+
+        const tree = support.language.parser.parse(code);
+        element.replaceChildren();
+        highlightCode(
+          code,
+          tree,
+          marginSyntaxHighlightStyle,
+          (text, classes) => {
+            if (!classes) {
+              element.append(document.createTextNode(text));
+              return;
+            }
+
+            const span = document.createElement('span');
+            span.className = classes;
+            span.textContent = text;
+            element.append(span);
+          },
+          () => element.append(document.createTextNode('\n'))
+        );
+
+        if (!code) renderPlainCode(element, code);
+      })
+      .catch(() => renderPlainCode(element, code));
+  }
+
+  function renderPlainCode(element: HTMLElement, code: string) {
+    element.textContent = code || ' ';
   }
 
   function markdownTableBlocks(state: EditorState): SourceBlock[] {
@@ -1127,6 +1334,16 @@
       addMark(from + 1, to - 1, 'cm-live-italic');
       hide(to - 1, to);
     }
+
+    for (const match of text.matchAll(/(^|[\s(])\*([^*\n]+)\*/g)) {
+      const prefixLength = match[1].length;
+      const from = (match.index ?? 0) + prefixLength;
+      const to = from + match[0].length - prefixLength;
+      if (!claim(from, to)) continue;
+      hide(from, from + 1);
+      addMark(from + 1, to - 1, 'cm-live-italic');
+      hide(to - 1, to);
+    }
   }
 
   function threadRangeInState(state: EditorState, thread: ThreadView): ThreadRangeMatch | null {
@@ -1268,8 +1485,8 @@
     function livePreviewExtensions(): Extension[] {
       return [
         history(),
-        markdown(),
-        syntaxHighlighting(defaultHighlightStyle),
+        markdown({ codeLanguages: languages }),
+        syntaxHighlighting(marginSyntaxHighlightStyle, { fallback: true }),
         livePreviewField,
         keymap.of([
           {
@@ -1291,6 +1508,30 @@
             run() {
               openLocalMarkdown();
               return true;
+            }
+          },
+          {
+            key: 'Mod-b',
+            run() {
+              return applyMarkdownFormat('bold');
+            }
+          },
+          {
+            key: 'Mod-i',
+            run() {
+              return applyMarkdownFormat('italic');
+            }
+          },
+          {
+            key: 'Mod-`',
+            run() {
+              return applyMarkdownFormat('code');
+            }
+          },
+          {
+            key: 'Mod-k',
+            run() {
+              return applyMarkdownFormat('link');
             }
           },
           {
@@ -1317,20 +1558,19 @@
           if (update.selectionSet || update.focusChanged) updateSelectionFromEditor(update.view);
 
           if (update.docChanged) {
+            updateCursorStatus(update.view);
             editorMarkdown = update.state.doc.toString();
             if (localFileMode) {
               saveState = editorMarkdown === baseMarkdown ? 'saved' : 'dirty';
               saveMessage = editorMarkdown === baseMarkdown ? 'Saved' : 'Unsaved changes';
             }
             if (applyingExternalValue) {
-              draftChanges = ChangeSet.empty(editorMarkdown.length);
-              pendingEditThreads = [];
+              resetSuggestionTracking(editorMarkdown);
+            } else if (editingMode === 'edit') {
+              trackPlainEditBaseline(editorMarkdown);
             } else {
               draftChanges = composeDraftChanges(draftChanges, update);
-              pendingEditThreads = draftMarkdownSuggestions(draftChanges, baseMarkdown, editorMarkdown, persistedThreads, {
-                author: reviewer,
-                syncedKeys: syncedEditKeys
-              });
+              refreshDraftSuggestions();
             }
           }
 
@@ -1364,6 +1604,7 @@
   }
 
   function updateSelectionFromEditor(view: EditorView) {
+    updateCursorStatus(view);
     const selection = view.state.selection.main;
     if (selection.empty) {
       selectedQuote = '';
@@ -1388,6 +1629,20 @@
         Math.max(16, (fromRect.left + toRect.right) / 2 + window.scrollX - 92)
       )
     };
+  }
+
+  function updateCursorStatus(view: EditorView) {
+    const head = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(head);
+    cursorStatus = `Line ${line.number}, Column ${head - line.from + 1}`;
+  }
+
+  function countWords(markdown: string) {
+    const text = markdown
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`[^`\n]*`/g, ' ')
+      .replace(/[#>*_[\]()`~|:-]/g, ' ');
+    return text.match(/\b[\p{L}\p{N}][\p{L}\p{N}'-]*\b/gu)?.length ?? 0;
   }
 
   function updateAnchorPositions() {
@@ -1422,12 +1677,15 @@
 
   function composeDraftChanges(currentDraftChanges: ChangeSet, update: ViewUpdate) {
     const draftIsAligned =
-      currentDraftChanges.length === baseMarkdown.length &&
+      currentDraftChanges.length === trackingBaseMarkdown.length &&
       currentDraftChanges.newLength === update.startState.doc.length;
 
     if (!draftIsAligned) {
       const startDoc = update.startState.doc.toString();
-      return ChangeSet.of({ from: 0, to: baseMarkdown.length, insert: startDoc }, baseMarkdown.length).compose(
+      return ChangeSet.of(
+        { from: 0, to: trackingBaseMarkdown.length, insert: startDoc },
+        trackingBaseMarkdown.length
+      ).compose(
         update.changes
       );
     }
@@ -1435,11 +1693,60 @@
     return currentDraftChanges.compose(update.changes);
   }
 
+  function setEditingMode(nextMode: EditingMode) {
+    if (editingMode === nextMode) return;
+    editingMode = nextMode;
+    if (nextMode === 'edit' && mode === 'suggest') mode = 'comment';
+    resetSuggestionTracking(editorMarkdown);
+    requestAnimationFrame(updateAnchorPositions);
+  }
+
+  function trackPlainEditBaseline(markdown: string) {
+    trackingBaseMarkdown = markdown;
+    draftChanges = ChangeSet.empty(markdown.length);
+    pendingEditThreads = [];
+  }
+
+  function resetSuggestionTracking(markdown = editorMarkdown) {
+    trackingBaseMarkdown = markdown;
+    draftChanges = ChangeSet.empty(markdown.length);
+    pendingEditThreads = [];
+    syncedEditKeys.clear();
+  }
+
+  function refreshDraftSuggestions() {
+    if (editingMode !== 'suggest') {
+      pendingEditThreads = [];
+      return;
+    }
+
+    pendingEditThreads = draftMarkdownSuggestions(draftChanges, trackingBaseMarkdown, editorMarkdown, persistedThreads, {
+      author: reviewer,
+      syncedKeys: syncedEditKeys
+    });
+  }
+
   function smartMarkdownEnter(view: EditorView) {
     const selection = view.state.selection.main;
     if (!selection.empty) return insertNewlineAndIndent(view);
 
     const line = view.state.doc.lineAt(selection.head);
+    const autoClosedFence = autoClosedCodeFenceInsert(view.state, line, selection.head);
+    if (autoClosedFence) {
+      const indent = line.text.match(/^\s*/)?.[0] ?? '';
+      const closingFence = `${indent}${autoClosedFence.marker.repeat(autoClosedFence.length)}`;
+      const innerLine = `${indent}`;
+
+      view.dispatch({
+        changes: {
+          from: selection.head,
+          insert: `\n${innerLine}\n${closingFence}`
+        },
+        selection: { anchor: selection.head + 1 + innerLine.length }
+      });
+      return true;
+    }
+
     const list = /^(\s*)((?:[-*+]|\d+[.)]))(\s+)(.*)$/.exec(line.text);
     if (!list) return insertNewlineAndIndent(view);
 
@@ -1466,6 +1773,27 @@
       }
     });
     return true;
+  }
+
+  function autoClosedCodeFenceInsert(state: EditorState, line: Line, cursor: number): FenceInfo | null {
+    if (cursor !== line.to) return null;
+
+    const fence = openingFence(line.text);
+    if (!fence) return null;
+
+    const currentFenceBlock = blockForLine(fencedCodeBlocks(state), line.number);
+    if (currentFenceBlock?.end === line.number && currentFenceBlock.start !== line.number) return null;
+
+    if (matchingClosingFenceLine(state, line.number, fence)) return null;
+
+    return fence;
+  }
+
+  function matchingClosingFenceLine(state: EditorState, startLine: number, fence: FenceInfo) {
+    for (let lineNumber = startLine + 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+      if (isClosingFence(state.doc.line(lineNumber).text, fence)) return lineNumber;
+    }
+    return null;
   }
 
   function smartMarkdownBackspace(view: EditorView) {
@@ -1507,7 +1835,7 @@
   }
 
   async function syncEditorSuggestions() {
-    if (syncingEditorSuggestions || !review || pendingEditThreads.length === 0) return;
+    if (editingMode !== 'suggest' || syncingEditorSuggestions || !review || pendingEditThreads.length === 0) return;
     syncingEditorSuggestions = true;
 
     try {
@@ -1695,18 +2023,41 @@
     return value === 'table' || value === 'tasks' || value === 'bullets' || value === 'numbers';
   }
 
-  async function setupNativeInsertMenuListener() {
+  function isMarkdownFormatKind(value: unknown): value is MarkdownFormatKind {
+    return value === 'bold' || value === 'italic' || value === 'code' || value === 'link';
+  }
+
+  function isNativeFileCommand(value: unknown): value is NativeFileCommand {
+    return value === 'new' || value === 'open' || value === 'save' || value === 'save-as';
+  }
+
+  async function setupNativeEditorMenuListeners() {
     const listen = (window as TauriWindow).__TAURI__?.event?.listen;
     if (!listen) return;
 
     try {
-      unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
+      const unlistenInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
         if (isInsertBlockKind(event.payload)) {
           insertMarkdownBlock(event.payload);
         }
       });
+      const unlistenFormatMenu = await listen<MarkdownFormatKind>('margin://format-markdown', (event) => {
+        if (isMarkdownFormatKind(event.payload)) {
+          applyMarkdownFormat(event.payload);
+        }
+      });
+      const unlistenFileMenu = await listen<NativeFileCommand>('margin://file-command', (event) => {
+        if (isNativeFileCommand(event.payload)) {
+          runNativeFileCommand(event.payload);
+        }
+      });
+      unlistenNativeEditorMenus = () => {
+        unlistenInsertMenu();
+        unlistenFormatMenu();
+        unlistenFileMenu();
+      };
     } catch (err) {
-      console.warn('Unable to connect native Insert menu', err);
+      console.warn('Unable to connect native editor menus', err);
     }
   }
 
@@ -1738,6 +2089,88 @@
     mainEditor.focus();
   }
 
+  function applyMarkdownFormat(kind: MarkdownFormatKind) {
+    if (!mainEditor) return false;
+
+    if (kind === 'link') {
+      applyMarkdownLink(mainEditor);
+    } else {
+      const wrapper = kind === 'bold' ? '**' : kind === 'italic' ? '*' : '`';
+      wrapMarkdownSelection(mainEditor, wrapper, wrapper, kind);
+    }
+
+    mainEditor.focus();
+    return true;
+  }
+
+  function wrapMarkdownSelection(
+    view: EditorView,
+    open: string,
+    close: string,
+    placeholder: string
+  ) {
+    const selection = view.state.selection.main;
+    const doc = view.state.doc.toString();
+    const from = selection.from;
+    const to = selection.to;
+
+    if (!selection.empty) {
+      const selected = doc.slice(from, to);
+      const hasWrapping =
+        from >= open.length &&
+        doc.slice(from - open.length, from) === open &&
+        doc.slice(to, to + close.length) === close;
+
+      if (hasWrapping) {
+        view.dispatch({
+          changes: [
+            { from: from - open.length, to: from },
+            { from: to, to: to + close.length }
+          ],
+          selection: { anchor: from - open.length, head: to - open.length }
+        });
+        return;
+      }
+
+      view.dispatch({
+        changes: {
+          from,
+          to,
+          insert: `${open}${selected}${close}`
+        },
+        selection: { anchor: from + open.length, head: from + open.length + selected.length }
+      });
+      return;
+    }
+
+    const text = placeholder;
+    view.dispatch({
+      changes: {
+        from,
+        insert: `${open}${text}${close}`
+      },
+      selection: { anchor: from + open.length, head: from + open.length + text.length }
+    });
+  }
+
+  function applyMarkdownLink(view: EditorView) {
+    const selection = view.state.selection.main;
+    const selected = selection.empty ? 'text' : view.state.sliceDoc(selection.from, selection.to);
+    const replacement = `[${selected}](url)`;
+    const urlStart = selection.from + selected.length + 3;
+
+    view.dispatch({
+      changes: {
+        from: selection.from,
+        to: selection.to,
+        insert: replacement
+      },
+      selection: selection.empty
+        ? { anchor: selection.from + 1, head: selection.from + 1 + selected.length }
+        : { anchor: urlStart, head: urlStart + 3 }
+    });
+  }
+
   function insertionPrefix(doc: string, from: number) {
     const before = doc.slice(0, from);
     if (!before || before.endsWith('\n\n')) return '';
@@ -1753,7 +2186,57 @@
     return '\n\n';
   }
 
+  function runNativeFileCommand(command: NativeFileCommand) {
+    if (command === 'new') {
+      newLocalMarkdown();
+      return;
+    }
+    if (command === 'open') {
+      openLocalMarkdown();
+      return;
+    }
+    if (command === 'save-as') {
+      saveLocalMarkdownAs();
+      return;
+    }
+    saveLocalMarkdown();
+  }
+
+  async function newLocalMarkdown() {
+    if (!canReplaceCurrentDocument()) return;
+
+    const fileName = 'Untitled.md';
+    const markdown = '# Untitled\n';
+    reviewEvents?.close();
+    reviewEvents = null;
+    localFileMode = true;
+    editingMode = 'edit';
+    localFileHandle = null;
+    localFileName = fileName;
+    liveStatus = 'local';
+    saveState = 'dirty';
+    saveMessage = 'Unsaved new document';
+    documentSessionKey = `local:${Date.now()}:${fileName}`;
+    documentData = {
+      id: documentSessionKey,
+      repo: 'Local file',
+      file_path: fileName,
+      source_commit: 'standalone',
+      markdown
+    };
+    review = emptyLocalReview(fileName);
+    editorMarkdown = markdown;
+    baseMarkdown = '';
+    resetSuggestionTracking(markdown);
+    clearSelection();
+    await tick();
+    updateAnchorPositions();
+    mainEditor?.focus();
+  }
+
   async function openLocalMarkdown() {
+    if (!canReplaceCurrentDocument()) return;
+
     error = '';
     const picker = window as FilePickerWindow;
 
@@ -1781,6 +2264,7 @@
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
+    if (!canReplaceCurrentDocument()) return;
 
     try {
       await loadLocalMarkdownFile(file, null);
@@ -1796,6 +2280,7 @@
     reviewEvents?.close();
     reviewEvents = null;
     localFileMode = true;
+    editingMode = 'edit';
     localFileHandle = handle;
     localFileName = fileName;
     liveStatus = 'local';
@@ -1814,6 +2299,46 @@
     clearSelection();
     await tick();
     updateAnchorPositions();
+  }
+
+  function canReplaceCurrentDocument() {
+    if (!localFileMode || saveState !== 'dirty') return true;
+    return window.confirm('You have unsaved changes. Discard them and continue?');
+  }
+
+  function handleWindowDragOver(event: DragEvent) {
+    if (!firstMarkdownFile(event.dataTransfer?.files)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  }
+
+  async function handleWindowDrop(event: DragEvent) {
+    const file = firstMarkdownFile(event.dataTransfer?.files);
+    if (!file) return;
+
+    event.preventDefault();
+    if (!canReplaceCurrentDocument()) return;
+
+    try {
+      await loadLocalMarkdownFile(file, null);
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Unable to open dropped Markdown file';
+    }
+  }
+
+  function firstMarkdownFile(files: FileList | null | undefined) {
+    return Array.from(files ?? []).find(isMarkdownFile) ?? null;
+  }
+
+  function isMarkdownFile(file: File) {
+    const name = file.name.toLowerCase();
+    return (
+      name.endsWith('.md') ||
+      name.endsWith('.markdown') ||
+      name.endsWith('.txt') ||
+      file.type === 'text/markdown' ||
+      file.type === 'text/plain'
+    );
   }
 
   async function saveLocalMarkdown() {
@@ -1887,9 +2412,7 @@
   function resetDraftState(markdown: string) {
     editorMarkdown = markdown;
     baseMarkdown = markdown;
-    draftChanges = ChangeSet.empty(markdown.length);
-    pendingEditThreads = [];
-    syncedEditKeys.clear();
+    resetSuggestionTracking(markdown);
   }
 
   function downloadMarkdown(markdown: string, fileName: string) {
@@ -1922,14 +2445,27 @@
 
   function handleGlobalShortcut(event: KeyboardEvent) {
     const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+
+    if (mod && event.shiftKey && !event.altKey && key === 's') {
+      event.preventDefault();
+      saveLocalMarkdownAs();
+      return;
+    }
+
     if (!mod || event.altKey || event.shiftKey) return;
 
-    if (event.key.toLowerCase() === 's') {
+    if (key === 'n') {
+      event.preventDefault();
+      newLocalMarkdown();
+    }
+
+    if (key === 's') {
       event.preventDefault();
       saveLocalMarkdown();
     }
 
-    if (event.key.toLowerCase() === 'o') {
+    if (key === 'o') {
       event.preventDefault();
       openLocalMarkdown();
     }
@@ -2154,10 +2690,7 @@
       }
     });
     editorMarkdown = mainEditor.state.doc.toString();
-    pendingEditThreads = draftMarkdownSuggestions(draftChanges, baseMarkdown, editorMarkdown, persistedThreads, {
-      author: reviewer,
-      syncedKeys: syncedEditKeys
-    });
+    refreshDraftSuggestions();
   }
 
   function replaceEditorSelection(replacement: string) {
@@ -2244,6 +2777,24 @@
     <div class="doc-actions">
       <span class="presence-dot" class:online={liveStatus === 'live'}>{liveStatus}</span>
       <button class="ghost-button" on:click={openLocalMarkdown}>Open</button>
+      <div class="editing-mode-toggle" role="group" aria-label="Editing mode">
+        <button
+          type="button"
+          class:active={editingMode === 'edit'}
+          aria-pressed={editingMode === 'edit'}
+          on:click={() => setEditingMode('edit')}
+        >
+          Editing
+        </button>
+        <button
+          type="button"
+          class:active={editingMode === 'suggest'}
+          aria-pressed={editingMode === 'suggest'}
+          on:click={() => setEditingMode('suggest')}
+        >
+          Suggesting
+        </button>
+      </div>
       {#if localFileMode}
         <button class="ghost-button" on:click={saveLocalMarkdownAs} disabled={!documentData || saveState === 'saving'}>
           Save As
@@ -2252,7 +2803,6 @@
           {saveState === 'saving' ? 'Saving' : 'Save'}
         </button>
       {:else}
-        <button class="ghost-button">Suggesting</button>
         <button class="ghost-button" on:click={() => approve('approved')} disabled={!review}>Approve</button>
         <button class="primary" on:click={publish} disabled={!review || saving}>Publish</button>
       {/if}
@@ -2261,13 +2811,16 @@
 
   <div class="doc-toolbar" aria-label="Document tools">
     <span>Live Preview</span>
+    <span>{editingMode === 'suggest' ? 'Change tracking on' : 'Direct editing'}</span>
     <span>{localFileMode ? 'Standalone editor' : `Source commit ${documentData?.source_commit ?? '...'}`}</span>
+    <span>{cursorStatus}</span>
+    <span>{wordCount} words</span>
     {#if localFileMode}
       <span class:dirty-status={saveState === 'dirty'}>{saveMessage || 'Local file'}</span>
     {/if}
     <span>{review?.comments.length ?? 0} comments</span>
     <span>{review?.suggestions.length ?? 0} saved suggestions</span>
-    {#if pendingEditThreads.length > 0}
+    {#if editingMode === 'suggest' && pendingEditThreads.length > 0}
       <span>{pendingEditThreads.length} unsaved edit suggestions</span>
     {/if}
   </div>
@@ -2286,7 +2839,9 @@
       on:mousedown|preventDefault
     >
       <button class:active={mode === 'comment'} on:click={() => openComposer('comment')}>Comment</button>
-      <button class:active={mode === 'suggest'} on:click={() => openComposer('suggest')}>Suggest</button>
+      {#if editingMode === 'suggest'}
+        <button class:active={mode === 'suggest'} on:click={() => openComposer('suggest')}>Suggest</button>
+      {/if}
     </div>
   {/if}
 
@@ -2350,7 +2905,11 @@
         {#if threads.length === 0 && !selectedQuote}
           <section class="empty-thread">
             <strong>No comments yet</strong>
-            <p>Select text to comment, or type in the document to suggest an edit.</p>
+            <p>
+              {editingMode === 'suggest'
+                ? 'Select text to comment, or type in the document to suggest an edit.'
+                : 'Select text to comment. Switch to Suggesting to track edits.'}
+            </p>
           </section>
         {/if}
 
