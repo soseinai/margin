@@ -21,7 +21,14 @@
         "width": 1280,
         "height": 820,
         "minWidth": 980,
-        "minHeight": 680
+        "minHeight": 680,
+        "decorations": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 22,
+          "y": 22
+        }
       }
     ],
     "security": {
@@ -30,6 +37,24 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": ["app"],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "txt"],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/markdown",
+        "contentTypes": ["net.daringfireball.markdown", "public.plain-text"]
+      }
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["margin"]
+      }
+    }
   }
 }

@@ -11,12 +11,8 @@ setup:
 # Print local dev commands.
 dev:
     @echo "Run these in separate terminals:"
-    @echo "  just dev-api"
+    @echo "  just dev-desktop"
     @echo "  just dev-web"
-
-# Start the Rust API on http://127.0.0.1:4317.
-dev-api:
-    cargo run -p margin-api
 
 # Start the Svelte web app on http://127.0.0.1:5173.
 dev-web:
@@ -26,10 +22,14 @@ dev-web:
 dev-desktop:
     npm run dev:desktop
 
+# Build the desktop app bundle and launch it locally.
+run: build-desktop
+    open target/release/bundle/macos/Margin.app
+
 # Run all standard checks.
 check: check-rust check-web
 
-# Typecheck/compile the Rust workspace.
+# Typecheck/compile the Rust desktop workspace.
 check-rust:
     cargo check --workspace
 
@@ -48,16 +48,8 @@ test-rust:
 test-web:
     npm run test:web
 
-# Build the API and web app for local deploy.
-build: build-api build-web
-
-# Build the Rust API in debug mode.
-build-api:
-    cargo build -p margin-api
-
-# Build the Rust API in release mode.
-build-api-release:
-    cargo build -p margin-api --release
+# Build the web app for local deploy.
+build: build-web
 
 # Build the Svelte web app.
 build-web:
@@ -67,16 +59,16 @@ build-web:
 build-desktop:
     npm run build:desktop
 
+# Package the desktop app as an unsigned macOS .app bundle.
+package-mac-app:
+    npm run package:mac:app
+
+# Package the desktop app as an unsigned macOS DMG.
+package-mac-dmg:
+    npm run package:mac:dmg
+
 # Build every distributable target.
 build-all: build build-desktop
-
-# Generate TypeScript API types from the running API OpenAPI endpoint.
-api-types:
-    npm run generate:api
-
-# Run SQLx migrations against DATABASE_URL.
-db-migrate:
-    sqlx migrate run --source backend/migrations
 
 # Deploy target. Supported today: local.
 deploy target="local":
@@ -98,9 +90,8 @@ deploy target="local":
     esac
 
 # Produce local deployment artifacts.
-deploy-local: build-web build-api-release
+deploy-local: build-web
     @echo "Local deploy artifacts are ready:"
-    @echo "  API binary: target/release/margin-api"
     @echo "  Web assets: apps/web/dist"
 
 # Remove generated build artifacts.

@@ -1,4 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#2c6e49"/>
-  <path d="M17 46V18h8l7 15 7-15h8v28h-7V29l-6 13h-4l-6-13v17z" fill="#fff"/>
+  <style>
+    :root {
+      --paper: #f5f2ec;
+      --ink: #111111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #151515;
+        --ink: #f1efe8;
+      }
+    }
+  </style>
+  <rect x="4" y="4" width="56" height="56" rx="4" fill="var(--paper)"/>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="3.5" fill="none" stroke="var(--ink)"/>
+  <path d="M16 47V17h8l8 16 8-16h8v30h-6V27L34 43h-4l-8-16v20h-6z" fill="var(--ink)"/>
+  <path d="M12 12v40" stroke="var(--ink)" stroke-width="1.5"/>
 </svg>
