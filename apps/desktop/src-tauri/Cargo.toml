@@ -18,5 +18,6 @@ tauri.workspace = true
 tauri-plugin-deep-link = "2"
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
+notify = "8"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 rfd = "0.15"

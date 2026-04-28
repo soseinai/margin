@@ -770,6 +770,44 @@ textarea:not([data-slot]):focus {
   padding: 10px 32px;
 }
 
+.external-change-alert {
+  align-items: center;
+  background: color-mix(in srgb, var(--suggestion-bg) 74%, var(--paper-sunk));
+  border-bottom: 1px solid color-mix(in srgb, var(--suggestion-border) 72%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--suggestion-border) 72%, transparent);
+  color: var(--fg-2);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 10px 32px;
+}
+
+.external-change-alert > div:first-child {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.external-change-alert strong {
+  color: var(--suggestion-label);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.external-change-alert span {
+  color: var(--fg-3);
+  font-size: 13px;
+}
+
+.external-change-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 [data-slot="dialog-overlay"] {
   background: color-mix(in srgb, var(--paper-sunk) 76%, transparent);
   border: 0;
@@ -1171,6 +1209,27 @@ textarea:not([data-slot]):focus {
   top: 1px;
   transform: rotate(40deg);
   width: 4px;
+}
+
+.markdown-horizontal-rule-widget {
+  align-items: center;
+  cursor: text;
+  display: flex;
+  min-height: 42px;
+  padding: 8px 0 20px;
+}
+
+.markdown-horizontal-rule-widget::before {
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  content: "";
+  display: block;
+  height: 1px;
+  width: 100%;
+}
+
+.markdown-horizontal-rule-widget:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  outline-offset: 2px;
 }
 
 .live-preview-editor .cm-task-checked {

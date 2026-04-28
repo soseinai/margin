@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -7,6 +8,8 @@ use std::{
         Mutex,
     },
 };
+#[cfg(not(target_os = "ios"))]
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 #[cfg(not(target_os = "ios"))]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -28,6 +31,13 @@ struct NativeMarkdownDocument {
     path: String,
     name: String,
     markdown: String,
+}
+
+#[cfg(not(target_os = "ios"))]
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct NativeMarkdownDocumentChange {
+    path: String,
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -56,6 +66,12 @@ impl Default for AppSettings {
 struct NativeOpenState {
     frontend_ready: AtomicBool,
     pending_urls: Mutex<Vec<String>>,
+}
+
+#[cfg(not(target_os = "ios"))]
+#[derive(Default)]
+struct WatchedDocumentState {
+    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
 
 #[tauri::command]
@@ -90,6 +106,68 @@ fn choose_markdown_document() -> Result<Option<NativeMarkdownDocument>, String> 
 #[tauri::command]
 fn open_markdown_document(path: String) -> Result<NativeMarkdownDocument, String> {
     read_markdown_document_from_path(&PathBuf::from(path))
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+fn watch_markdown_document(
+    app: AppHandle,
+    state: State<WatchedDocumentState>,
+    path: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|err| format!("Unable to watch document: {err}"))?;
+
+    ensure_markdown_path(&path)?;
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Unable to watch document without a parent directory".to_string())?
+        .to_path_buf();
+    let key = path.to_string_lossy().to_string();
+    let mut watchers = state
+        .watchers
+        .lock()
+        .expect("watched document state poisoned");
+
+    if watchers.contains_key(&key) {
+        return Ok(());
+    }
+
+    let watched_path = path.clone();
+    let watched_path_string = key.clone();
+    let app_handle = app.clone();
+    let mut watcher = RecommendedWatcher::new(
+        move |result: notify::Result<Event>| match result {
+            Ok(event) => {
+                if should_emit_document_change(&event, &watched_path) {
+                    let _ = app_handle.emit(
+                        "margin://document-changed",
+                        NativeMarkdownDocumentChange {
+                            path: watched_path_string.clone(),
+                        },
+                    );
+                }
+            }
+            Err(err) => eprintln!("Unable to watch Markdown document: {err}"),
+        },
+        Config::default(),
+    )
+    .map_err(|err| format!("Unable to watch {}: {err}", display_name(&path)))?;
+
+    watcher
+        .watch(&parent, RecursiveMode::NonRecursive)
+        .map_err(|err| format!("Unable to watch {}: {err}", display_name(&path)))?;
+    watchers.insert(key, watcher);
+
+    Ok(())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn watch_markdown_document(_path: String) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -273,6 +351,16 @@ fn read_markdown_document_from_path(path: &Path) -> Result<NativeMarkdownDocumen
     Ok(markdown_document_payload(path, markdown))
 }
 
+#[cfg(not(target_os = "ios"))]
+fn should_emit_document_change(event: &Event, watched_path: &Path) -> bool {
+    let relevant_kind = matches!(
+        &event.kind,
+        EventKind::Any | EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    );
+
+    relevant_kind && event.paths.iter().any(|path| path == watched_path)
+}
+
 fn markdown_document_payload(path: &Path, markdown: String) -> NativeMarkdownDocument {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
@@ -431,6 +519,9 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(NativeOpenState::default())
         .plugin(tauri_plugin_deep_link::init());
+
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder.manage(WatchedDocumentState::default());
 
     #[cfg(not(target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -646,6 +737,7 @@ pub fn run() {
             take_pending_open_urls,
             choose_markdown_document,
             open_markdown_document,
+            watch_markdown_document,
             choose_markdown_save_path,
             save_markdown_document,
             read_settings,

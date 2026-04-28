@@ -90,8 +90,11 @@
 	let localFileName = '';
 	let localMetadataDirty = false;
 	let nativeFilePath = '';
+	let lastPersistedSerializedMarkdown = '';
+	let externalChange: ExternalDocumentChange | null = null;
 	let saveState: SaveState = 'idle';
 	let saveMessage = '';
+	let fileChangeCheckInFlight = false;
 	let unlistenNativeInsertMenu: (() => void) | null = null;
 	let unlistenNativeNewMenu: (() => void) | null = null;
 	let unlistenNativeOpenUrls: (() => void) | null = null;
@@ -104,6 +107,7 @@
 	let unlistenNativePreviousTabMenu: (() => void) | null = null;
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
 	let unlistenNativeSettingsMenu: (() => void) | null = null;
+	let unlistenNativeDocumentChanged: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
 	let tauriShell = false;
 	let desktopShell = false;
@@ -162,7 +166,7 @@
 	type EditingMode = 'edit' | 'suggest';
 	type ThemeSetting = 'auto' | 'light' | 'dark';
 	type AppSettings = { theme: ThemeSetting };
-	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved';
+	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type TauriEvent<T> = { payload: T };
 	type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -207,6 +211,8 @@
 
 	type NativeMarkdownDocument = { path: string; name: string; markdown: string };
 	type RecentDocument = { path: string; title: string; openedAt: number };
+	type ExternalDocumentChange = NativeMarkdownDocument & { detectedAt: number };
+	type NativeMarkdownDocumentChange = { path: string };
 
 	type FilePickerWindow =
 		Window &
@@ -262,6 +268,8 @@
 		localFileName: string;
 		localMetadataDirty: boolean;
 		nativeFilePath: string;
+		lastPersistedSerializedMarkdown: string;
+		externalChange: ExternalDocumentChange | null;
 		saveState: SaveState;
 		saveMessage: string;
 		documentSessionKey: string;
@@ -458,6 +466,49 @@
 			});
 
 			return button;
+		}
+
+		ignoreEvent() {
+			return false;
+		}
+	}
+
+	class HorizontalRuleWidget extends WidgetType {
+		lineNumber = 1;
+
+		constructor(lineNumber: number) {
+			super();
+			this.lineNumber = lineNumber;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof HorizontalRuleWidget && other.lineNumber === this.lineNumber;
+		}
+
+		toDOM(view: EditorView) {
+			const rule = document.createElement('div');
+
+			rule.className = 'markdown-horizontal-rule-widget';
+			rule.tabIndex = 0;
+			rule.setAttribute('role', 'separator');
+			rule.setAttribute('aria-label', 'Edit horizontal rule');
+
+			const editRule = (event: Event) => {
+				event.preventDefault();
+
+				const line = view.state.doc.line(Math.min(this.lineNumber, view.state.doc.lines));
+
+				view.dispatch({ selection: { anchor: line.from } });
+				view.focus();
+			};
+
+			rule.addEventListener('mousedown', editRule);
+
+			rule.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter') editRule(event);
+			});
+
+			return rule;
 		}
 
 		ignoreEvent() {
@@ -682,6 +733,7 @@
 			unlistenNativePreviousTabMenu?.();
 			unlistenNativeNextTabMenu?.();
 			unlistenNativeSettingsMenu?.();
+			unlistenNativeDocumentChanged?.();
 			unlistenNativeDragDrop?.();
 			nativeMenuBridgeReady = false;
 		};
@@ -734,6 +786,8 @@
 			localFileName,
 			localMetadataDirty,
 			nativeFilePath,
+			lastPersistedSerializedMarkdown,
+			externalChange,
 			saveState,
 			saveMessage,
 			documentSessionKey,
@@ -818,7 +872,7 @@
 	}
 
 	function tabHasDiscardableWork(tab: DocumentTab) {
-		return tab.saveState === 'dirty' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.review?.comments.length ?? 0) + (tab.review?.suggestions.length ?? 0));
+		return tab.saveState === 'dirty' || tab.saveState === 'conflict' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.review?.comments.length ?? 0) + (tab.review?.suggestions.length ?? 0));
 	}
 
 	async function applyDocumentTab(nextTab: DocumentTab) {
@@ -836,6 +890,8 @@
 		localFileName = nextTab.localFileName;
 		localMetadataDirty = nextTab.localMetadataDirty;
 		nativeFilePath = nextTab.nativeFilePath;
+		lastPersistedSerializedMarkdown = nextTab.lastPersistedSerializedMarkdown;
+		externalChange = nextTab.externalChange;
 		saveState = nextTab.saveState;
 		saveMessage = nextTab.saveMessage;
 		documentSessionKey = nextTab.documentSessionKey;
@@ -912,6 +968,19 @@
 			}
 
 			const heading = (/^(#{1,6})(\s+)(.*)/).exec(text);
+
+			if (isHorizontalRuleLine(text)) {
+				if (active) {
+					ranges.push(Decoration.line({ class: activeSourceClass(activeBlock, line.number) }).range(line.from));
+				} else {
+					ranges.push(Decoration.replace({
+						widget: new HorizontalRuleWidget(line.number),
+						block: true
+					}).range(line.from, line.to));
+				}
+
+				continue;
+			}
 
 			if (heading) {
 				ranges.push(Decoration.line({
@@ -1118,6 +1187,10 @@
 		}
 
 		return blocks;
+	}
+
+	function isHorizontalRuleLine(text: string) {
+		return (/^[ \t]{0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/).test(text);
 	}
 
 	function openingFence(text: string): FenceInfo | null {
@@ -2081,6 +2154,10 @@
 				handleNativeOpenUrls(event.payload);
 			});
 
+			unlistenNativeDocumentChanged = await listen<NativeMarkdownDocumentChange>('margin://document-changed', (event) => {
+				handleNativeDocumentChanged(event.payload);
+			});
+
 			unlistenNativeOpenMenu = await listen('margin://open-document', () => {
 				openLocalMarkdown();
 			});
@@ -2515,6 +2592,8 @@
 		localFileName = fileName;
 		localMetadataDirty = false;
 		nativeFilePath = '';
+		lastPersistedSerializedMarkdown = '';
+		externalChange = null;
 		saveState = 'idle';
 		saveMessage = 'Unsaved document';
 		documentSessionKey = nextDocumentSessionKey;
@@ -2614,7 +2693,6 @@
 
 	async function loadNativeMarkdownDocument(nativeDocument: NativeMarkdownDocument) {
 		const fileName = nativeDocument.name || fileNameFromPath(nativeDocument.path);
-		const splitDocument = splitMarginCommentBlock(nativeDocument.markdown);
 
 		syncActiveDocumentTab();
 
@@ -2634,22 +2712,46 @@
 		localFileName = fileName;
 		localMetadataDirty = false;
 		nativeFilePath = nativeDocument.path;
-		saveState = 'saved';
-		saveMessage = 'Saved';
 		documentSessionKey = nextDocumentSessionKey;
 		activeDocumentTabId = nextDocumentSessionKey;
-		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
-		review = localReviewFromEmbeddedBlock(fileName, splitDocument.comments);
-		resetDraftState(splitDocument.markdown);
-		clearSelection();
+		hydrateNativeDocumentState(nativeDocument, 'Saved');
 		addRecentDocument(nativeDocument);
+		watchNativeMarkdownDocument(nativeDocument.path);
 		syncActiveDocumentTab();
 		await tick();
 		updateAnchorPositions();
 	}
 
+	function hydrateNativeDocumentState(
+		nativeDocument: NativeMarkdownDocument,
+		message = 'Saved',
+		options: { forceEditorReload?: boolean } = {}
+	) {
+		const fileName = nativeDocument.name || fileNameFromPath(nativeDocument.path);
+		const splitDocument = splitMarginCommentBlock(nativeDocument.markdown);
+
+		if (options.forceEditorReload) {
+			documentSessionKey = `${activeDocumentTabId || documentSessionKey}:reload:${Date.now()}`;
+		}
+
+		localFileMode = true;
+		localFileHandle = null;
+		localFileName = fileName;
+		localMetadataDirty = false;
+		nativeFilePath = nativeDocument.path;
+		lastPersistedSerializedMarkdown = nativeDocument.markdown;
+		externalChange = null;
+		saveState = 'saved';
+		saveMessage = message;
+		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
+		review = localReviewFromEmbeddedBlock(fileName, splitDocument.comments);
+		resetDraftState(splitDocument.markdown);
+		clearSelection();
+	}
+
 	async function loadLocalMarkdownFile(file: File, handle: MarkdownFileHandle | null) {
-		const splitDocument = splitMarginCommentBlock(await file.text());
+		const serializedMarkdown = await file.text();
+		const splitDocument = splitMarginCommentBlock(serializedMarkdown);
 		const fileName = handle?.name || file.name || 'Untitled.md';
 		const nextDocumentSessionKey = `local:${Date.now()}:${fileName}`;
 
@@ -2659,6 +2761,8 @@
 		localFileName = fileName;
 		localMetadataDirty = false;
 		nativeFilePath = '';
+		lastPersistedSerializedMarkdown = serializedMarkdown;
+		externalChange = null;
 		saveState = 'saved';
 		saveMessage = handle?.createWritable ? 'Saved' : 'Opened read-only; use Save As';
 		documentSessionKey = nextDocumentSessionKey;
@@ -2694,11 +2798,23 @@
 		const snapshot = persistenceSnapshot();
 
 		try {
+			const file = await localFileHandle.getFile();
+			const latestSerializedMarkdown = await file.text();
+
+			if (lastPersistedSerializedMarkdown && latestSerializedMarkdown !== lastPersistedSerializedMarkdown) {
+				saveState = 'conflict';
+				saveMessage = 'Changed on disk';
+				error = 'This file changed outside Margin. Reopen it or use Save As to keep both versions.';
+				syncActiveDocumentTab();
+
+				return;
+			}
+
 			const writable = await localFileHandle.createWritable();
 
 			await writable.write(snapshot.serializedMarkdown);
 			await writable.close();
-			markLocalFileSaved(snapshot.markdown, localFileHandle.name, 'Saved', snapshot.review);
+			markLocalFileSaved(snapshot.markdown, localFileHandle.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
 		} catch(err) {
 			if (isAbortError(err)) return;
 
@@ -2756,7 +2872,7 @@
 					await writable.close();
 					localFileMode = true;
 					localFileHandle = handle;
-					markLocalFileSaved(snapshot.markdown, handle.name, 'Saved', snapshot.review);
+					markLocalFileSaved(snapshot.markdown, handle.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
 				} catch(err) {
 					if (isAbortError(err)) return;
 
@@ -2772,7 +2888,7 @@
 
 			downloadMarkdown(snapshot.serializedMarkdown, localFileName || documentData.file_path || 'document.md');
 			localFileMode = true;
-			markLocalFileSaved(snapshot.markdown, localFileName || documentData.file_path || 'document.md', 'Downloaded copy', snapshot.review);
+			markLocalFileSaved(snapshot.markdown, localFileName || documentData.file_path || 'document.md', 'Downloaded copy', snapshot.review, snapshot.serializedMarkdown);
 		} finally {
 			saveDialogOpen = false;
 		}
@@ -2786,6 +2902,19 @@
 		error = '';
 
 		const snapshot = persistenceSnapshot();
+
+		const conflictingDocument = await changedNativeDocumentBeforeSave(path);
+
+		if (conflictingDocument) {
+			externalChange = { ...conflictingDocument, detectedAt: Date.now() };
+			saveState = 'conflict';
+			saveMessage = 'Changed on disk';
+			error = 'This file changed outside Margin. Reload it or use Save As to keep both versions.';
+			syncActiveDocumentTab();
+
+			return;
+		}
+
 		const request = tauriInvoke<NativeMarkdownDocument>('save_markdown_document', { path, markdown: snapshot.serializedMarkdown });
 
 		if (!request) {
@@ -2801,8 +2930,9 @@
 			localFileHandle = null;
 			nativeFilePath = document.path;
 			localFileName = document.name;
-			markLocalFileSaved(snapshot.markdown, document.name, 'Saved', snapshot.review);
+			markLocalFileSaved(snapshot.markdown, document.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
 			addRecentDocument(document);
+			watchNativeMarkdownDocument(document.path);
 		} catch(err) {
 			saveState = 'dirty';
 			saveMessage = 'Save failed';
@@ -2810,15 +2940,115 @@
 		}
 	}
 
+	async function changedNativeDocumentBeforeSave(path: string) {
+		if (!desktopShell || !nativeFilePath || path !== nativeFilePath || !lastPersistedSerializedMarkdown) {
+			return null;
+		}
+
+		const request = tauriInvoke<NativeMarkdownDocument>('open_markdown_document', { path });
+
+		if (!request) return null;
+
+		let document: NativeMarkdownDocument;
+
+		try {
+			document = await request;
+		} catch(err) {
+			console.warn('Unable to check native document before save', err);
+
+			return null;
+		}
+
+		return document.markdown === lastPersistedSerializedMarkdown ? null : document;
+	}
+
+	function watchNativeMarkdownDocument(path: string) {
+		if (!desktopShell || !path) return;
+
+		const request = tauriInvoke<void>('watch_markdown_document', { path });
+
+		if (!request) return;
+
+		request.catch((err) => {
+			console.warn('Unable to watch native document', err);
+		});
+	}
+
+	async function handleNativeDocumentChanged(change: NativeMarkdownDocumentChange) {
+		if (!desktopShell || !change.path || change.path !== nativeFilePath || saveState === 'saving' || fileChangeCheckInFlight) return;
+		if (!lastPersistedSerializedMarkdown) return;
+
+		fileChangeCheckInFlight = true;
+
+		const path = change.path;
+		const request = tauriInvoke<NativeMarkdownDocument>('open_markdown_document', { path });
+
+		if (!request) {
+			fileChangeCheckInFlight = false;
+
+			return;
+		}
+
+		try {
+			const document = await request;
+
+			if (path !== nativeFilePath) return;
+			if (document.markdown === lastPersistedSerializedMarkdown) return;
+			if (externalChange?.path === document.path && externalChange.markdown === document.markdown) return;
+
+			if (!hasUnsavedLocalChanges()) {
+				hydrateNativeDocumentState(document, 'Reloaded from disk', { forceEditorReload: true });
+				addRecentDocument(document);
+				syncActiveDocumentTab();
+				await tick();
+				updateAnchorPositions();
+
+				return;
+			}
+
+			externalChange = { ...document, detectedAt: Date.now() };
+			saveState = 'conflict';
+			saveMessage = 'Changed on disk';
+			syncActiveDocumentTab();
+		} catch(err) {
+			console.warn('Unable to check for external document changes', err);
+		} finally {
+			fileChangeCheckInFlight = false;
+		}
+	}
+
+	function hasUnsavedLocalChanges(markdown = activeEditorMarkdown()) {
+		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0 || commentBody.trim().length > 0 || replacementBody.trim().length > 0;
+	}
+
+	async function reloadExternalChange() {
+		if (!externalChange) return;
+
+		if (hasUnsavedLocalChanges() && !window.confirm('Reload this file from disk? Unsaved Margin edits in this tab will be discarded.')) {
+			return;
+		}
+
+		const document = externalChange;
+
+		hydrateNativeDocumentState(document, 'Reloaded from disk', { forceEditorReload: true });
+		addRecentDocument(document);
+		syncActiveDocumentTab();
+		await tick();
+		updateAnchorPositions();
+	}
+
 	function markLocalFileSaved(
 		markdown: string,
 		fileName: string,
 		message = 'Saved',
-		savedReview = reviewForPersistence()
+		savedReview = reviewForPersistence(),
+		serializedMarkdown = appendMarginCommentBlock(markdown, marginCommentBlockFromReview(savedReview))
 	) {
 		localFileName = fileName;
 		review = savedReview;
 		localMetadataDirty = false;
+		lastPersistedSerializedMarkdown = serializedMarkdown;
+		externalChange = null;
 		saveState = 'saved';
 		saveMessage = message;
 
@@ -2834,13 +3064,20 @@
 		if (!localFileMode) return;
 
 		localMetadataDirty = true;
-		saveState = 'dirty';
-		saveMessage = message;
+		saveState = externalChange ? 'conflict' : 'dirty';
+		saveMessage = externalChange ? 'Changed on disk' : message;
 		syncActiveDocumentTab();
 	}
 
 	function refreshLocalSaveState(markdown = activeEditorMarkdown()) {
 		const dirty = markdown !== baseMarkdown || localMetadataDirty;
+
+		if (externalChange) {
+			saveState = 'conflict';
+			saveMessage = 'Changed on disk';
+
+			return;
+		}
 
 		saveState = dirty ? 'dirty' : 'saved';
 		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
@@ -3050,7 +3287,7 @@
 	function handleBeforeUnload(event: BeforeUnloadEvent) {
 		syncActiveDocumentTab();
 
-		const hasDirtyLocalTab = documentTabs.some((tab) => tab.localFileMode && tab.saveState === 'dirty');
+		const hasDirtyLocalTab = documentTabs.some((tab) => tab.localFileMode && (tab.saveState === 'dirty' || tab.saveState === 'conflict'));
 
 		if (!hasDirtyLocalTab) return;
 
@@ -3514,7 +3751,7 @@
 
 			<span>Live Preview</span>
 			<span>Standalone editor</span>
-			<span class:dirty-status={saveState === 'dirty'}>{saveMessage || 'Local file'}</span>
+			<span class:dirty-status={saveState === 'dirty' || saveState === 'conflict'}>{saveMessage || 'Local file'}</span>
 			<span>{countLabel(review?.comments.length ?? 0, 'comment')}</span>
 			<span>{countLabel(review?.suggestions.length ?? 0, 'saved suggestion')}</span>
 
@@ -3525,6 +3762,33 @@
 
 	{#if error}
 		<p class="error">{error}</p>
+	{/if}
+
+	{#if externalChange}
+		<section class="external-change-alert" aria-live="polite">
+			<div>
+				<strong>Changed on disk</strong>
+				<span>{externalChange.name || fileNameFromPath(externalChange.path)} changed outside Margin.</span>
+			</div>
+
+			<div class="external-change-actions">
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={reloadExternalChange}
+				>
+					Reload
+				</Button>
+
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={saveLocalMarkdownAs}
+				>
+					Save As
+				</Button>
+			</div>
+		</section>
 	{/if}
 
 	{#if selectionToolbar.visible && selectedQuote}
