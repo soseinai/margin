@@ -962,15 +962,16 @@
 		focusedThreadId: string
 	) {
 		const ranges: Range<Decoration>[] = [];
-		const activeLineNumber = state.doc.lineAt(state.selection.main.head).number;
 		const fencedBlocks = fencedCodeBlocks(state);
 		const tableBlocks = markdownTableBlocks(state);
-		const activeBlock = sourceBlockForLine(state, activeLineNumber, fencedBlocks, tableBlocks);
+		const activeBlocks = activeSourceBlocksForSelection(state, fencedBlocks, tableBlocks);
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const line = state.doc.line(lineNumber);
 			const text = line.text;
-			const active = lineInBlock(line.number, activeBlock);
+			const activeBlock = blockForLine(activeBlocks, line.number);
+			const active = Boolean(activeBlock);
+			const activeClass = activeBlock ? activeSourceClass(activeBlock, line.number) : '';
 			const fencedBlock = blockForLine(fencedBlocks, line.number);
 			const tableBlock = blockForLine(tableBlocks, line.number);
 
@@ -979,7 +980,7 @@
 				const emptyCodeBlock = fencedBlock.end === fencedBlock.start + 1;
 
 				const classes = active
-					? `cm-live-codeblock-line ${activeSourceClass(activeBlock, line.number)}`
+					? `cm-live-codeblock-line ${activeClass}`
 					: boundary
 						? `cm-live-code-fence-hidden-line${emptyCodeBlock && line.number === fencedBlock.start
 							? ' cm-live-code-fence-empty-start'
@@ -1005,7 +1006,7 @@
 			if (tableBlock?.table) {
 				if (active) {
 					ranges.push(Decoration.line({
-						class: `cm-live-table-source-line ${activeSourceClass(activeBlock, line.number)}`
+						class: `cm-live-table-source-line ${activeClass}`
 					}).range(line.from));
 
 					continue;
@@ -1029,7 +1030,7 @@
 
 			if (isHorizontalRuleLine(text)) {
 				if (active) {
-					ranges.push(Decoration.line({ class: activeSourceClass(activeBlock, line.number) }).range(line.from));
+					ranges.push(Decoration.line({ class: activeClass }).range(line.from));
 				} else {
 					ranges.push(Decoration.replace({
 						widget: new HorizontalRuleWidget(line.number),
@@ -1043,7 +1044,7 @@
 			if (heading) {
 				ranges.push(Decoration.line({
 					class: `cm-live-heading cm-live-heading-${heading[1].length}${active
-						? ` ${activeSourceClass(activeBlock, line.number)}`
+						? ` ${activeClass}`
 						: ''}`
 				}).range(line.from));
 
@@ -1072,7 +1073,7 @@
 
 				ranges.push(Decoration.line({
 					class: `cm-live-list-line cm-live-task-line ${checked ? 'cm-task-checked' : 'cm-task-open'}${active
-						? ` ${activeSourceClass(activeBlock, line.number)}`
+						? ` ${activeClass}`
 						: ''}`
 				}).range(line.from));
 
@@ -1100,7 +1101,7 @@
 
 				ranges.push(Decoration.line({
 					class: `cm-live-list-line${active
-						? ` ${activeSourceClass(activeBlock, line.number)}`
+						? ` ${activeClass}`
 						: ''}`
 				}).range(line.from));
 
@@ -1117,7 +1118,7 @@
 			}
 
 			if (active) {
-				ranges.push(Decoration.line({ class: activeSourceClass(activeBlock, line.number) }).range(line.from));
+				ranges.push(Decoration.line({ class: activeClass }).range(line.from));
 			} else {
 				addInlineMarkdownPreview(ranges, line);
 			}
@@ -1170,6 +1171,37 @@
 		}
 
 		return Decoration.set(ranges, true);
+	}
+
+	function activeSourceBlocksForSelection(
+		state: EditorState,
+		fencedBlocks: SourceBlock[],
+		tableBlocks: SourceBlock[]
+	) {
+		const blocks: SourceBlock[] = [];
+
+		for (const range of state.selection.ranges) {
+			const from = range.from;
+			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
+			const startLine = state.doc.lineAt(from).number;
+			const endLine = state.doc.lineAt(endPosition).number;
+
+			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+				const block = sourceBlockForLine(state, lineNumber, fencedBlocks, tableBlocks);
+
+				if (!blocks.some((existing) => sameSourceBlock(existing, block))) {
+					blocks.push(block);
+				}
+
+				lineNumber = Math.max(lineNumber, block.end);
+			}
+		}
+
+		return blocks;
+	}
+
+	function sameSourceBlock(left: SourceBlock, right: SourceBlock) {
+		return left.kind === right.kind && left.start === right.start && left.end === right.end;
 	}
 
 	function sourceBlockForLine(
