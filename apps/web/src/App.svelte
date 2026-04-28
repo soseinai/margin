@@ -3605,13 +3605,6 @@
 								r="3"
 							></circle>
 
-							<circle
-								class:connector-suggestion={item.connectorKind === 'suggestion'}
-								class:connector-active={activeThreadId === item.id}
-								cx="38"
-								cy={item.top + 24}
-								r="3"
-							></circle>
 						{/each}
 					</svg>
 				{/if}

@@ -1664,7 +1664,7 @@ blockquote {
   fill: none;
   opacity: 0.72;
   stroke: var(--connector);
-  stroke-linecap: round;
+  stroke-linecap: butt;
   stroke-linejoin: round;
   stroke-width: 0.9;
   transition:
