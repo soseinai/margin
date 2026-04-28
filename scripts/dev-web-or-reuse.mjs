@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 
 const devUrl = 'http://127.0.0.1:5173/';
+const devScript = process.env.TAURI_DEV_HOST ? 'dev:mobile' : 'dev';
 
 async function existingMarginServer() {
   try {
@@ -32,7 +33,7 @@ if (await existingMarginServer()) {
   process.exit(0);
 }
 
-const child = spawn('npm', ['--workspace', '@margin/web', 'run', 'dev'], {
+const child = spawn('npm', ['--workspace', '@margin/web', 'run', devScript], {
   stdio: 'inherit'
 });
 

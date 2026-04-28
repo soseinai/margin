@@ -11,6 +11,10 @@
     "build:web": "npm --workspace @margin/web run build",
     "dev:desktop": "npm --workspace @margin/desktop run tauri dev",
     "build:desktop": "npm --workspace @margin/desktop run tauri build",
+    "ios:init": "npm --workspace @margin/desktop run ios:init --",
+    "ios:dev": "npm --workspace @margin/desktop run ios:dev --",
+    "ios:open": "npm --workspace @margin/desktop run ios:open --",
+    "ios:build": "npm --workspace @margin/desktop run ios:build --",
     "package:mac:app": "npm --workspace @margin/desktop run package:mac:app",
     "package:mac:dmg": "npm --workspace @margin/desktop run package:mac:dmg",
     "test:web": "npm --workspace @margin/web run test"

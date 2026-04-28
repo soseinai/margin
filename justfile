@@ -22,6 +22,28 @@ dev-web:
 dev-desktop:
     npm run dev:desktop
 
+# Initialize the Tauri iOS target files and dependencies.
+ios-init:
+    npm run ios:init
+
+# Start the iOS app on a simulator or connected iPhone.
+dev-ios device="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "{{device}}" ]]; then
+      npm run ios:dev -- "{{device}}"
+    else
+      npm run ios:dev
+    fi
+
+# Open the generated iOS project in Xcode for simulator/device runs.
+open-ios:
+    npm run ios:open
+
+# Build the iOS app. Use target=aarch64-sim for Apple Silicon simulators.
+build-ios target="aarch64-sim":
+    npm run ios:build -- --target "{{target}}"
+
 # Build the desktop app bundle and launch it locally.
 run: build-desktop
     open target/release/bundle/macos/Margin.app
@@ -171,4 +193,4 @@ deploy-local: build-web
 # Remove generated build artifacts.
 clean:
     cargo clean
-    rm -rf apps/web/dist apps/desktop/src-tauri/target
+    rm -rf apps/web/dist apps/desktop/src-tauri/target apps/desktop/src-tauri/gen/apple/build

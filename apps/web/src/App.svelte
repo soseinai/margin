@@ -30,6 +30,10 @@
 		type ViewUpdate
 	} from '@codemirror/view';
 
+	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
+	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
+	import SaveIcon from '@lucide/svelte/icons/save';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount, tick } from 'svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -101,7 +105,9 @@
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
 	let unlistenNativeSettingsMenu: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
+	let tauriShell = false;
 	let desktopShell = false;
+	let mobileShell = false;
 	let nativeMenuBridgeReady = false;
 	let saveDialogOpen = false;
 	let documentTabs: DocumentTab[] = [];
@@ -643,8 +649,12 @@
 
 	onMount(() => {
 		const searchParams = new URLSearchParams(window.location.search);
+		const desktopPreview = searchParams.has('desktop-preview');
+		const mobilePreview = searchParams.has('mobile-preview');
 
-		desktopShell = Boolean((window as TauriWindow).__TAURI__) || searchParams.has('desktop-preview');
+		tauriShell = Boolean((window as TauriWindow).__TAURI__);
+		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
+		desktopShell = desktopPreview || (tauriShell && !mobileShell);
 		loadAppSettings();
 		recentDocuments = readRecentDocuments();
 		syncRecentDocumentsMenu();
@@ -676,6 +686,13 @@
 			nativeMenuBridgeReady = false;
 		};
 	});
+
+	function isIOSLikeWebView() {
+		const platform = navigator.platform || '';
+		const userAgent = navigator.userAgent || '';
+
+		return (/iPhone|iPad|iPod/i).test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+	}
 
 	async function bootstrapStandaloneDocument(nativeListenersReady: Promise<void>) {
 		await nativeListenersReady;
@@ -2260,7 +2277,7 @@
 	}
 
 	async function flushPendingNativeOpenUrls() {
-		if (!desktopShell) return false;
+		if (!tauriShell) return false;
 
 		const request = tauriInvoke<string[]>('take_pending_open_urls');
 
@@ -3283,6 +3300,7 @@
 <main
 	class="doc-app"
 	class:desktop-shell={desktopShell}
+	class:mobile-shell={mobileShell}
 	class:drag-active={dragActive}
 >
 	<div class="window-tabbar" aria-label="Open documents">
@@ -3398,6 +3416,52 @@
 			data-tauri-drag-region
 			aria-hidden="true"
 		></div>
+
+		<div class="topbar-actions" aria-label="Document actions">
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="topbar-icon-button"
+				aria-label="New document"
+				title="New document"
+				onclick={createNewDocument}
+			>
+				<FilePlusIcon aria-hidden="true" />
+			</Button>
+
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="topbar-icon-button"
+				aria-label="Open document"
+				title="Open document"
+				onclick={openLocalMarkdown}
+			>
+				<FolderOpenIcon aria-hidden="true" />
+			</Button>
+
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="topbar-icon-button"
+				aria-label="Save document"
+				title="Save document"
+				onclick={saveLocalMarkdown}
+			>
+				<SaveIcon aria-hidden="true" />
+			</Button>
+
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="topbar-icon-button"
+				aria-label="Settings"
+				title="Settings"
+				onclick={openSettingsDialog}
+			>
+				<SettingsIcon aria-hidden="true" />
+			</Button>
+		</div>
 	</header>
 
 	<div
@@ -3405,6 +3469,49 @@
 		aria-label="Document tools"
 		data-tauri-drag-region
 	>
+			<ToggleGroup.Root
+				class="mobile-mode-toggle"
+				aria-label="Editing mode"
+				type="single"
+				value={editMode}
+			>
+				<ToggleGroup.Item
+					class={`mobile-mode-button${editMode === 'edit' ? ' active' : ''}`}
+					value="edit"
+					aria-label="Edit directly"
+					title="Edit directly"
+					onclick={() => setEditingMode('edit')}
+				>
+					<span
+						class="mode-icon mode-icon-edit"
+						aria-hidden="true"
+					>
+						<span class="edit-glyph-letter">A</span>
+						<span class="edit-glyph-caret"></span>
+					</span>
+				</ToggleGroup.Item>
+
+				<ToggleGroup.Item
+					class={`mobile-mode-button${editMode === 'suggest' ? ' active' : ''}`}
+					value="suggest"
+					aria-label="Suggest edits"
+					title="Suggest edits"
+					onclick={() => setEditingMode('suggest')}
+				>
+					<svg
+						class="mode-icon mode-icon-suggest"
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+					>
+						<path d="M6 5v14"></path>
+						<path d="M10 7h8"></path>
+						<path d="M10 12h6"></path>
+						<path d="M10 17h4"></path>
+						<path d="M17 15l2 2 3-4"></path>
+					</svg>
+				</ToggleGroup.Item>
+			</ToggleGroup.Root>
+
 			<span>Live Preview</span>
 			<span>Standalone editor</span>
 			<span class:dirty-status={saveState === 'dirty'}>{saveMessage || 'Local file'}</span>

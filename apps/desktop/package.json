@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
+    "ios:init": "tauri ios init --ci",
+    "ios:dev": "tauri ios dev",
+    "ios:open": "tauri ios dev --open",
+    "ios:build": "tauri ios build",
     "package:mac:app": "tauri build --bundles app --no-sign --ci",
     "package:mac:dmg": "node ../../scripts/package-mac-dmg.mjs"
   },
