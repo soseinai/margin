@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs';
 import os from 'node:os';
@@ -41,6 +42,7 @@ mkdirSync(dmgDir, { recursive: true });
 mkdirSync(backgroundStageDir, { recursive: true });
 
 run('ditto', [appPath, path.join(stageDir, `${productName}.app`)]);
+symlinkSync('/Applications', path.join(stageDir, 'Applications'));
 renderBackgroundImage(backgroundSourcePath, backgroundStagePath);
 
 run('hdiutil', [
@@ -119,7 +121,6 @@ function styleMountedDmg(mountPoint) {
   const script = `
     tell application "Finder"
       set dmgFolder to POSIX file "${escapeAppleScriptString(`${mountPoint}/`)}" as alias
-      make new alias file to POSIX file "/Applications" at dmgFolder
       open dmgFolder
       set dmgWindow to container window of dmgFolder
       set current view of dmgWindow to icon view
@@ -129,9 +130,10 @@ function styleMountedDmg(mountPoint) {
       set theViewOptions to the icon view options of dmgWindow
       set arrangement of theViewOptions to not arranged
       set icon size of theViewOptions to 96
+      set label position of theViewOptions to bottom
       set background picture of theViewOptions to POSIX file "${escapeAppleScriptString(backgroundPath)}"
-      set position of item "${escapeAppleScriptString(appName)}" of dmgFolder to {180, 260}
-      set position of item "Applications" of dmgFolder to {540, 260}
+      set position of item "${escapeAppleScriptString(appName)}" of dmgFolder to {180, 202}
+      set position of item "Applications" of dmgFolder to {540, 202}
       update dmgFolder without registering applications
       delay 1
       close dmgWindow
