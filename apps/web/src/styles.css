@@ -1,4 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&display=swap");
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+
 @import "tailwindcss";
 
 @theme inline {
@@ -89,6 +92,16 @@
   --suggestion-label: var(--fg-3);
   --code-bg: var(--paper-sunk);
   --code-text: var(--gray-80);
+  --code-keyword: color-mix(in srgb, var(--code-text) 76%, #6f3f91);
+  --code-atom: color-mix(in srgb, var(--code-text) 78%, #845200);
+  --code-number: color-mix(in srgb, var(--code-text) 78%, #8a3b16);
+  --code-string: color-mix(in srgb, var(--code-text) 78%, #1f6a48);
+  --code-comment: var(--gray-40);
+  --code-definition: color-mix(in srgb, var(--code-text) 76%, #184f87);
+  --code-variable: var(--code-text);
+  --code-type: color-mix(in srgb, var(--code-text) 80%, #6d4e00);
+  --code-operator: var(--gray-60);
+  --code-invalid: color-mix(in srgb, var(--code-text) 60%, var(--sosein-danger));
   --connector: var(--gray-40);
   --neutral-dot: var(--gray-40);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -137,6 +150,16 @@
     --note-focus-outline: var(--gray-20);
     --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
     --error-border: color-mix(in srgb, var(--sosein-danger) 36%, var(--rule));
+    --code-keyword: color-mix(in srgb, var(--code-text) 74%, #c792ea);
+    --code-atom: color-mix(in srgb, var(--code-text) 78%, #d7b38a);
+    --code-number: color-mix(in srgb, var(--code-text) 78%, #d7a28a);
+    --code-string: color-mix(in srgb, var(--code-text) 76%, #a9b98f);
+    --code-comment: var(--gray-40);
+    --code-definition: color-mix(in srgb, var(--code-text) 76%, #9bb5d6);
+    --code-variable: var(--code-text);
+    --code-type: color-mix(in srgb, var(--code-text) 80%, #c9b078);
+    --code-operator: var(--gray-60);
+    --code-invalid: color-mix(in srgb, var(--code-text) 55%, var(--sosein-danger));
   }
 }
 
@@ -165,6 +188,16 @@
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
   --error-border: color-mix(in srgb, var(--sosein-danger) 28%, var(--rule));
+  --code-keyword: color-mix(in srgb, var(--code-text) 76%, #6f3f91);
+  --code-atom: color-mix(in srgb, var(--code-text) 78%, #845200);
+  --code-number: color-mix(in srgb, var(--code-text) 78%, #8a3b16);
+  --code-string: color-mix(in srgb, var(--code-text) 78%, #1f6a48);
+  --code-comment: var(--gray-40);
+  --code-definition: color-mix(in srgb, var(--code-text) 76%, #184f87);
+  --code-variable: var(--code-text);
+  --code-type: color-mix(in srgb, var(--code-text) 80%, #6d4e00);
+  --code-operator: var(--gray-60);
+  --code-invalid: color-mix(in srgb, var(--code-text) 60%, var(--sosein-danger));
 }
 
 :root[data-theme="dark"] {
@@ -192,6 +225,16 @@
   --note-focus-outline: var(--gray-20);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
   --error-border: color-mix(in srgb, var(--sosein-danger) 36%, var(--rule));
+  --code-keyword: color-mix(in srgb, var(--code-text) 74%, #c792ea);
+  --code-atom: color-mix(in srgb, var(--code-text) 78%, #d7b38a);
+  --code-number: color-mix(in srgb, var(--code-text) 78%, #d7a28a);
+  --code-string: color-mix(in srgb, var(--code-text) 76%, #a9b98f);
+  --code-comment: var(--gray-40);
+  --code-definition: color-mix(in srgb, var(--code-text) 76%, #9bb5d6);
+  --code-variable: var(--code-text);
+  --code-type: color-mix(in srgb, var(--code-text) 80%, #c9b078);
+  --code-operator: var(--gray-60);
+  --code-invalid: color-mix(in srgb, var(--code-text) 55%, var(--sosein-danger));
 }
 
 * {
@@ -1257,12 +1300,38 @@ textarea:not([data-slot]):focus {
   background: var(--surface-muted);
   color: transparent;
   font-family: var(--font-plex-mono);
-  font-size: 13.5px;
-  line-height: 1.58;
+  font-size: 0;
+  line-height: 8px;
   margin-left: -12px;
   margin-right: -12px;
-  padding: 2px 12px;
+  padding: 0 12px;
+  position: relative;
   user-select: none;
+}
+
+.live-preview-editor .cm-live-code-fence-empty-start {
+  min-height: 32px;
+}
+
+.markdown-code-language-label {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
+  border-radius: 4px;
+  color: color-mix(in srgb, var(--text-muted) 76%, transparent);
+  display: inline-flex;
+  font-family: var(--font-plex-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  height: 16px;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 0 5px;
+  pointer-events: none;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 1;
 }
 
 .live-preview-editor .cm-live-bold {
@@ -1292,13 +1361,12 @@ textarea:not([data-slot]):focus {
 
 .live-preview-editor .cm-active-source-line {
   background: var(--active-source-bg);
-  border-left: 2px solid var(--ink);
   border-radius: 0;
   color: var(--text-strong);
   line-height: inherit;
   margin-left: -12px;
   margin-right: -12px;
-  padding: 2px 12px 2px 10px;
+  padding: 2px 12px;
 }
 
 .live-preview-editor .cm-active-source-line:not(.cm-live-heading):not(.cm-live-list-line):not(.cm-live-codeblock-line) {

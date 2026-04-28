@@ -9,7 +9,8 @@
 	} from '@codemirror/commands';
 
 	import { markdown } from '@codemirror/lang-markdown';
-	import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+	import { languages } from '@codemirror/language-data';
+	import { HighlightStyle, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 
 	import {
 		ChangeSet,
@@ -29,6 +30,7 @@
 		type DecorationSet,
 		type ViewUpdate
 	} from '@codemirror/view';
+	import { tags } from '@lezer/highlight';
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
@@ -128,6 +130,28 @@
 	const settingsStorageKey = 'margin:settings:v1';
 	const maxRecentDocuments = 10;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
+	const marginHighlightStyle = HighlightStyle.define([
+		{
+			tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword],
+			color: 'var(--code-keyword)'
+		},
+		{ tag: [tags.atom, tags.bool, tags.null], color: 'var(--code-atom)' },
+		{ tag: tags.number, color: 'var(--code-number)' },
+		{ tag: [tags.string, tags.special(tags.string)], color: 'var(--code-string)' },
+		{ tag: tags.comment, color: 'var(--code-comment)', fontStyle: 'italic' },
+		{
+			tag: [
+				tags.definition(tags.variableName),
+				tags.function(tags.variableName),
+				tags.function(tags.definition(tags.variableName))
+			],
+			color: 'var(--code-definition)'
+		},
+		{ tag: [tags.variableName, tags.propertyName], color: 'var(--code-variable)' },
+		{ tag: [tags.typeName, tags.className], color: 'var(--code-type)' },
+		{ tag: [tags.operator, tags.punctuation, tags.separator], color: 'var(--code-operator)' },
+		{ tag: tags.invalid, color: 'var(--code-invalid)' }
+	]);
 
 	const markdownFileTypes = [
 		{
@@ -315,10 +339,11 @@
 		start: number;
 		end: number;
 		kind: 'line' | 'fenced-code' | 'list' | 'indented' | 'table';
+		language?: string;
 		table?: MarkdownTable
 	 };
 
-	type FenceInfo = { marker: '`' | '~'; length: number };
+	type FenceInfo = { marker: '`' | '~'; length: number; language: string };
 	type ListInfo = { indent: number; contentIndent: number };
 
 	type MarkdownTable = {
@@ -513,6 +538,29 @@
 
 		ignoreEvent() {
 			return false;
+		}
+	}
+
+	class CodeLanguageLabelWidget extends WidgetType {
+		language = '';
+
+		constructor(language: string) {
+			super();
+			this.language = language;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof CodeLanguageLabelWidget && other.language === this.language;
+		}
+
+		toDOM() {
+			const label = document.createElement('span');
+
+			label.className = 'markdown-code-language-label';
+			label.textContent = this.language;
+			label.setAttribute('aria-label', `Code language: ${this.language}`);
+
+			return label;
 		}
 	}
 
@@ -928,17 +976,27 @@
 
 			if (fencedBlock) {
 				const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
+				const emptyCodeBlock = fencedBlock.end === fencedBlock.start + 1;
 
 				const classes = active
 					? `cm-live-codeblock-line ${activeSourceClass(activeBlock, line.number)}`
 					: boundary
-						? 'cm-live-code-fence-hidden-line'
+						? `cm-live-code-fence-hidden-line${emptyCodeBlock && line.number === fencedBlock.start
+							? ' cm-live-code-fence-empty-start'
+							: ''}`
 						: 'cm-live-codeblock-line';
 
 				ranges.push(Decoration.line({ class: classes }).range(line.from));
 
 				if (!active && boundary && line.from < line.to) {
 					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.to));
+				}
+
+				if (!active && line.number === fencedBlock.start && fencedBlock.language) {
+					ranges.push(Decoration.widget({
+						widget: new CodeLanguageLabelWidget(fencedBlock.language),
+						side: 1
+					}).range(line.to));
 				}
 
 				continue;
@@ -1166,7 +1224,12 @@
 
 			if (openFence) {
 				if (isClosingFence(text, openFence.fence)) {
-					blocks.push({ start: openFence.line, end: lineNumber, kind: 'fenced-code' });
+					blocks.push({
+						start: openFence.line,
+						end: lineNumber,
+						kind: 'fenced-code',
+						language: openFence.fence.language
+					});
 					openFence = null;
 				}
 
@@ -1182,7 +1245,8 @@
 			blocks.push({
 				start: openFence.line,
 				end: state.doc.lines,
-				kind: 'fenced-code'
+				kind: 'fenced-code',
+				language: openFence.fence.language
 			});
 		}
 
@@ -1194,13 +1258,23 @@
 	}
 
 	function openingFence(text: string): FenceInfo | null {
-		const match = (/^\s*(`{3,}|~{3,})/).exec(text);
+		const match = (/^\s*(`{3,}|~{3,})(.*)$/).exec(text);
 
 		if (!match) return null;
 
 		const marker = match[1][0] as '`' | '~';
 
-		return { marker, length: match[1].length };
+		return { marker, length: match[1].length, language: codeFenceLanguage(match[2] ?? '') };
+	}
+
+	function codeFenceLanguage(info: string) {
+		const token = info.trim().split(/\s+/)[0] ?? '';
+
+		return token
+			.replace(/^\{\.?/, '')
+			.replace(/^\./, '')
+			.replace(/^language-/, '')
+			.replace(/\}$/, '');
 	}
 
 	function isClosingFence(text: string, fence: FenceInfo) {
@@ -1656,8 +1730,9 @@
 		function livePreviewExtensions(): Extension[] {
 			return [
 				history(),
-				markdown(),
-				syntaxHighlighting(defaultHighlightStyle),
+				markdown({ codeLanguages: languages }),
+				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+				syntaxHighlighting(marginHighlightStyle),
 				livePreviewField,
 				keymap.of([
 					{
