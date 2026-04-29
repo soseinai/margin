@@ -14,6 +14,7 @@
 
 	import {
 		ChangeSet,
+		EditorSelection,
 		EditorState,
 		StateEffect,
 		StateField,
@@ -2616,6 +2617,16 @@
 					},
 					{ key: 'Enter', run: smartMarkdownEnter },
 					{ key: 'Backspace', run: smartMarkdownBackspace },
+					{
+						key: 'ArrowUp',
+						run: (view) => moveMarkdownSourceLine(view, -1),
+						shift: (view) => moveMarkdownSourceLine(view, -1, true)
+					},
+					{
+						key: 'ArrowDown',
+						run: (view) => moveMarkdownSourceLine(view, 1),
+						shift: (view) => moveMarkdownSourceLine(view, 1, true)
+					},
 					{ key: 'Tab', run: indentMore },
 					{ key: 'Shift-Tab', run: indentLess },
 					...defaultKeymap,
@@ -2849,6 +2860,72 @@
 		}
 
 		return currentDraftChanges.compose(update.changes);
+	}
+
+	function moveMarkdownSourceLine(view: EditorView, direction: -1 | 1, extend = false) {
+		const selection = view.state.selection.main;
+
+		if (!selection.empty && !extend) return false;
+		if (!shouldUseMarkdownSourceLineMotion(view.state, selection.head, direction)) return false;
+
+		const target = adjacentMarkdownSourceLinePosition(view.state, selection.head, direction);
+
+		if (target === null) return false;
+
+		view.dispatch({
+			selection: extend
+				? EditorSelection.range(selection.anchor, target)
+				: EditorSelection.cursor(target),
+			effects: EditorView.scrollIntoView(target)
+		});
+
+		return true;
+	}
+
+	function shouldUseMarkdownSourceLineMotion(state: EditorState, position: number, direction: -1 | 1) {
+		const currentLine = state.doc.lineAt(position);
+		const targetLineNumber = currentLine.number + direction;
+
+		if (targetLineNumber < 1 || targetLineNumber > state.doc.lines) return false;
+
+		const blocks = markdownSourceMotionBlocks(state);
+
+		return lineNeedsMarkdownSourceMotion(state, currentLine.number, blocks)
+			|| lineNeedsMarkdownSourceMotion(state, targetLineNumber, blocks);
+	}
+
+	function adjacentMarkdownSourceLinePosition(state: EditorState, position: number, direction: -1 | 1) {
+		const currentLine = state.doc.lineAt(position);
+		const targetLineNumber = currentLine.number + direction;
+
+		if (targetLineNumber < 1 || targetLineNumber > state.doc.lines) return null;
+
+		const targetLine = state.doc.line(targetLineNumber);
+		const column = Math.max(0, position - currentLine.from);
+
+		return targetLine.from + Math.min(column, targetLine.length);
+	}
+
+	function markdownSourceMotionBlocks(state: EditorState) {
+		return {
+			frontmatter: markdownFrontmatterBlocks(state),
+			fenced: fencedCodeBlocks(state),
+			tables: markdownTableBlocks(state)
+		};
+	}
+
+	function lineNeedsMarkdownSourceMotion(
+		state: EditorState,
+		lineNumber: number,
+		blocks: ReturnType<typeof markdownSourceMotionBlocks>
+	) {
+		if (blockForLine(blocks.frontmatter, lineNumber)) return true;
+		if (blockForLine(blocks.fenced, lineNumber)) return true;
+		if (blockForLine(blocks.tables, lineNumber)) return true;
+
+		const line = state.doc.line(lineNumber);
+
+		return Boolean(markdownImageOnly(line.text)) || isHorizontalRuleLine(line.text);
 	}
 
 	function smartMarkdownEnter(view: EditorView) {

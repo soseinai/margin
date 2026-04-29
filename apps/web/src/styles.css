@@ -68,8 +68,8 @@
   --surface-muted: var(--paper-sunk);
   --surface-soft: var(--gray-05);
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 2%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  --active-source-bg: transparent;
+  --active-heading-bg: transparent;
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --text: var(--fg-2);
@@ -144,8 +144,8 @@
     --sheet-border: #4a4a47;
     --sheet-radius: 0;
     --document-bg: transparent;
-    --active-source-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
-    --active-heading-bg: color-mix(in srgb, var(--ink) 3%, transparent);
+    --active-source-bg: transparent;
+    --active-heading-bg: transparent;
     --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
     --note-focus-outline: var(--gray-20);
     --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -182,8 +182,8 @@
   --sheet-border: var(--gray-20);
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 2%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  --active-source-bg: transparent;
+  --active-heading-bg: transparent;
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -219,8 +219,8 @@
   --sheet-border: #4a4a47;
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 3%, transparent);
+  --active-source-bg: transparent;
+  --active-heading-bg: transparent;
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
   --note-focus-outline: var(--gray-20);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -1226,12 +1226,12 @@ textarea:not([data-slot]):focus {
 .live-preview-editor .cm-live-blockquote-line {
   border-left: 2px solid var(--quote-rule);
   color: var(--text-muted);
-  margin-left: -10px;
   padding-left: 12px;
 }
 
 .live-preview-editor .cm-live-blockquote-line.cm-active-source-line {
   color: var(--text-strong);
+  margin-left: 0;
   padding-left: 12px;
 }
 
