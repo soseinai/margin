@@ -10,7 +10,7 @@
 
 	import { markdown } from '@codemirror/lang-markdown';
 	import { languages } from '@codemirror/language-data';
-	import { HighlightStyle, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+	import { HighlightStyle, defaultHighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language';
 
 	import {
 		ChangeSet,
@@ -45,6 +45,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
+	import { orderedListMarkersForLines } from './lib/markdown-lists';
 
 	import {
 		appendMarginCommentBlock,
@@ -121,6 +122,7 @@
 	let activeDocumentTabId = '';
 	let recentDocuments: RecentDocument[] = [];
 	let dragActive = false;
+	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
 	const reviewer = 'Aisha Fenton';
 	const anchorContextCharacters = 96;
@@ -342,13 +344,46 @@
 		start: number;
 		end: number;
 		kind: 'line' | 'frontmatter' | 'fenced-code' | 'list' | 'indented' | 'table';
+		listEditBaseSourceIndent?: number;
+		listEditBaseVisualIndent?: number;
 		language?: string;
 		frontmatter?: MarkdownFrontmatter;
 		table?: MarkdownTable
 	 };
 
 	type FenceInfo = { marker: '`' | '~'; length: number; language: string };
-	type ListInfo = { indent: number; contentIndent: number };
+	type ListInfo = { indent: number; contentIndent: number; marker: string; task: boolean };
+	type ListContinuationInfo = {
+		sourceIndentLength: number;
+		sourceIndentWidth: number;
+		visualIndent: number
+	 };
+	type ListContainerContext = {
+		info: ListInfo;
+		sourceIndent: number;
+		visualIndent: number
+	 };
+	type MarkdownListLayout = {
+		depth: number;
+		marker: string;
+		markerOffset: number;
+		markerX: number;
+		textX: number
+	 };
+	type MarkdownListItem = {
+		blockEnd: number;
+		childLines: number[];
+		collapseKey: string;
+		info: ListInfo;
+		layout: MarkdownListLayout;
+		lineNumber: number;
+		parentLine: number | null
+	 };
+	type MarkdownListModel = {
+		collapsedAncestorByLine: Map<number, number>;
+		items: Map<number, MarkdownListItem>;
+		ownerByLine: Map<number, MarkdownListItem>
+	 };
 	type MarkdownFrontmatterEntry = { key: string; value: string };
 	type MarkdownFrontmatter = {
 		entries: MarkdownFrontmatterEntry[];
@@ -499,6 +534,7 @@
 			const button = document.createElement('button');
 
 			button.type = 'button';
+			button.dataset.slot = 'task-checkbox';
 			button.className = `task-checkbox-widget${this.checked ? ' checked' : ''}`;
 			button.setAttribute('aria-label', this.checked ? 'Mark task incomplete' : 'Mark task complete');
 			button.setAttribute('aria-checked', String(this.checked));
@@ -516,6 +552,62 @@
 					}
 				});
 
+				view.focus();
+			});
+
+			return button;
+		}
+
+		ignoreEvent() {
+			return false;
+		}
+	}
+
+	class ListCollapseToggleWidget extends WidgetType {
+		key = '';
+		collapsed = false;
+		lineNumber = 1;
+
+		constructor(key: string, collapsed: boolean, lineNumber: number) {
+			super();
+			this.key = key;
+			this.collapsed = collapsed;
+			this.lineNumber = lineNumber;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof ListCollapseToggleWidget
+				&& other.key === this.key
+				&& other.collapsed === this.collapsed
+				&& other.lineNumber === this.lineNumber;
+		}
+
+		toDOM(view: EditorView) {
+			const button = document.createElement('button');
+
+			button.type = 'button';
+			button.dataset.slot = 'list-collapse-toggle';
+			button.className = `markdown-list-collapse-toggle${this.collapsed ? ' is-collapsed' : ''}`;
+			button.setAttribute('aria-label', this.collapsed ? 'Expand list item' : 'Collapse list item');
+			button.setAttribute('aria-expanded', String(!this.collapsed));
+
+			const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+			icon.classList.add('markdown-list-collapse-icon');
+			icon.setAttribute('aria-hidden', 'true');
+			icon.setAttribute('focusable', 'false');
+			icon.setAttribute('viewBox', '0 0 16 16');
+			path.setAttribute('d', 'M4.75 6.25L8 9.5L11.25 6.25');
+			icon.append(path);
+			button.append(icon);
+
+			button.addEventListener('mousedown', (event) => event.preventDefault());
+			button.addEventListener('click', (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+
+				toggleMarkdownListCollapse(view, this.key, this.lineNumber);
 				view.focus();
 			});
 
@@ -590,6 +682,17 @@
 			label.setAttribute('aria-label', `Code language: ${this.language}`);
 
 			return label;
+		}
+	}
+
+	class SourceIndentGuideWidget extends WidgetType {
+		toDOM() {
+			const guide = document.createElement('span');
+
+			guide.className = 'cm-source-indent-guide';
+			guide.setAttribute('aria-hidden', 'true');
+
+			return guide;
 		}
 	}
 
@@ -948,6 +1051,7 @@
 
 	const setThreadsEffect = StateEffect.define<ThreadView[]>();
 	const setActiveThreadEffect = StateEffect.define<string>();
+	const refreshLivePreviewEffect = StateEffect.define<void>();
 
 	const livePreviewField = StateField.define<LivePreviewState>({
 		create(state) {
@@ -963,6 +1067,7 @@
 			let activeThreadForState = value.activeThreadId;
 			let threadChange = false;
 			let activeThreadChange = false;
+			let refreshPreview = false;
 
 			for (const effect of transaction.effects) {
 				if (effect.is(setThreadsEffect)) {
@@ -974,9 +1079,13 @@
 					activeThreadForState = effect.value;
 					activeThreadChange = true;
 				}
+
+				if (effect.is(refreshLivePreviewEffect)) {
+					refreshPreview = true;
+				}
 			}
 
-			if (transaction.docChanged || transaction.selection || threadChange || activeThreadChange) {
+			if (transaction.docChanged || transaction.selection || threadChange || activeThreadChange || refreshPreview) {
 				return {
 					threads: threadsForState,
 					activeThreadId: activeThreadForState,
@@ -1259,7 +1368,18 @@
 		const frontmatterBlocks = markdownFrontmatterBlocks(state);
 		const fencedBlocks = fencedCodeBlocks(state);
 		const tableBlocks = markdownTableBlocks(state);
-		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks);
+		const orderedListMarkers = markdownOrderedListMarkers(state, [
+			...frontmatterBlocks,
+			...fencedBlocks,
+			...tableBlocks
+		]);
+		const listModel = markdownListModel(state, orderedListMarkers, [
+			...frontmatterBlocks,
+			...fencedBlocks,
+			...tableBlocks
+		]);
+		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
+		const activeListControlLines = activeListControlLineNumbers(state, listModel);
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const line = state.doc.line(lineNumber);
@@ -1267,14 +1387,29 @@
 			const activeBlock = blockForLine(activeBlocks, line.number);
 			const active = Boolean(activeBlock);
 			const activeClass = activeBlock ? activeSourceClass(activeBlock, line.number) : '';
+			const activeAttributes = activeBlock ? activeSourceLineAttributes(activeBlock) : undefined;
 			const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
 			const fencedBlock = blockForLine(fencedBlocks, line.number);
 			const tableBlock = blockForLine(tableBlocks, line.number);
 
+			if (listModel.collapsedAncestorByLine.has(line.number)) {
+				ranges.push(Decoration.line({
+					class: 'cm-collapsed-list-hidden-line'
+				}).range(line.from));
+
+				continue;
+			}
+
+			if (activeBlock) {
+				addActiveListBaseIndentHider(ranges, line, activeBlock);
+				if (activeBlock.kind !== 'list') addSourceIndentGuides(ranges, line, activeBlock);
+			}
+
 			if (frontmatterBlock?.frontmatter) {
 				if (active) {
 					ranges.push(Decoration.line({
-						class: `cm-live-frontmatter-source-line ${activeClass}`
+						class: `cm-live-frontmatter-source-line ${activeClass}`,
+						attributes: activeAttributes
 					}).range(line.from));
 
 					continue;
@@ -1297,19 +1432,33 @@
 			if (fencedBlock) {
 				const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
 				const emptyCodeBlock = fencedBlock.end === fencedBlock.start + 1;
+				const listContext = active ? null : markdownListContainerInfo(state, fencedBlock.start, listModel);
 
 				const classes = active
 					? `cm-live-codeblock-line ${activeClass}`
 					: boundary
 						? `cm-live-code-fence-hidden-line${emptyCodeBlock && line.number === fencedBlock.start
 							? ' cm-live-code-fence-empty-start'
-							: ''}`
-						: 'cm-live-codeblock-line';
+							: ''}${listContext ? ' cm-live-codeblock-nested' : ''}`
+						: `cm-live-codeblock-line${listContext ? ' cm-live-codeblock-nested' : ''}`;
 
-				ranges.push(Decoration.line({ class: classes }).range(line.from));
+				ranges.push(Decoration.line({
+					class: classes,
+					attributes: active ? activeAttributes : listContext ? markdownCodeBlockAttributes(listContext) : undefined
+				}).range(line.from));
 
 				if (!active && boundary && line.from < line.to) {
 					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.to));
+				}
+
+				if (!active && listContext && !boundary) {
+					const sourceIndentLength = sourceIndentLengthForWidth(line.text, listContext.sourceIndentWidth);
+
+					if (sourceIndentLength > 0) {
+						ranges.push(Decoration.mark({
+							class: 'cm-markdown-syntax-hidden'
+						}).range(line.from, line.from + sourceIndentLength));
+					}
 				}
 
 				if (!active && line.number === fencedBlock.start && fencedBlock.language) {
@@ -1325,7 +1474,8 @@
 			if (tableBlock?.table) {
 				if (active) {
 					ranges.push(Decoration.line({
-						class: `cm-live-table-source-line ${activeClass}`
+						class: `cm-live-table-source-line ${activeClass}`,
+						attributes: activeAttributes
 					}).range(line.from));
 
 					continue;
@@ -1354,7 +1504,8 @@
 				const markerEnd = blockquote[1].length;
 
 				ranges.push(Decoration.line({
-					class: `cm-live-blockquote-line${active ? ` ${activeClass}` : ''}`
+					class: `cm-live-blockquote-line${active ? ` ${activeClass}` : ''}`,
+					attributes: activeAttributes
 				}).range(line.from));
 
 				if (active) {
@@ -1377,7 +1528,8 @@
 				const contentOffset = footnoteDefinition[0].length - footnoteDefinition[4].length;
 
 				ranges.push(Decoration.line({
-					class: `cm-live-footnote-definition${active ? ` ${activeClass}` : ''}`
+					class: `cm-live-footnote-definition${active ? ` ${activeClass}` : ''}`,
+					attributes: activeAttributes
 				}).range(line.from));
 
 				if (active) {
@@ -1403,7 +1555,10 @@
 				if (active) {
 					ranges.push(Decoration.line({
 						class: `cm-live-image-source-line ${activeClass}`,
-						attributes: markdownImagePlaceholderAttributes(imageLine)
+						attributes: mergeDecorationAttributes(
+							markdownImagePlaceholderAttributes(imageLine),
+							activeAttributes
+						)
 					}).range(line.from));
 				} else {
 					ranges.push(Decoration.replace({
@@ -1416,7 +1571,10 @@
 
 			if (isHorizontalRuleLine(text)) {
 				if (active) {
-					ranges.push(Decoration.line({ class: activeClass }).range(line.from));
+					ranges.push(Decoration.line({
+						class: activeClass,
+						attributes: activeAttributes
+					}).range(line.from));
 				} else {
 					ranges.push(Decoration.replace({
 						widget: new HorizontalRuleWidget(line.number),
@@ -1431,7 +1589,8 @@
 				ranges.push(Decoration.line({
 					class: `cm-live-heading cm-live-heading-${heading[1].length}${active
 						? ` ${activeClass}`
-						: ''}`
+						: ''}`,
+					attributes: activeAttributes
 				}).range(line.from));
 
 				if (active) {
@@ -1448,7 +1607,7 @@
 				continue;
 			}
 
-			const task = (/^(\s*)([-*+])(\s+)\[([ xX])\](\s+)(.*)/).exec(text);
+			const task = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)\[([ xX])\](\s+)(.*)/).exec(text);
 
 			if (task) {
 				const markerStart = line.from + task[1].length;
@@ -1456,18 +1615,43 @@
 				const syntaxEnd = checkPosition + 2 + task[5].length;
 				const contentOffset = syntaxEnd - line.from;
 				const checked = task[4].toLowerCase() === 'x';
+				const taskItem = listModel.items.get(line.number);
+				const taskInfo = taskItem?.info ?? listInfo(line.text);
+				const taskHasChildren = Boolean(taskItem?.childLines.length);
+				const taskCollapseKey = taskItem?.collapseKey ?? '';
+				const taskCollapsed = taskCollapseKey ? collapsedListItemKeys.has(taskCollapseKey) : false;
+				const taskControlsVisible = activeListControlLines.has(line.number);
+				const taskLayout = taskItem?.layout
+					?? markdownListLayoutForItem(taskInfo ?? markdownListInfoFallback(task[1], task[2]), null, orderedListMarkers.get(line.number) ?? task[2]);
 
 				ranges.push(Decoration.line({
-					class: `cm-live-list-line cm-live-task-line ${checked ? 'cm-task-checked' : 'cm-task-open'}${active
-						? ` ${activeClass}`
-						: ''}`
+					class: `${markdownListLineClass(taskLayout)} cm-live-task-line ${checked ? 'cm-task-checked' : 'cm-task-open'}${taskHasChildren ? ' cm-live-list-parent' : ''}${taskControlsVisible ? ' cm-live-list-controls-visible' : ''}${taskCollapsed ? ' cm-live-list-collapsed' : ''}${active ? ` ${activeClass}` : ''}`,
+					attributes: mergeDecorationAttributes(
+						markdownListLineAttributes(taskLayout),
+						activeAttributes
+					)
 				}).range(line.from));
 
+				if (taskCollapseKey) {
+					ranges.push(Decoration.widget({
+						widget: new ListCollapseToggleWidget(taskCollapseKey, taskCollapsed, line.number),
+						side: -1
+					}).range(line.from));
+				}
+
 				if (active) {
-					ranges.push(Decoration.mark({ class: 'cm-markdown-source-syntax cm-markdown-list-syntax' }).range(markerStart, syntaxEnd));
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden cm-markdown-list-source-prefix' }).range(line.from, syntaxEnd));
+					ranges.push(Decoration.widget({
+						widget: new TaskCheckboxWidget(checked, checkPosition),
+						side: -1
+					}).range(markerStart));
 				}
 
 				if (!active) {
+					if (line.from < markerStart) {
+						ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, markerStart));
+					}
+
 					ranges.push(Decoration.widget({
 						widget: new TaskCheckboxWidget(checked, checkPosition),
 						side: -1
@@ -1480,31 +1664,88 @@
 				continue;
 			}
 
-			const list = (/^(\s*)([-*+])(\s+)(.*)/).exec(text);
+			const list = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)(.*)/).exec(text);
 
 			if (list) {
 				const markerStart = line.from + list[1].length;
+				const syntaxEnd = markerStart + list[2].length + list[3].length;
+				const item = listModel.items.get(line.number);
+				const itemInfo = item?.info ?? listInfo(line.text);
+				const itemHasChildren = Boolean(item?.childLines.length);
+				const itemCollapseKey = item?.collapseKey ?? '';
+				const itemCollapsed = itemCollapseKey ? collapsedListItemKeys.has(itemCollapseKey) : false;
+				const itemControlsVisible = activeListControlLines.has(line.number);
+				const itemLayout = item?.layout
+					?? markdownListLayoutForItem(itemInfo ?? markdownListInfoFallback(list[1], list[2]), null, orderedListMarkers.get(line.number) ?? list[2]);
 
 				ranges.push(Decoration.line({
-					class: `cm-live-list-line${active
-						? ` ${activeClass}`
-						: ''}`
+					class: `${markdownListLineClass(itemLayout)}${itemHasChildren ? ' cm-live-list-parent' : ''}${itemControlsVisible ? ' cm-live-list-controls-visible' : ''}${itemCollapsed ? ' cm-live-list-collapsed' : ''}${active ? ` ${activeClass}` : ''}`,
+					attributes: mergeDecorationAttributes(
+						markdownListLineAttributes(itemLayout),
+						activeAttributes
+					)
 				}).range(line.from));
 
+				if (itemCollapseKey) {
+					ranges.push(Decoration.widget({
+						widget: new ListCollapseToggleWidget(itemCollapseKey, itemCollapsed, line.number),
+						side: -1
+					}).range(line.from));
+				}
+
 				if (active) {
-					ranges.push(Decoration.mark({ class: 'cm-markdown-source-syntax cm-markdown-list-syntax' }).range(markerStart, markerStart + list[2].length + list[3].length));
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden cm-markdown-list-source-prefix' }).range(line.from, syntaxEnd));
 				}
 
 				if (!active) {
-					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(markerStart, markerStart + list[2].length + list[3].length));
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, syntaxEnd));
 					addInlineMarkdownPreview(ranges, line, list[1].length + list[2].length + list[3].length);
 				}
 
 				continue;
 			}
 
+			const indentedCode = active ? null : markdownIndentedCodeInfo(state, line.number, listModel);
+
+			if (indentedCode) {
+				ranges.push(Decoration.line({
+					class: `cm-live-codeblock-line${indentedCode.visualIndent > 0 ? ' cm-live-codeblock-nested' : ''}`,
+					attributes: markdownCodeBlockAttributes(indentedCode)
+				}).range(line.from));
+
+				if (indentedCode.sourceIndentLength > 0) {
+					ranges.push(Decoration.mark({
+						class: 'cm-markdown-syntax-hidden'
+					}).range(line.from, line.from + indentedCode.sourceIndentLength));
+				}
+
+				continue;
+			}
+
+			const listContinuation = active ? null : markdownListContinuationInfo(state, line.number, listModel);
+
+			if (listContinuation) {
+				ranges.push(Decoration.line({
+					class: 'cm-live-list-continuation-line',
+					attributes: markdownListContinuationAttributes(listContinuation)
+				}).range(line.from));
+
+				if (listContinuation.sourceIndentLength > 0) {
+					ranges.push(Decoration.mark({
+						class: 'cm-markdown-syntax-hidden'
+					}).range(line.from, line.from + listContinuation.sourceIndentLength));
+				}
+
+				addInlineMarkdownPreview(ranges, line, listContinuation.sourceIndentLength);
+
+				continue;
+			}
+
 			if (active) {
-				ranges.push(Decoration.line({ class: activeClass }).range(line.from));
+				ranges.push(Decoration.line({
+					class: activeClass,
+					attributes: activeAttributes
+				}).range(line.from));
 			} else {
 				addInlineMarkdownPreview(ranges, line);
 			}
@@ -1563,7 +1804,8 @@
 		state: EditorState,
 		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
-		tableBlocks: SourceBlock[]
+		tableBlocks: SourceBlock[],
+		listModel: MarkdownListModel
 	) {
 		const blocks: SourceBlock[] = [];
 
@@ -1574,7 +1816,7 @@
 			const endLine = state.doc.lineAt(endPosition).number;
 
 			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks);
+				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
 
 				if (!blocks.some((existing) => sameSourceBlock(existing, block))) {
 					blocks.push(block);
@@ -1588,7 +1830,11 @@
 	}
 
 	function sameSourceBlock(left: SourceBlock, right: SourceBlock) {
-		return left.kind === right.kind && left.start === right.start && left.end === right.end;
+		return left.kind === right.kind
+			&& left.start === right.start
+			&& left.end === right.end
+			&& (left.listEditBaseSourceIndent ?? -1) === (right.listEditBaseSourceIndent ?? -1)
+			&& (left.listEditBaseVisualIndent ?? -1) === (right.listEditBaseVisualIndent ?? -1);
 	}
 
 	function sourceBlockForLine(
@@ -1596,7 +1842,8 @@
 		lineNumber: number,
 		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
-		tableBlocks: SourceBlock[]
+		tableBlocks: SourceBlock[],
+		listModel: MarkdownListModel
 	): SourceBlock {
 		const frontmatterBlock = blockForLine(frontmatterBlocks, lineNumber);
 
@@ -1610,7 +1857,7 @@
 
 		if (tableBlock) return tableBlock;
 
-		const listBlock = listBlockForLine(state, lineNumber);
+		const listBlock = activeListBlockForLine(lineNumber, listModel);
 
 		if (listBlock) return listBlock;
 
@@ -1621,14 +1868,142 @@
 		return { start: lineNumber, end: lineNumber, kind: 'line' };
 	}
 
+	function activeListBlockForLine(lineNumber: number, listModel: MarkdownListModel): SourceBlock | null {
+		const item = listModel.ownerByLine.get(lineNumber);
+
+		if (!item) return null;
+
+		const itemBlock: SourceBlock = {
+			start: item.lineNumber,
+			end: item.blockEnd,
+			kind: 'list'
+		};
+
+		if (item.info.indent === 0 || item.parentLine === null) return itemBlock;
+
+		const parent = listModel.items.get(item.parentLine);
+
+		if (!parent) return itemBlock;
+
+		const start = parent.lineNumber + 1;
+		const end = parent.blockEnd;
+
+		if (start > end) return itemBlock;
+
+		return {
+			start,
+			end,
+			kind: 'list',
+			listEditBaseSourceIndent: item.info.indent,
+			listEditBaseVisualIndent: parent.layout.textX
+		};
+	}
+
+	function activeListControlLineNumbers(state: EditorState, listModel: MarkdownListModel) {
+		const lines = new Set<number>();
+
+		for (const range of state.selection.ranges) {
+			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
+			const startLine = state.doc.lineAt(range.from).number;
+			const endLine = state.doc.lineAt(endPosition).number;
+
+			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+				const item = listModel.ownerByLine.get(lineNumber);
+
+				if (!item) continue;
+
+				const root = rootMarkdownListItem(item, listModel);
+
+				for (const candidate of listModel.items.values()) {
+					if (
+						candidate.childLines.length > 0
+						&& candidate.lineNumber >= root.lineNumber
+						&& candidate.lineNumber <= root.blockEnd
+						&& !listModel.collapsedAncestorByLine.has(candidate.lineNumber)
+					) {
+						lines.add(candidate.lineNumber);
+					}
+				}
+			}
+		}
+
+		return lines;
+	}
+
+	function rootMarkdownListItem(item: MarkdownListItem, listModel: MarkdownListModel) {
+		let root = item;
+
+		while (root.parentLine !== null) {
+			const parent = listModel.items.get(root.parentLine);
+
+			if (!parent) break;
+
+			root = parent;
+		}
+
+		return root;
+	}
+
 	function activeSourceClass(block: SourceBlock, lineNumber: number) {
-		if (block.start === block.end) return 'cm-active-source-line';
+		const listSubtree = typeof block.listEditBaseVisualIndent === 'number'
+			? ' cm-active-list-subtree-line'
+			: '';
+
+		if (block.start === block.end) return `cm-active-source-line${listSubtree}`;
 
 		const edge = lineNumber === block.start
 			? 'cm-active-block-start'
 			: lineNumber === block.end ? 'cm-active-block-end' : 'cm-active-block-middle';
 
-		return `cm-active-source-line cm-active-block-line ${edge}`;
+		return `cm-active-source-line cm-active-block-line ${edge}${listSubtree}`;
+	}
+
+	function activeSourceLineAttributes(block: SourceBlock) {
+		if (typeof block.listEditBaseVisualIndent !== 'number') return undefined;
+
+		return {
+			style: `--active-list-base-indent: ${block.listEditBaseVisualIndent}px;`
+		};
+	}
+
+	function addActiveListBaseIndentHider(ranges: Range<Decoration>[], line: Line, block: SourceBlock) {
+		if (typeof block.listEditBaseSourceIndent !== 'number') return;
+
+		const length = sourceIndentLengthForWidth(line.text, block.listEditBaseSourceIndent);
+
+		if (length <= 0) return;
+
+		ranges.push(Decoration.mark({
+			class: 'cm-active-list-base-indent'
+		}).range(line.from, line.from + length));
+	}
+
+	function addSourceIndentGuides(ranges: Range<Decoration>[], line: Line, block: SourceBlock) {
+		const baseIndent = block.listEditBaseSourceIndent ?? 0;
+
+		for (const offset of sourceIndentGuideOffsets(line.text, baseIndent)) {
+			ranges.push(Decoration.widget({
+				widget: new SourceIndentGuideWidget(),
+				side: -1
+			}).range(line.from + offset));
+		}
+	}
+
+	function sourceIndentGuideOffsets(text: string, baseIndent = 0) {
+		const offsets: number[] = [];
+		let width = 0;
+
+		for (let index = 0; index < text.length; index += 1) {
+			const character = text[index];
+
+			if (character !== ' ' && character !== '\t') break;
+
+			if (width >= baseIndent && (width - baseIndent) % 4 === 0) offsets.push(index);
+
+			width += character === '\t' ? 4 : 1;
+		}
+
+		return offsets;
 	}
 
 	function lineInBlock(lineNumber: number, block: SourceBlock) {
@@ -2165,41 +2540,6 @@
 		return Array.from({ length }, (_, index) => alignments[index] ?? null);
 	}
 
-	function listBlockForLine(state: EditorState, lineNumber: number): SourceBlock | null {
-		for (let candidateLine = lineNumber; candidateLine >= 1; candidateLine -= 1) {
-			const candidate = state.doc.line(candidateLine);
-			const info = listInfo(candidate.text);
-
-			if (!info) {
-				if (candidateLine !== lineNumber && candidate.text.trim() && leadingIndent(candidate.text) === 0) {
-					break;
-				}
-
-				continue;
-			}
-
-			if (candidateLine === lineNumber || belongsToListContinuation(state, candidateLine + 1, lineNumber, info)) {
-				let end = candidateLine;
-
-				for (let nextLine = candidateLine + 1; nextLine <= state.doc.lines; nextLine += 1) {
-					const text = state.doc.line(nextLine).text;
-
-					if (!text.trim() || leadingIndent(text) >= info.contentIndent) {
-						end = nextLine;
-
-						continue;
-					}
-
-					break;
-				}
-
-				return { start: candidateLine, end, kind: 'list' };
-			}
-		}
-
-		return null;
-	}
-
 	function belongsToListContinuation(
 		state: EditorState,
 		startLine: number,
@@ -2215,8 +2555,119 @@
 		return true;
 	}
 
+	function markdownListModel(
+		state: EditorState,
+		orderedListMarkers: Map<number, string>,
+		ignoredBlocks: SourceBlock[] = []
+	): MarkdownListModel {
+		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
+		const items = new Map<number, MarkdownListItem>();
+		const ownerByLine = new Map<number, MarkdownListItem>();
+		const collapsedAncestorByLine = new Map<number, number>();
+		const stack: MarkdownListItem[] = [];
+
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			const line = state.doc.line(lineNumber);
+			const info = ignoredLines.has(lineNumber) ? null : listInfo(line.text);
+
+			if (!info) {
+				if (line.text.trim()) {
+					const sourceIndent = leadingIndent(line.text);
+
+					while (stack.length && sourceIndent < stack[stack.length - 1].info.contentIndent) {
+						stack.pop();
+					}
+				}
+
+				continue;
+			}
+
+			while (
+				stack.length
+				&& (
+					stack[stack.length - 1].info.indent >= info.indent
+					|| !belongsToListContinuation(state, stack[stack.length - 1].lineNumber + 1, lineNumber, stack[stack.length - 1].info)
+				)
+			) {
+				stack.pop();
+			}
+
+			const parent = stack[stack.length - 1] ?? null;
+			const displayMarker = orderedListMarkers.get(lineNumber) ?? info.marker;
+			const item: MarkdownListItem = {
+				blockEnd: lineNumber,
+				childLines: [],
+				collapseKey: markdownListCollapseKey(state, lineNumber),
+				info,
+				layout: markdownListLayoutForItem(info, parent?.layout ?? null, displayMarker),
+				lineNumber,
+				parentLine: parent?.lineNumber ?? null
+			};
+
+			items.set(lineNumber, item);
+			parent?.childLines.push(lineNumber);
+			stack.push(item);
+		}
+
+		for (const item of items.values()) {
+			item.blockEnd = markdownListBlockEndForItem(state, item);
+		}
+
+		for (const item of items.values()) {
+			for (let lineNumber = item.lineNumber; lineNumber <= item.blockEnd; lineNumber += 1) {
+				const owner = ownerByLine.get(lineNumber);
+
+				if (!owner || item.info.indent >= owner.info.indent) {
+					ownerByLine.set(lineNumber, item);
+				}
+			}
+		}
+
+		for (const item of items.values()) {
+			if (item.childLines.length === 0 || !collapsedListItemKeys.has(item.collapseKey)) continue;
+
+			for (let lineNumber = item.lineNumber + 1; lineNumber <= item.blockEnd; lineNumber += 1) {
+				if (!collapsedAncestorByLine.has(lineNumber)) {
+					collapsedAncestorByLine.set(lineNumber, item.lineNumber);
+				}
+			}
+		}
+
+		return { collapsedAncestorByLine, items, ownerByLine };
+	}
+
+	function ignoredLineNumbers(blocks: SourceBlock[]) {
+		const lines = new Set<number>();
+
+		for (const block of blocks) {
+			for (let lineNumber = block.start; lineNumber <= block.end; lineNumber += 1) {
+				lines.add(lineNumber);
+			}
+		}
+
+		return lines;
+	}
+
+	function markdownListBlockEndForItem(state: EditorState, item: MarkdownListItem) {
+		let end = item.lineNumber;
+
+		for (let nextLine = item.lineNumber + 1; nextLine <= state.doc.lines; nextLine += 1) {
+			const text = state.doc.line(nextLine).text;
+
+			if (!text.trim() || leadingIndent(text) >= item.info.contentIndent) {
+				end = nextLine;
+
+				continue;
+			}
+
+			break;
+		}
+
+		return end;
+	}
+
 	function listInfo(text: string): ListInfo | null {
-		const match = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)/).exec(text);
+		const match = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)(?:\[([ xX])\]\s+)?/).exec(text);
 
 		if (!match) return null;
 
@@ -2224,8 +2675,271 @@
 
 		return {
 			indent,
-			contentIndent: indent + indentWidth(match[2] + match[3])
+			contentIndent: indent + indentWidth(match[2] + match[3]),
+			marker: match[2],
+			task: Boolean(match[4])
 		};
+	}
+
+	function markdownListCollapseKey(state: EditorState, lineNumber: number) {
+		return `${documentSessionKey}:${lineNumber}:${state.doc.line(lineNumber).text}`;
+	}
+
+	function toggleMarkdownListCollapse(view: EditorView, key: string, lineNumber: number) {
+		const next = new Set(collapsedListItemKeys);
+		const collapsing = !next.has(key);
+		const selection = collapsing ? selectionOutsideCollapsingListSubtree(view.state, lineNumber) : null;
+
+		if (collapsing) {
+			next.add(key);
+		} else {
+			next.delete(key);
+		}
+
+		collapsedListItemKeys = next;
+		view.dispatch({
+			effects: refreshLivePreviewEffect.of(),
+			selection: selection ?? undefined
+		});
+		requestAnimationFrame(updateAnchorPositions);
+	}
+
+	function selectionOutsideCollapsingListSubtree(state: EditorState, lineNumber: number) {
+		const listModel = markdownListModelForState(state);
+		const item = listModel.items.get(lineNumber);
+
+		if (!item || item.blockEnd <= lineNumber) return null;
+
+		const headLine = state.doc.lineAt(state.selection.main.head).number;
+
+		if (headLine <= lineNumber || headLine > item.blockEnd) return null;
+
+		const parentLine = state.doc.line(lineNumber);
+
+		return { anchor: markdownListContentPosition(parentLine) };
+	}
+
+	function markdownListContentPosition(line: Line) {
+		const match = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)(?:\[([ xX])\]\s+)?/).exec(line.text);
+
+		return line.from + (match?.[0].length ?? 0);
+	}
+
+	function markdownListContinuationInfo(
+		state: EditorState,
+		lineNumber: number,
+		listModel: MarkdownListModel
+	): ListContinuationInfo | null {
+		const line = state.doc.line(lineNumber);
+
+		if (!line.text.trim() || listInfo(line.text)) return null;
+
+		const context = markdownNearestListContainer(state, lineNumber, listModel);
+
+		if (!context || context.sourceIndent >= context.info.contentIndent + 4) return null;
+
+		return {
+			sourceIndentLength: leadingWhitespaceLength(line.text),
+			sourceIndentWidth: context.sourceIndent,
+			visualIndent: context.visualIndent
+		};
+	}
+
+	function markdownNearestListContainer(
+		state: EditorState,
+		lineNumber: number,
+		listModel: MarkdownListModel
+	): ListContainerContext | null {
+		const line = state.doc.line(lineNumber);
+		const sourceIndent = leadingIndent(line.text);
+		const item = listModel.ownerByLine.get(lineNumber);
+
+		if (!item || lineNumber === item.lineNumber || sourceIndent < item.info.contentIndent) return null;
+
+		return {
+			info: item.info,
+			sourceIndent,
+			visualIndent: item.layout.textX
+		};
+	}
+
+	function markdownIndentedCodeInfo(
+		state: EditorState,
+		lineNumber: number,
+		listModel: MarkdownListModel
+	): ListContinuationInfo | null {
+		const line = state.doc.line(lineNumber);
+
+		if (!line.text.trim()) return null;
+
+		const listCode = markdownListIndentedCodeInfo(state, lineNumber, listModel);
+
+		if (listCode) return listCode;
+		if (leadingIndent(line.text) < 4 || listModel.ownerByLine.has(lineNumber)) return null;
+
+		return {
+			sourceIndentLength: sourceIndentLengthForWidth(line.text, 4),
+			sourceIndentWidth: 4,
+			visualIndent: 0
+		};
+	}
+
+	function markdownListIndentedCodeInfo(
+		state: EditorState,
+		lineNumber: number,
+		listModel: MarkdownListModel
+	): ListContinuationInfo | null {
+		const line = state.doc.line(lineNumber);
+		const context = markdownNearestListContainer(state, lineNumber, listModel);
+
+		if (!context) return null;
+
+		const codeIndent = context.info.contentIndent + 4;
+
+		if (context.sourceIndent < codeIndent) return null;
+
+		return {
+			sourceIndentLength: sourceIndentLengthForWidth(line.text, codeIndent),
+			sourceIndentWidth: codeIndent,
+			visualIndent: context.visualIndent
+		};
+	}
+
+	function markdownListContainerInfo(
+		state: EditorState,
+		lineNumber: number,
+		listModel: MarkdownListModel
+	): ListContinuationInfo | null {
+		const line = state.doc.line(lineNumber);
+		const context = markdownNearestListContainer(state, lineNumber, listModel);
+
+		if (!context) return null;
+
+		return {
+			sourceIndentLength: sourceIndentLengthForWidth(line.text, context.info.contentIndent),
+			sourceIndentWidth: context.info.contentIndent,
+			visualIndent: context.visualIndent
+		};
+	}
+
+	function markdownListLineClass(layout: MarkdownListLayout) {
+		const depth = Math.min(2, layout.depth % 3);
+		const kind = isOrderedListMarker(layout.marker) ? 'ordered' : 'unordered';
+
+		return `cm-live-list-line cm-live-list-${kind} cm-live-list-depth-${depth}`;
+	}
+
+	function markdownListLineAttributes(layout: MarkdownListLayout) {
+		const attributes: Record<string, string> = {
+			style: `--list-indent: ${layout.markerX}px; --list-marker-offset: ${layout.markerOffset}px;`
+		};
+
+		if (isOrderedListMarker(layout.marker)) attributes['data-list-marker'] = layout.marker;
+
+		return attributes;
+	}
+
+	function markdownListContinuationAttributes(info: ListContinuationInfo) {
+		return {
+			style: `--list-continuation-indent: ${info.visualIndent}px;`
+		};
+	}
+
+	function markdownCodeBlockAttributes(info: ListContinuationInfo) {
+		return {
+			style: `--codeblock-indent: ${info.visualIndent}px;`
+		};
+	}
+
+	function mergeDecorationAttributes(
+		...attributes: Array<Record<string, string> | undefined>
+	): Record<string, string> | undefined {
+		const merged: Record<string, string> = {};
+		const styles: string[] = [];
+
+		for (const item of attributes) {
+			if (!item) continue;
+
+			for (const [key, value] of Object.entries(item)) {
+				if (key === 'style') {
+					styles.push(value.trim().replace(/;?$/, ';'));
+				} else {
+					merged[key] = value;
+				}
+			}
+		}
+
+		if (styles.length > 0) merged.style = styles.join(' ');
+
+		return Object.keys(merged).length > 0 ? merged : undefined;
+	}
+
+	function markdownListMarkerOffset(info: ListInfo, displayMarker = info.marker) {
+		if (info.task) return 30;
+		if (isOrderedListMarker(displayMarker)) return Math.max(22, displayMarker.length * 9 + 5);
+
+		return 12;
+	}
+
+	function markdownListInfoFallback(indent: string, marker: string): ListInfo {
+		const indentWidthValue = indentWidth(indent);
+
+		return {
+			indent: indentWidthValue,
+			contentIndent: indentWidthValue + indentWidth(`${marker} `),
+			marker,
+			task: false
+		};
+	}
+
+	function markdownListLayoutForItem(
+		info: ListInfo,
+		parentLayout: MarkdownListLayout | null,
+		displayMarker = info.marker
+	): MarkdownListLayout {
+		const marker = isOrderedListMarker(info.marker) ? displayMarker : info.marker;
+		const markerX = parentLayout?.textX ?? 0;
+		const markerOffset = markdownListMarkerOffset(info, marker);
+
+		return {
+			depth: parentLayout ? parentLayout.depth + 1 : 0,
+			marker,
+			markerOffset,
+			markerX,
+			textX: markerX + markerOffset
+		};
+	}
+
+	function isOrderedListMarker(marker: string) {
+		return (/^\d+[.)]$/).test(marker);
+	}
+
+	function markdownListModelForState(state: EditorState) {
+		const ignoredBlocks = [
+			...markdownFrontmatterBlocks(state),
+			...fencedCodeBlocks(state),
+			...markdownTableBlocks(state)
+		];
+		const orderedListMarkers = markdownOrderedListMarkers(state, ignoredBlocks);
+
+		return markdownListModel(state, orderedListMarkers, ignoredBlocks);
+	}
+
+	function markdownOrderedListMarkers(state: EditorState, ignoredBlocks: SourceBlock[]) {
+		const lines: string[] = [];
+		const ignoredLines = new Set<number>();
+
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			lines.push(state.doc.line(lineNumber).text);
+		}
+
+		for (const block of ignoredBlocks) {
+			for (let lineNumber = block.start; lineNumber <= block.end; lineNumber += 1) {
+				ignoredLines.add(lineNumber);
+			}
+		}
+
+		return orderedListMarkersForLines(lines, ignoredLines);
 	}
 
 	function indentedBlockForLine(state: EditorState, lineNumber: number): SourceBlock | null {
@@ -2259,6 +2973,28 @@
 		const match = (/^\s*/).exec(text);
 
 		return indentWidth(match?.[0] ?? '');
+	}
+
+	function leadingWhitespaceLength(text: string) {
+		return (/^\s*/).exec(text)?.[0].length ?? 0;
+	}
+
+	function sourceIndentLengthForWidth(text: string, width: number) {
+		if (width <= 0) return 0;
+
+		let currentWidth = 0;
+		let length = 0;
+
+		for (const character of text) {
+			if (character !== ' ' && character !== '\t') break;
+
+			currentWidth += character === '\t' ? 4 : 1;
+			length += character.length;
+
+			if (currentWidth >= width) break;
+		}
+
+		return length;
 	}
 
 	function indentWidth(value: string) {
@@ -2548,6 +3284,8 @@
 		function livePreviewExtensions(): Extension[] {
 			return [
 				history(),
+				EditorState.tabSize.of(4),
+				indentUnit.of('    '),
 				markdown({ codeLanguages: languages }),
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
@@ -3012,7 +3750,11 @@
 
 		if (heading) return heading[1].trim();
 
-		const list = (/^[-*+]\s+(.+)$/).exec(trimmed);
+		const task = (/^(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s+(.+)$/).exec(trimmed);
+
+		if (task) return task[1].trim();
+
+		const list = (/^(?:[-*+]|\d+[.)])\s+(.+)$/).exec(trimmed);
 
 		if (list) return list[1].trim();
 

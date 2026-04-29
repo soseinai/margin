@@ -1160,6 +1160,13 @@ textarea:not([data-slot]):focus {
   font-size: 0.9em;
 }
 
+.live-preview-editor .cm-markdown-list-source-prefix {
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  user-select: none;
+}
+
 .live-preview-editor .cm-markdown-blockquote-syntax,
 .live-preview-editor .cm-markdown-footnote-syntax {
   color: var(--text-muted);
@@ -1204,23 +1211,111 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-live-list-line {
-  padding-left: 22px;
+  --list-indent: 0px;
+  --list-marker-offset: 12px;
+  padding-left: calc(var(--list-indent) + var(--list-marker-offset));
   position: relative;
 }
 
 .live-preview-editor .cm-live-list-line::before {
   color: var(--text-muted);
   content: "•";
-  left: 4px;
+  left: var(--list-indent);
   position: absolute;
 }
 
+button.markdown-list-collapse-toggle {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  left: calc(var(--list-indent) - 26px);
+  min-height: 22px;
+  min-width: 22px;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: 0.84em;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease, color 120ms ease;
+  width: 22px;
+}
+
+button.markdown-list-collapse-toggle::before {
+  content: none;
+}
+
+button.markdown-list-collapse-toggle svg {
+  display: block;
+  fill: none;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transform-origin: center;
+  transition: transform 120ms ease;
+  width: 16px;
+}
+
+button.markdown-list-collapse-toggle.is-collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.live-preview-editor .cm-live-list-parent:hover button.markdown-list-collapse-toggle,
+.live-preview-editor .cm-live-list-controls-visible button.markdown-list-collapse-toggle,
+button.markdown-list-collapse-toggle:focus-visible {
+  opacity: 1;
+}
+
+button.markdown-list-collapse-toggle:hover,
+button.markdown-list-collapse-toggle:focus-visible {
+  background: transparent;
+  color: var(--text-strong);
+}
+
+.live-preview-editor .cm-collapsed-list-hidden-line {
+  display: none;
+}
+
+.live-preview-editor .cm-live-list-depth-1::before {
+  content: "◦";
+}
+
+.live-preview-editor .cm-live-list-depth-2::before {
+  content: "▪";
+}
+
+.live-preview-editor .cm-live-list-ordered {
+  --list-marker-offset: 22px;
+  padding-left: calc(var(--list-indent) + var(--list-marker-offset));
+}
+
+.live-preview-editor .cm-live-list-ordered::before {
+  content: attr(data-list-marker);
+  font-variant-numeric: tabular-nums;
+  left: var(--list-indent);
+  text-align: left;
+  width: var(--list-marker-offset);
+}
+
 .live-preview-editor .cm-live-task-line {
-  padding-left: 30px;
+  --list-marker-offset: 30px;
+  padding-left: calc(var(--list-indent) + var(--list-marker-offset));
 }
 
 .live-preview-editor .cm-live-task-line::before {
   content: none;
+}
+
+.live-preview-editor .cm-live-list-continuation-line {
+  --list-continuation-indent: 22px;
+  padding-left: var(--list-continuation-indent);
 }
 
 .live-preview-editor .cm-live-blockquote-line {
@@ -1235,32 +1330,42 @@ textarea:not([data-slot]):focus {
   padding-left: 12px;
 }
 
-.task-checkbox-widget {
+button.task-checkbox-widget {
   appearance: none;
   background: var(--surface);
   border: 1.5px solid var(--border-strong);
   border-radius: 4px;
   cursor: pointer;
+  display: inline-block;
+  flex: 0 0 auto;
+  font: inherit;
   height: 15px;
+  line-height: 1;
   margin: 0 9px 0 0;
   min-height: 15px;
+  min-width: 15px;
   padding: 0;
-  position: relative;
-  transform: translateY(2px);
+  position: absolute;
+  left: var(--list-indent);
+  top: 0.82em;
+  transition: none;
+  transform: translateY(-50%);
   vertical-align: baseline;
   width: 15px;
 }
 
-.task-checkbox-widget:hover {
+button.task-checkbox-widget:hover {
+  background: var(--surface);
   border-color: var(--ink);
+  color: inherit;
 }
 
-.task-checkbox-widget.checked {
+button.task-checkbox-widget.checked {
   background: var(--ink);
   border-color: var(--ink);
 }
 
-.task-checkbox-widget.checked::after {
+button.task-checkbox-widget.checked::after {
   border-bottom: 2px solid var(--on-primary);
   border-right: 2px solid var(--on-primary);
   content: "";
@@ -1304,23 +1409,25 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-live-codeblock-line {
+  --codeblock-indent: 0px;
   background: var(--surface-muted);
   color: var(--code-text);
   font-family: var(--font-plex-mono);
   font-size: 13.5px;
   line-height: 1.58;
-  margin-left: -12px;
+  margin-left: calc(var(--codeblock-indent) - 12px);
   margin-right: -12px;
   padding: 2px 12px;
 }
 
 .live-preview-editor .cm-live-code-fence-hidden-line {
+  --codeblock-indent: 0px;
   background: var(--surface-muted);
   color: transparent;
   font-family: var(--font-plex-mono);
   font-size: 0;
   line-height: 8px;
-  margin-left: -12px;
+  margin-left: calc(var(--codeblock-indent) - 12px);
   margin-right: -12px;
   padding: 0 12px;
   position: relative;
@@ -1596,6 +1703,25 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
   margin-left: -12px;
   margin-right: -12px;
   padding: 2px 12px;
+  tab-size: 4;
+}
+
+.live-preview-editor .cm-source-indent-guide {
+  border-left: 1px solid color-mix(in srgb, var(--text-muted) 24%, transparent);
+  display: inline-block;
+  height: 1.45em;
+  margin-left: -1px;
+  pointer-events: none;
+  position: relative;
+  vertical-align: -0.25em;
+  width: 0;
+}
+
+.live-preview-editor .cm-active-list-base-indent {
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  user-select: none;
 }
 
 .live-preview-editor .cm-active-source-line:not(.cm-live-heading):not(.cm-live-list-line):not(.cm-live-codeblock-line) {
@@ -1646,15 +1772,18 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 }
 
 .live-preview-editor .cm-live-list-line.cm-active-source-line {
-  padding-left: 22px;
-}
-
-.live-preview-editor .cm-live-list-line.cm-active-source-line::before {
-  content: none;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: calc(var(--list-indent) + var(--list-marker-offset));
 }
 
 .live-preview-editor .cm-live-codeblock-line.cm-active-source-line {
   color: var(--text-strong);
+}
+
+.live-preview-editor .cm-active-source-line.cm-active-list-subtree-line:not(.cm-live-list-line) {
+  --active-list-base-indent: 0px;
+  padding-left: calc(var(--active-list-base-indent) + 12px);
 }
 
 .live-preview-editor .cm-live-table-source-line {
