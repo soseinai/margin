@@ -644,6 +644,21 @@
 			resizeHandle.type = 'button';
 			resizeHandle.className = 'markdown-image-resize-handle';
 			resizeHandle.setAttribute('aria-label', 'Resize image');
+
+			const resizeGrip = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			resizeGrip.classList.add('markdown-image-resize-grip');
+			resizeGrip.setAttribute('aria-hidden', 'true');
+			resizeGrip.setAttribute('focusable', 'false');
+			resizeGrip.setAttribute('viewBox', '0 0 24 24');
+
+			for (const pathData of ['M22 7L7 22', 'M22 13L13 22', 'M22 19L19 22']) {
+				const gripLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+				gripLine.setAttribute('d', pathData);
+				resizeGrip.append(gripLine);
+			}
+
+			resizeHandle.append(resizeGrip);
 			resizeHandle.addEventListener('mousedown', (event) => {
 				this.startResize(event, view, image, wrapper);
 			});

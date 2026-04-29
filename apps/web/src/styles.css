@@ -68,8 +68,8 @@
   --surface-muted: var(--paper-sunk);
   --surface-soft: var(--gray-05);
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 4%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 5%, transparent);
+  --active-source-bg: color-mix(in srgb, var(--ink) 2%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --text: var(--fg-2);
@@ -144,8 +144,8 @@
     --sheet-border: #4a4a47;
     --sheet-radius: 0;
     --document-bg: transparent;
-    --active-source-bg: color-mix(in srgb, var(--ink) 5%, transparent);
-    --active-heading-bg: color-mix(in srgb, var(--ink) 6%, transparent);
+    --active-source-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
+    --active-heading-bg: color-mix(in srgb, var(--ink) 3%, transparent);
     --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
     --note-focus-outline: var(--gray-20);
     --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -182,8 +182,8 @@
   --sheet-border: var(--gray-20);
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 4%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 5%, transparent);
+  --active-source-bg: color-mix(in srgb, var(--ink) 2%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -219,8 +219,8 @@
   --sheet-border: #4a4a47;
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: color-mix(in srgb, var(--ink) 5%, transparent);
-  --active-heading-bg: color-mix(in srgb, var(--ink) 6%, transparent);
+  --active-source-bg: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 3%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
   --note-focus-outline: var(--gray-20);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -1391,12 +1391,23 @@ textarea:not([data-slot]):focus {
 }
 
 .markdown-image-widget img {
-  background: color-mix(in srgb, var(--surface-muted) 42%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
-  border-radius: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   display: block;
   max-width: 100%;
   object-fit: contain;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.markdown-image-widget:hover img,
+.markdown-image-widget:focus-within img,
+.markdown-image-widget.is-resizing img {
+  background: color-mix(in srgb, var(--surface-muted) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 36%, transparent);
 }
 
 .markdown-image-widget.inline {
@@ -1452,13 +1463,13 @@ button.markdown-image-resize-handle {
   background: transparent;
   border: 0;
   border-radius: 0;
-  bottom: -8px;
-  color: transparent;
+  bottom: -6px;
+  color: color-mix(in srgb, var(--paper-raised) 86%, transparent);
   cursor: grab;
   display: block;
   font: inherit;
   gap: 0;
-  height: 34px;
+  height: 36px;
   justify-content: initial;
   line-height: 0;
   min-height: 0;
@@ -1466,10 +1477,11 @@ button.markdown-image-resize-handle {
   padding: 0;
   pointer-events: none;
   position: absolute;
-  right: -8px;
+  right: -6px;
   transition:
+    color var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out);
-  width: 34px;
+  width: 36px;
 }
 
 button.markdown-image-resize-handle:hover:not(:disabled),
@@ -1477,7 +1489,7 @@ button.markdown-image-resize-handle:focus-visible,
 button.markdown-image-resize-handle:active:not(:disabled) {
   background: transparent;
   border-color: transparent;
-  color: transparent;
+  color: var(--paper-raised);
   outline: none;
   transform: none;
 }
@@ -1486,31 +1498,25 @@ button.markdown-image-resize-handle:active:not(:disabled) {
   cursor: grabbing;
 }
 
-button.markdown-image-resize-handle::before,
-button.markdown-image-resize-handle::after {
-  border-bottom: 2px solid color-mix(in srgb, var(--paper-raised) 92%, transparent);
-  border-right: 2px solid color-mix(in srgb, var(--paper-raised) 92%, transparent);
-  border-radius: 0 0 5px 0;
+.markdown-image-resize-grip {
   bottom: 8px;
-  content: "";
   filter:
     drop-shadow(0 0 1px color-mix(in srgb, var(--ink) 70%, transparent))
     drop-shadow(0 2px 4px color-mix(in srgb, var(--ink) 28%, transparent));
+  height: 22px;
+  overflow: visible;
+  pointer-events: none;
   position: absolute;
   right: 8px;
-}
-
-button.markdown-image-resize-handle::before {
-  height: 22px;
   width: 22px;
 }
 
-button.markdown-image-resize-handle::after {
-  bottom: 14px;
-  height: 10px;
-  opacity: 0.72;
-  right: 14px;
-  width: 10px;
+.markdown-image-resize-grip path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
 }
 
 .markdown-image-widget:hover .markdown-image-resize-handle,
@@ -1520,13 +1526,15 @@ button.markdown-image-resize-handle::after {
   pointer-events: auto;
 }
 
-button.markdown-image-resize-handle:hover::before,
-button.markdown-image-resize-handle:hover::after,
-button.markdown-image-resize-handle:focus-visible::before,
-button.markdown-image-resize-handle:focus-visible::after,
-.markdown-image-widget.is-resizing button.markdown-image-resize-handle::before,
-.markdown-image-widget.is-resizing button.markdown-image-resize-handle::after {
-  border-color: var(--paper-raised);
+.markdown-image-widget.is-resizing button.markdown-image-resize-handle,
+button.markdown-image-resize-handle:hover,
+button.markdown-image-resize-handle:focus-visible {
+  color: var(--paper-raised);
+}
+
+button.markdown-image-resize-handle:hover .markdown-image-resize-grip,
+button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
+.markdown-image-widget.is-resizing .markdown-image-resize-grip {
   filter:
     drop-shadow(0 0 1px color-mix(in srgb, var(--ink) 82%, transparent))
     drop-shadow(0 3px 6px color-mix(in srgb, var(--ink) 34%, transparent));
