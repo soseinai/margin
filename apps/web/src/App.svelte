@@ -338,13 +338,19 @@
 	type SourceBlock = {
 		start: number;
 		end: number;
-		kind: 'line' | 'fenced-code' | 'list' | 'indented' | 'table';
+		kind: 'line' | 'frontmatter' | 'fenced-code' | 'list' | 'indented' | 'table';
 		language?: string;
+		frontmatter?: MarkdownFrontmatter;
 		table?: MarkdownTable
 	 };
 
 	type FenceInfo = { marker: '`' | '~'; length: number; language: string };
 	type ListInfo = { indent: number; contentIndent: number };
+	type MarkdownFrontmatterEntry = { key: string; value: string };
+	type MarkdownFrontmatter = {
+		entries: MarkdownFrontmatterEntry[];
+		rawLines: string[]
+	};
 
 	type MarkdownTable = {
 		headers: string[];
@@ -561,6 +567,82 @@
 			label.setAttribute('aria-label', `Code language: ${this.language}`);
 
 			return label;
+		}
+	}
+
+	class FrontmatterWidget extends WidgetType {
+		frontmatter: MarkdownFrontmatter;
+		startLine = 1;
+		key = '';
+
+		constructor(frontmatter: MarkdownFrontmatter, startLine: number) {
+			super();
+			this.frontmatter = frontmatter;
+			this.startLine = startLine;
+			this.key = JSON.stringify(frontmatter);
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof FrontmatterWidget && other.startLine === this.startLine && other.key === this.key;
+		}
+
+		toDOM(view: EditorView) {
+			const wrapper = document.createElement('div');
+
+			wrapper.className = 'markdown-frontmatter-widget';
+			wrapper.tabIndex = 0;
+			wrapper.setAttribute('role', 'button');
+			wrapper.setAttribute('aria-label', 'Edit front matter');
+
+			const title = document.createElement('div');
+
+			title.className = 'markdown-frontmatter-title';
+			title.textContent = 'front matter';
+			wrapper.append(title);
+
+			if (this.frontmatter.entries.length > 0) {
+				const list = document.createElement('dl');
+
+				list.className = 'markdown-frontmatter-list';
+
+				this.frontmatter.entries.forEach((entry) => {
+					const key = document.createElement('dt');
+					const value = document.createElement('dd');
+
+					key.textContent = entry.key;
+					value.textContent = entry.value;
+					list.append(key, value);
+				});
+
+				wrapper.append(list);
+			} else {
+				const raw = document.createElement('pre');
+
+				raw.className = 'markdown-frontmatter-raw';
+				raw.textContent = this.frontmatter.rawLines.filter((line) => line.trim()).join('\n');
+				wrapper.append(raw);
+			}
+
+			const editFrontmatter = (event: Event) => {
+				event.preventDefault();
+
+				const line = view.state.doc.line(Math.min(this.startLine, view.state.doc.lines));
+
+				view.dispatch({ selection: { anchor: line.from } });
+				view.focus();
+			};
+
+			wrapper.addEventListener('mousedown', editFrontmatter);
+
+			wrapper.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter') editFrontmatter(event);
+			});
+
+			return wrapper;
+		}
+
+		ignoreEvent() {
+			return false;
 		}
 	}
 
@@ -962,9 +1044,10 @@
 		focusedThreadId: string
 	) {
 		const ranges: Range<Decoration>[] = [];
+		const frontmatterBlocks = markdownFrontmatterBlocks(state);
 		const fencedBlocks = fencedCodeBlocks(state);
 		const tableBlocks = markdownTableBlocks(state);
-		const activeBlocks = activeSourceBlocksForSelection(state, fencedBlocks, tableBlocks);
+		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks);
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const line = state.doc.line(lineNumber);
@@ -972,8 +1055,32 @@
 			const activeBlock = blockForLine(activeBlocks, line.number);
 			const active = Boolean(activeBlock);
 			const activeClass = activeBlock ? activeSourceClass(activeBlock, line.number) : '';
+			const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
 			const fencedBlock = blockForLine(fencedBlocks, line.number);
 			const tableBlock = blockForLine(tableBlocks, line.number);
+
+			if (frontmatterBlock?.frontmatter) {
+				if (active) {
+					ranges.push(Decoration.line({
+						class: `cm-live-frontmatter-source-line ${activeClass}`
+					}).range(line.from));
+
+					continue;
+				}
+
+				if (line.number === frontmatterBlock.start) {
+					const blockEnd = state.doc.line(frontmatterBlock.end);
+
+					ranges.push(Decoration.replace({
+						widget: new FrontmatterWidget(frontmatterBlock.frontmatter, frontmatterBlock.start),
+						block: true
+					}).range(line.from, blockEnd.to));
+
+					lineNumber = frontmatterBlock.end;
+				}
+
+				continue;
+			}
 
 			if (fencedBlock) {
 				const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
@@ -1027,6 +1134,57 @@
 			}
 
 			const heading = (/^(#{1,6})(\s+)(.*)/).exec(text);
+			const blockquote = (/^([ \t]{0,3}>[ \t]?)(.*)/).exec(text);
+			const footnoteDefinition = footnoteDefinitionMatch(text);
+
+			if (blockquote) {
+				const markerEnd = blockquote[1].length;
+
+				ranges.push(Decoration.line({
+					class: `cm-live-blockquote-line${active ? ` ${activeClass}` : ''}`
+				}).range(line.from));
+
+				if (active) {
+					ranges.push(Decoration.mark({
+						class: 'cm-markdown-source-syntax cm-markdown-blockquote-syntax'
+					}).range(line.from, line.from + markerEnd));
+				}
+
+				if (!active) {
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.from + markerEnd));
+					addInlineMarkdownPreview(ranges, line, markerEnd);
+				}
+
+				continue;
+			}
+
+			if (footnoteDefinition) {
+				const idStart = footnoteDefinition[1].length + 2;
+				const idEnd = idStart + footnoteDefinition[2].length;
+				const contentOffset = footnoteDefinition[0].length - footnoteDefinition[4].length;
+
+				ranges.push(Decoration.line({
+					class: `cm-live-footnote-definition${active ? ` ${activeClass}` : ''}`
+				}).range(line.from));
+
+				if (active) {
+					ranges.push(Decoration.mark({
+						class: 'cm-markdown-source-syntax cm-markdown-footnote-syntax'
+					}).range(line.from + footnoteDefinition[1].length, line.from + contentOffset));
+				}
+
+				if (!active) {
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from + footnoteDefinition[1].length, line.from + idStart));
+					ranges.push(Decoration.mark({
+						class: 'cm-live-footnote-ref',
+						attributes: footnoteReferenceAttributes(footnoteDefinition[2])
+					}).range(line.from + idStart, line.from + idEnd));
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from + idEnd, line.from + contentOffset));
+					addInlineMarkdownPreview(ranges, line, contentOffset);
+				}
+
+				continue;
+			}
 
 			if (isHorizontalRuleLine(text)) {
 				if (active) {
@@ -1175,6 +1333,7 @@
 
 	function activeSourceBlocksForSelection(
 		state: EditorState,
+		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
 		tableBlocks: SourceBlock[]
 	) {
@@ -1187,7 +1346,7 @@
 			const endLine = state.doc.lineAt(endPosition).number;
 
 			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-				const block = sourceBlockForLine(state, lineNumber, fencedBlocks, tableBlocks);
+				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks);
 
 				if (!blocks.some((existing) => sameSourceBlock(existing, block))) {
 					blocks.push(block);
@@ -1207,9 +1366,14 @@
 	function sourceBlockForLine(
 		state: EditorState,
 		lineNumber: number,
+		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
 		tableBlocks: SourceBlock[]
 	): SourceBlock {
+		const frontmatterBlock = blockForLine(frontmatterBlocks, lineNumber);
+
+		if (frontmatterBlock) return frontmatterBlock;
+
 		const fencedBlock = blockForLine(fencedBlocks, lineNumber);
 
 		if (fencedBlock) return fencedBlock;
@@ -1283,6 +1447,98 @@
 		}
 
 		return blocks;
+	}
+
+	function markdownFrontmatterBlocks(state: EditorState): SourceBlock[] {
+		if (state.doc.lines < 2) return [];
+
+		const opening = state.doc.line(1);
+
+		if (!isFrontmatterBoundaryLine(opening.text)) return [];
+
+		for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
+			const line = state.doc.line(lineNumber);
+
+			if (!isFrontmatterBoundaryLine(line.text) && !isFrontmatterClosingLine(line.text)) continue;
+
+			const rawLines: string[] = [];
+
+			for (let contentLine = 2; contentLine < lineNumber; contentLine += 1) {
+				rawLines.push(state.doc.line(contentLine).text);
+			}
+
+			return [{
+				start: 1,
+				end: lineNumber,
+				kind: 'frontmatter',
+				frontmatter: parseFrontmatter(rawLines)
+			}];
+		}
+
+		return [];
+	}
+
+	function isFrontmatterBoundaryLine(text: string) {
+		return (/^[ \t]*---[ \t]*$/).test(text);
+	}
+
+	function isFrontmatterClosingLine(text: string) {
+		return (/^[ \t]*\.\.\.[ \t]*$/).test(text);
+	}
+
+	function parseFrontmatter(rawLines: string[]): MarkdownFrontmatter {
+		const entries: MarkdownFrontmatterEntry[] = [];
+		let currentEntry: MarkdownFrontmatterEntry | null = null;
+
+		for (const line of rawLines) {
+			const match = (/^[ \t]*([A-Za-z0-9_.-]+):[ \t]*(.*)$/).exec(line);
+
+			if (match) {
+				currentEntry = {
+					key: match[1],
+					value: frontmatterValueLabel(match[2])
+				};
+
+				entries.push(currentEntry);
+				continue;
+			}
+
+			if (!currentEntry) continue;
+
+			const listItem = (/^[ \t]+-[ \t]+(.+)$/).exec(line);
+			const continuation = (/^[ \t]+(.+)$/).exec(line);
+
+			if (listItem) {
+				currentEntry.value = joinFrontmatterValue(currentEntry.value, frontmatterValueLabel(listItem[1]), ', ');
+				continue;
+			}
+
+			if (continuation) {
+				currentEntry.value = joinFrontmatterValue(currentEntry.value, frontmatterValueLabel(continuation[1]), ' ');
+			}
+		}
+
+		return { entries, rawLines };
+	}
+
+	function joinFrontmatterValue(current: string, next: string, separator: string) {
+		if (!current) return next;
+		if (!next) return current;
+
+		return `${current}${separator}${next}`;
+	}
+
+	function frontmatterValueLabel(value: string) {
+		const trimmed = value.trim();
+
+		if (
+			(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'"))
+		) {
+			return trimmed.slice(1, -1);
+		}
+
+		return trimmed;
 	}
 
 	function isHorizontalRuleLine(text: string) {
@@ -1547,10 +1803,10 @@
 			return true;
 		};
 
-		const addMark = (from: number, to: number, className: string) => {
+		const addMark = (from: number, to: number, className: string, attributes?: Record<string, string>) => {
 			if (from >= to) return;
 
-			ranges.push(Decoration.mark({ class: className }).range(line.from + from, line.from + to));
+			ranges.push(Decoration.mark({ class: className, attributes }).range(line.from + from, line.from + to));
 		};
 
 		const hide = (from: number, to: number) => addMark(from, to, 'cm-markdown-syntax-hidden');
@@ -1579,6 +1835,30 @@
 			hide(labelEnd, to);
 		}
 
+		for (const match of text.matchAll(/\[\^([^\]\s]+)\]/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+			const labelStart = from + 2;
+			const labelEnd = labelStart + match[1].length;
+
+			if (!claim(from, to)) continue;
+
+			hide(from, labelStart);
+			addMark(labelStart, labelEnd, 'cm-live-footnote-ref', footnoteReferenceAttributes(match[1]));
+			hide(labelEnd, to);
+		}
+
+		for (const match of text.matchAll(/~~([^~\n]+)~~/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			hide(from, from + 2);
+			addMark(from + 2, to - 2, 'cm-live-strikethrough');
+			hide(to - 2, to);
+		}
+
 		for (const match of text.matchAll(/\*\*([^*\n]+)\*\*/g)) {
 			const from = match.index ?? 0;
 			const to = from + match[0].length;
@@ -1588,6 +1868,18 @@
 			hide(from, from + 2);
 			addMark(from + 2, to - 2, 'cm-live-bold');
 			hide(to - 2, to);
+		}
+
+		for (const match of text.matchAll(/(^|[\s(])\*([^*\n]+)\*/g)) {
+			const prefixLength = match[1].length;
+			const from = (match.index ?? 0) + prefixLength;
+			const to = from + match[0].length - prefixLength;
+
+			if (!claim(from, to)) continue;
+
+			hide(from, from + 1);
+			addMark(from + 1, to - 1, 'cm-live-italic');
+			hide(to - 1, to);
 		}
 
 		for (const match of text.matchAll(/(^|[\s(])_([^_\n]+)_/g)) {
@@ -1886,17 +2178,38 @@
 				}),
 
 				EditorView.domEventHandlers({
-					mousemove(event) {
+					mousedown(event, view) {
+						return maybeJumpToFootnote(event, view);
+					},
+
+					keydown(event, view) {
+						updateFootnoteJumpArmed(view, footnoteJumpModifierActive(event));
+
+						return false;
+					},
+
+					keyup(event, view) {
+						updateFootnoteJumpArmed(view, footnoteJumpModifierActive(event));
+
+						return false;
+					},
+
+					mousemove(event, view) {
+						updateFootnoteJumpArmed(view, footnoteJumpModifierActive(event));
+
 						const threadId = threadAnchorFromEvent(event);
 
 						if (activeThreadId !== threadId) activeThreadId = threadId;
 					},
 
-					mouseleave() {
+					mouseleave(event, view) {
+						updateFootnoteJumpArmed(view, false);
+
 						if (activeThreadId) activeThreadId = '';
 					},
 
-					blur() {
+					blur(event, view) {
+						updateFootnoteJumpArmed(view, false);
 						selectionToolbar.visible = false;
 					},
 
@@ -1906,6 +2219,67 @@
 				})
 			];
 		}
+	}
+
+	function updateFootnoteJumpArmed(view: EditorView, armed: boolean) {
+		view.dom.classList.toggle('cm-footnote-jump-armed', armed);
+	}
+
+	function footnoteJumpModifierActive(event: MouseEvent | KeyboardEvent) {
+		return event.metaKey || event.ctrlKey;
+	}
+
+	function maybeJumpToFootnote(event: MouseEvent, view: EditorView) {
+		if (!event.metaKey && !event.ctrlKey) return false;
+
+		const footnoteId = footnoteIdFromEvent(event);
+
+		if (!footnoteId) return false;
+
+		const line = footnoteDefinitionLine(view.state, footnoteId);
+
+		if (!line) return false;
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		view.dispatch({
+			selection: { anchor: line.from },
+			effects: EditorView.scrollIntoView(line.from, { y: 'center' })
+		});
+		view.focus();
+
+		return true;
+	}
+
+	function footnoteIdFromEvent(event: MouseEvent) {
+		const target = event.target;
+
+		if (!(target instanceof Element)) return '';
+
+		return target.closest<HTMLElement>('[data-footnote-id]')?.dataset.footnoteId ?? '';
+	}
+
+	function footnoteDefinitionLine(state: EditorState, footnoteId: string) {
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			const line = state.doc.line(lineNumber);
+			const definition = footnoteDefinitionMatch(line.text);
+
+			if (definition?.[2] === footnoteId) return line;
+		}
+
+		return null;
+	}
+
+	function footnoteDefinitionMatch(text: string) {
+		return (/^([ \t]{0,3})\[\^([^\]\s]+)\]:(\s*)(.*)/).exec(text);
+	}
+
+	function footnoteReferenceAttributes(footnoteId: string) {
+		return {
+			'data-footnote-id': footnoteId,
+			title: 'Cmd-click to jump to footnote'
+		};
 	}
 
 	function threadAnchorFromEvent(event: MouseEvent) {
