@@ -68,8 +68,8 @@
   --surface-muted: var(--paper-sunk);
   --surface-soft: var(--gray-05);
   --document-bg: transparent;
-  --active-source-bg: var(--paper-sunk);
-  --active-heading-bg: color-mix(in srgb, var(--paper-sunk) 72%, var(--paper-raised));
+  --active-source-bg: color-mix(in srgb, var(--ink) 4%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 5%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --text: var(--fg-2);
@@ -144,8 +144,8 @@
     --sheet-border: #4a4a47;
     --sheet-radius: 0;
     --document-bg: transparent;
-    --active-source-bg: #292927;
-    --active-heading-bg: #242423;
+    --active-source-bg: color-mix(in srgb, var(--ink) 5%, transparent);
+    --active-heading-bg: color-mix(in srgb, var(--ink) 6%, transparent);
     --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
     --note-focus-outline: var(--gray-20);
     --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -182,8 +182,8 @@
   --sheet-border: var(--gray-20);
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: var(--paper-sunk);
-  --active-heading-bg: color-mix(in srgb, var(--paper-sunk) 72%, var(--paper-raised));
+  --active-source-bg: color-mix(in srgb, var(--ink) 4%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 5%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -219,8 +219,8 @@
   --sheet-border: #4a4a47;
   --sheet-radius: 0;
   --document-bg: transparent;
-  --active-source-bg: #292927;
-  --active-heading-bg: #242423;
+  --active-source-bg: color-mix(in srgb, var(--ink) 5%, transparent);
+  --active-heading-bg: color-mix(in srgb, var(--ink) 6%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
   --note-focus-outline: var(--gray-20);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -1381,6 +1381,173 @@ textarea:not([data-slot]):focus {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
+}
+
+.markdown-image-widget {
+  cursor: text;
+  max-width: 100%;
+  position: relative;
+  vertical-align: middle;
+}
+
+.markdown-image-widget img {
+  background: color-mix(in srgb, var(--surface-muted) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
+  border-radius: 4px;
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.markdown-image-widget.inline {
+  display: inline-grid;
+  margin: 0 3px;
+}
+
+.markdown-image-widget.inline img {
+  max-height: 1.45em;
+  max-width: 12em;
+}
+
+.markdown-image-widget.block {
+  display: inline-grid;
+  gap: 7px;
+  margin: 10px 0 24px;
+}
+
+.markdown-image-widget.block img {
+  max-height: min(520px, 62vh);
+}
+
+.markdown-image-widget:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  outline-offset: 3px;
+}
+
+.markdown-image-fallback {
+  border: 1px dashed color-mix(in srgb, var(--border) 56%, transparent);
+  border-radius: 4px;
+  color: var(--text-muted);
+  display: none;
+  font-family: var(--font-plex-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 10px 12px;
+}
+
+.markdown-image-widget.is-missing img {
+  display: none;
+}
+
+.markdown-image-widget.is-missing .markdown-image-fallback {
+  display: inline-block;
+}
+
+.markdown-image-widget.block.is-missing .markdown-image-fallback {
+  display: block;
+}
+
+button.markdown-image-resize-handle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  bottom: -8px;
+  color: transparent;
+  cursor: grab;
+  display: block;
+  font: inherit;
+  gap: 0;
+  height: 34px;
+  justify-content: initial;
+  line-height: 0;
+  min-height: 0;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+  position: absolute;
+  right: -8px;
+  transition:
+    opacity var(--dur-fast) var(--ease-out);
+  width: 34px;
+}
+
+button.markdown-image-resize-handle:hover:not(:disabled),
+button.markdown-image-resize-handle:focus-visible,
+button.markdown-image-resize-handle:active:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+  outline: none;
+  transform: none;
+}
+
+.markdown-image-widget.is-resizing button.markdown-image-resize-handle {
+  cursor: grabbing;
+}
+
+button.markdown-image-resize-handle::before,
+button.markdown-image-resize-handle::after {
+  border-bottom: 2px solid color-mix(in srgb, var(--paper-raised) 92%, transparent);
+  border-right: 2px solid color-mix(in srgb, var(--paper-raised) 92%, transparent);
+  border-radius: 0 0 5px 0;
+  bottom: 8px;
+  content: "";
+  filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--ink) 70%, transparent))
+    drop-shadow(0 2px 4px color-mix(in srgb, var(--ink) 28%, transparent));
+  position: absolute;
+  right: 8px;
+}
+
+button.markdown-image-resize-handle::before {
+  height: 22px;
+  width: 22px;
+}
+
+button.markdown-image-resize-handle::after {
+  bottom: 14px;
+  height: 10px;
+  opacity: 0.72;
+  right: 14px;
+  width: 10px;
+}
+
+.markdown-image-widget:hover .markdown-image-resize-handle,
+.markdown-image-widget:focus-within .markdown-image-resize-handle,
+.markdown-image-widget.is-resizing .markdown-image-resize-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+button.markdown-image-resize-handle:hover::before,
+button.markdown-image-resize-handle:hover::after,
+button.markdown-image-resize-handle:focus-visible::before,
+button.markdown-image-resize-handle:focus-visible::after,
+.markdown-image-widget.is-resizing button.markdown-image-resize-handle::before,
+.markdown-image-widget.is-resizing button.markdown-image-resize-handle::after {
+  border-color: var(--paper-raised);
+  filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--ink) 82%, transparent))
+    drop-shadow(0 3px 6px color-mix(in srgb, var(--ink) 34%, transparent));
+}
+
+.live-preview-editor .cm-live-image-source-line.cm-active-source-line {
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: var(--text-muted);
+  cursor: text;
+  font-family: var(--font-plex-mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 10px 0 24px;
+  min-height: max(84px, var(--markdown-image-placeholder-height, 180px));
+  overflow-wrap: anywhere;
+  padding: 12px;
+  white-space: normal;
+  width: min(100%, max(280px, var(--markdown-image-placeholder-width, 100%)));
 }
 
 .live-preview-editor .cm-live-footnote-ref {

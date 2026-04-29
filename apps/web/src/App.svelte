@@ -207,7 +207,10 @@
 		typeof globalThis &
 		{
 			__TAURI__?: {
-				core?: { invoke?: TauriInvoke };
+				core?: {
+					invoke?: TauriInvoke;
+					convertFileSrc?: (filePath: string, protocol?: string) => string
+				};
 				event?: {
 					listen?: <T>(event: string, handler: (event: TauriEvent<T>) => void) => Promise<() => void>
 				 };
@@ -351,12 +354,31 @@
 		entries: MarkdownFrontmatterEntry[];
 		rawLines: string[]
 	};
+	type MarkdownImage = {
+		alt: string;
+		src: string;
+		title: string;
+		raw: string;
+		attrs: MarkdownImageAttributes
+	};
+	type MarkdownImageAttributes = {
+		width: MarkdownImageSize | null;
+		height: MarkdownImageSize | null;
+		other: string[]
+	};
+	type MarkdownImageSize = {
+		value: number;
+		unit: string;
+		raw: string
+	};
 
 	type MarkdownTable = {
 		headers: string[];
 		alignments: Array<'left' | 'center' | 'right' | null>;
 		rows: string[][]
 	 };
+
+	const markdownImageBounds = new Map<string, { width: number; height: number }>();
 
 	class SuggestionWidget extends WidgetType {
 		text = '';
@@ -567,6 +589,156 @@
 			label.setAttribute('aria-label', `Code language: ${this.language}`);
 
 			return label;
+		}
+	}
+
+	class MarkdownImageWidget extends WidgetType {
+		image: MarkdownImage;
+		lineNumber = 1;
+		from = 0;
+		to = 0;
+		block = false;
+		key = '';
+
+		constructor(image: MarkdownImage, lineNumber: number, from: number, to: number, block = false) {
+			super();
+			this.image = image;
+			this.lineNumber = lineNumber;
+			this.from = from;
+			this.to = to;
+			this.block = block;
+			this.key = `${JSON.stringify(image)}:${from}:${to}:${block}`;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof MarkdownImageWidget && other.lineNumber === this.lineNumber && other.key === this.key;
+		}
+
+		toDOM(view: EditorView) {
+			const wrapper = document.createElement(this.block ? 'figure' : 'span');
+			const image = document.createElement('img');
+			const fallback = document.createElement('span');
+			const resizeHandle = document.createElement('button');
+			const resolvedSrc = resolveMarkdownImageSrc(this.image.src);
+
+			wrapper.className = `markdown-image-widget ${this.block ? 'block' : 'inline'}`;
+			wrapper.tabIndex = 0;
+			wrapper.setAttribute('role', 'button');
+			wrapper.setAttribute('aria-label', 'Edit Markdown image');
+
+			image.alt = this.image.alt;
+			image.decoding = 'async';
+			image.loading = 'lazy';
+			image.draggable = false;
+			if (this.image.title) image.title = this.image.title;
+			applyMarkdownImageSize(image, this.image);
+
+			if (resolvedSrc) {
+				image.src = resolvedSrc;
+			} else {
+				wrapper.classList.add('is-missing');
+			}
+
+			fallback.className = 'markdown-image-fallback';
+			fallback.textContent = this.image.alt || this.image.src || 'Image';
+			resizeHandle.type = 'button';
+			resizeHandle.className = 'markdown-image-resize-handle';
+			resizeHandle.setAttribute('aria-label', 'Resize image');
+			resizeHandle.addEventListener('mousedown', (event) => {
+				this.startResize(event, view, image, wrapper);
+			});
+
+			image.addEventListener('error', () => {
+				wrapper.classList.add('is-missing');
+			});
+
+			const rememberBounds = () => {
+				window.requestAnimationFrame(() => {
+					const rect = image.getBoundingClientRect();
+
+					if (rect.width <= 0 || rect.height <= 0) return;
+
+					markdownImageBounds.set(markdownImageBoundsKey(this.image), {
+						width: Math.round(rect.width),
+						height: Math.round(rect.height)
+					});
+				});
+			};
+
+			image.addEventListener('load', rememberBounds);
+			if (image.complete) rememberBounds();
+
+			wrapper.append(image, fallback, resizeHandle);
+
+			const editImage = (event: Event) => {
+				event.preventDefault();
+
+				const line = view.state.doc.line(Math.min(this.lineNumber, view.state.doc.lines));
+
+				view.dispatch({ selection: { anchor: line.from } });
+				view.focus();
+			};
+
+			wrapper.addEventListener('mousedown', editImage);
+
+			wrapper.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter') editImage(event);
+			});
+
+			return wrapper;
+		}
+
+		startResize(
+			event: MouseEvent,
+			view: EditorView,
+			image: HTMLImageElement,
+			wrapper: HTMLElement
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+
+			const rect = image.getBoundingClientRect();
+
+			if (rect.width <= 0 || rect.height <= 0) return;
+
+			const startX = event.clientX;
+			const startY = event.clientY;
+			const startWidth = rect.width;
+			const startHeight = rect.height;
+			let nextWidth = Math.round(startWidth);
+			let nextHeight = Math.round(startHeight);
+
+			wrapper.classList.add('is-resizing');
+
+			const onMove = (moveEvent: MouseEvent) => {
+				moveEvent.preventDefault();
+
+				nextWidth = clampImageResize(startWidth + moveEvent.clientX - startX);
+				nextHeight = clampImageResize(startHeight + moveEvent.clientY - startY);
+				image.style.width = `${nextWidth}px`;
+				image.style.height = `${nextHeight}px`;
+
+				markdownImageBounds.set(markdownImageBoundsKey(this.image), {
+					width: nextWidth,
+					height: nextHeight
+				});
+			};
+
+			const onUp = (upEvent: MouseEvent) => {
+				upEvent.preventDefault();
+				wrapper.classList.remove('is-resizing');
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+
+				replaceMarkdownImageSize(view, this.image, this.from, this.to, nextWidth, nextHeight);
+			};
+
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		}
+
+		ignoreEvent() {
+			return false;
 		}
 	}
 
@@ -1136,6 +1308,7 @@
 			const heading = (/^(#{1,6})(\s+)(.*)/).exec(text);
 			const blockquote = (/^([ \t]{0,3}>[ \t]?)(.*)/).exec(text);
 			const footnoteDefinition = footnoteDefinitionMatch(text);
+			const imageLine = markdownImageOnly(text);
 
 			if (blockquote) {
 				const markerEnd = blockquote[1].length;
@@ -1181,6 +1354,22 @@
 					}).range(line.from + idStart, line.from + idEnd));
 					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from + idEnd, line.from + contentOffset));
 					addInlineMarkdownPreview(ranges, line, contentOffset);
+				}
+
+				continue;
+			}
+
+			if (imageLine) {
+				if (active) {
+					ranges.push(Decoration.line({
+						class: `cm-live-image-source-line ${activeClass}`,
+						attributes: markdownImagePlaceholderAttributes(imageLine)
+					}).range(line.from));
+				} else {
+					ranges.push(Decoration.replace({
+						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
+						block: true
+					}).range(line.from, line.to));
 				}
 
 				continue;
@@ -1541,6 +1730,259 @@
 		return trimmed;
 	}
 
+	function markdownImageOnly(text: string): MarkdownImage | null {
+		const trimmed = text.trim();
+		const match = markdownImagePattern().exec(trimmed);
+
+		if (!match || match[0] !== trimmed) return null;
+
+		return markdownImageFromMatch(match);
+	}
+
+	function markdownImagePattern() {
+		return /!\[([^\]\n]*)\]\(((?:<[^>\n]+>(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?)|(?:[^)\n]+))\)(?:\{([^\n}]*)\})?/g;
+	}
+
+	function markdownImageFromMatch(match: RegExpMatchArray): MarkdownImage | null {
+		const rawDestination = match[2]?.trim() ?? '';
+		const { src, title } = splitMarkdownImageDestination(rawDestination);
+
+		if (!src) return null;
+
+		return {
+			alt: match[1] ?? '',
+			src,
+			title,
+			raw: match[0],
+			attrs: parseMarkdownImageAttributes(match[3] ?? '')
+		};
+	}
+
+	function parseMarkdownImageAttributes(value: string): MarkdownImageAttributes {
+		const attrs: MarkdownImageAttributes = { width: null, height: null, other: [] };
+		const source = value.trim().replace(/^:/, '').trim();
+
+		for (const token of markdownAttributeTokens(source)) {
+			const match = (/^([A-Za-z][A-Za-z0-9_-]*)=(.+)$/).exec(token);
+
+			if (!match) {
+				attrs.other.push(token);
+				continue;
+			}
+
+			const key = match[1].toLowerCase();
+			const size = parseMarkdownImageSize(match[2]);
+
+			if (key === 'width' && size) {
+				attrs.width = size;
+			} else if (key === 'height' && size) {
+				attrs.height = size;
+			} else {
+				attrs.other.push(token);
+			}
+		}
+
+		return attrs;
+	}
+
+	function markdownAttributeTokens(value: string) {
+		const tokens: string[] = [];
+		let token = '';
+		let quote = '';
+
+		for (const character of value) {
+			if (quote) {
+				token += character;
+				if (character === quote) quote = '';
+				continue;
+			}
+
+			if (character === '"' || character === "'") {
+				quote = character;
+				token += character;
+				continue;
+			}
+
+			if (/\s/.test(character)) {
+				if (token) {
+					tokens.push(token);
+					token = '';
+				}
+
+				continue;
+			}
+
+			token += character;
+		}
+
+		if (token) tokens.push(token);
+
+		return tokens;
+	}
+
+	function parseMarkdownImageSize(value: string): MarkdownImageSize | null {
+		const raw = unquoteMarkdownTitle(value);
+		const match = (/^(\d+(?:\.\d+)?)([A-Za-z%]*)$/).exec(raw);
+
+		if (!match) return null;
+
+		return {
+			value: Number(match[1]),
+			unit: match[2],
+			raw
+		};
+	}
+
+	function splitMarkdownImageDestination(destination: string) {
+		if (destination.startsWith('<')) {
+			const closeIndex = destination.indexOf('>');
+
+			if (closeIndex > 0) {
+				return {
+					src: destination.slice(1, closeIndex).trim(),
+					title: unquoteMarkdownTitle(destination.slice(closeIndex + 1).trim())
+				};
+			}
+		}
+
+		const title = (/\s+(["'])(.*?)\1\s*$/).exec(destination);
+
+		if (title) {
+			return {
+				src: destination.slice(0, title.index).trim(),
+				title: title[2]
+			};
+		}
+
+		return { src: destination.trim(), title: '' };
+	}
+
+	function unquoteMarkdownTitle(value: string) {
+		const trimmed = value.trim();
+
+		if (
+			(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'"))
+		) {
+			return trimmed.slice(1, -1);
+		}
+
+		return trimmed;
+	}
+
+	function resolveMarkdownImageSrc(src: string) {
+		const safeSrc = src.trim();
+
+		if (!safeSrc || (/^javascript:/i).test(safeSrc)) return '';
+		if (isExternalImageSource(safeSrc)) return safeSrc;
+
+		const imagePath = localImagePathForMarkdownSource(safeSrc);
+
+		if (!imagePath) return safeSrc;
+
+		return tauriFileSrc(imagePath);
+	}
+
+	function applyMarkdownImageSize(imageElement: HTMLImageElement, image: MarkdownImage) {
+		const width = markdownImageSizeCss(image.attrs.width);
+		const height = markdownImageSizeCss(image.attrs.height);
+
+		if (width) imageElement.style.width = width;
+		if (height) imageElement.style.height = height;
+	}
+
+	function markdownImageSizeCss(size: MarkdownImageSize | null) {
+		if (!size) return '';
+
+		return `${size.value}${size.unit || 'px'}`;
+	}
+
+	function isExternalImageSource(src: string) {
+		return (/^(?:https?:|blob:|data:image\/)/i).test(src);
+	}
+
+	function localImagePathForMarkdownSource(src: string) {
+		if (src.startsWith('file://')) return filePathFromFileUrl(new URL(src));
+		if (isAbsoluteLocalPath(src)) return normalizePathSeparators(src);
+		if (!nativeFilePath) return '';
+
+		return joinLocalPath(directoryPath(nativeFilePath), src);
+	}
+
+	function tauriFileSrc(path: string) {
+		const convertFileSrc = (window as TauriWindow).__TAURI__?.core?.convertFileSrc;
+
+		if (desktopShell && convertFileSrc) return convertFileSrc(path);
+
+		return fileUrlFromPath(path);
+	}
+
+	function fileUrlFromPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+		const prefix = (/^[A-Za-z]:\//).test(normalized) ? 'file:///' : 'file://';
+
+		return `${prefix}${normalized.split('/').map(encodeURIComponent).join('/')}`;
+	}
+
+	function markdownImageBoundsKey(image: MarkdownImage) {
+		return image.src;
+	}
+
+	function markdownImagePlaceholderAttributes(image: MarkdownImage) {
+		const bounds = markdownImageBounds.get(markdownImageBoundsKey(image));
+
+		if (!bounds) return undefined;
+
+		return {
+			style: `--markdown-image-placeholder-width: ${bounds.width}px; --markdown-image-placeholder-height: ${bounds.height}px;`
+		};
+	}
+
+	function clampImageResize(value: number) {
+		return Math.max(48, Math.min(2400, Math.round(value)));
+	}
+
+	function replaceMarkdownImageSize(
+		view: EditorView,
+		image: MarkdownImage,
+		from: number,
+		to: number,
+		width: number,
+		height: number
+	) {
+		if (from < 0 || to > view.state.doc.length || from >= to) return;
+
+		view.dispatch({
+			changes: {
+				from,
+				to,
+				insert: markdownImageWithSize(image, width, height)
+			}
+		});
+	}
+
+	function markdownImageWithSize(image: MarkdownImage, width: number, height: number) {
+		const attrs = [
+			...image.attrs.other,
+			`width=${clampImageResize(width)}`,
+			`height=${clampImageResize(height)}`
+		];
+
+		return `![${escapeMarkdownImageAlt(image.alt)}](${markdownImageDestinationWithTitle(image)}){${attrs.join(' ')}}`;
+	}
+
+	function markdownImageDestinationWithTitle(image: MarkdownImage) {
+		const destination = markdownImageDestination(image.src);
+
+		if (!image.title) return destination;
+
+		return `${destination} "${escapeMarkdownTitle(image.title)}"`;
+	}
+
+	function escapeMarkdownTitle(value: string) {
+		return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+	}
+
 	function isHorizontalRuleLine(text: string) {
 		return (/^[ \t]{0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/).test(text);
 	}
@@ -1820,6 +2262,19 @@
 			hide(from, from + 1);
 			addMark(from + 1, to - 1, 'cm-live-code');
 			hide(to - 1, to);
+		}
+
+		for (const match of text.matchAll(markdownImagePattern())) {
+			const image = markdownImageFromMatch(match);
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!image || !claim(from, to)) continue;
+
+			ranges.push(Decoration.replace({
+				widget: new MarkdownImageWidget(image, line.number, line.from + from, line.from + to),
+				inclusive: false
+			}).range(line.from + from, line.from + to));
 		}
 
 		for (const match of text.matchAll(/\[([^\]\n]+)\]\(([^)\n]+)\)/g)) {
@@ -2206,6 +2661,19 @@
 						updateFootnoteJumpArmed(view, false);
 
 						if (activeThreadId) activeThreadId = '';
+					},
+
+					dragover(event) {
+						if (!editorDropHasImages(event.dataTransfer)) return false;
+
+						event.preventDefault();
+						if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+
+						return true;
+					},
+
+					drop(event, view) {
+						return handleEditorImageDrop(event, view);
 					},
 
 					blur(event, view) {
@@ -2744,6 +3212,165 @@
 		return '\n\n';
 	}
 
+	function handleEditorImageDrop(event: DragEvent, view: EditorView) {
+		const images = droppedImagesFromDataTransfer(event.dataTransfer);
+
+		if (images.length === 0) return false;
+
+		event.preventDefault();
+		insertMarkdownImages(view, images, { x: event.clientX, y: event.clientY });
+
+		return true;
+	}
+
+	function editorDropHasImages(dataTransfer: DataTransfer | null) {
+		if (!dataTransfer) return false;
+
+		for (const item of Array.from(dataTransfer.items)) {
+			if (item.kind === 'file' && (!item.type || item.type.startsWith('image/'))) return true;
+		}
+
+		return imageSourcesFromDataTransfer(dataTransfer).length > 0;
+	}
+
+	function droppedImagesFromDataTransfer(dataTransfer: DataTransfer | null) {
+		if (!dataTransfer) return [];
+
+		const images: Array<{ source: string; alt: string }> = [];
+
+		for (const file of Array.from(dataTransfer.files)) {
+			if (!isImageFile(file)) continue;
+
+			const path = (file as File & { path?: string }).path;
+			const source = path || file.name;
+
+			images.push({ source, alt: imageAltText(source) });
+		}
+
+		for (const source of imageSourcesFromDataTransfer(dataTransfer)) {
+			if (images.some((image) => image.source === source)) continue;
+			images.push({ source, alt: imageAltText(source) });
+		}
+
+		return images;
+	}
+
+	function imageSourcesFromDataTransfer(dataTransfer: DataTransfer) {
+		const sources: string[] = [];
+		const uriList = dataTransfer.getData('text/uri-list');
+		const plainText = dataTransfer.getData('text/plain').trim();
+
+		for (const line of uriList.split(/\r?\n/)) {
+			const source = line.trim();
+
+			if (source && !source.startsWith('#')) sources.push(source);
+		}
+
+		if (plainText && !sources.includes(plainText) && isImageSourceLike(plainText)) {
+			sources.push(plainText);
+		}
+
+		return sources.filter(isImageSourceLike);
+	}
+
+	function isImageFile(file: File) {
+		return file.type.startsWith('image/') || isImagePathLike(file.name);
+	}
+
+	function insertMarkdownImages(
+		view: EditorView,
+		images: Array<{ source: string; alt: string }>,
+		coordinates: { x: number; y: number } | null = null
+	) {
+		if (images.length === 0) return;
+
+		const position = editorPositionFromCoordinates(view, coordinates);
+		const doc = view.state.doc.toString();
+		const markdown = images
+			.map((image) => markdownImageReference(image.source, image.alt))
+			.join('\n\n');
+		const prefix = insertionPrefix(doc, position);
+		const suffix = insertionSuffix(doc, position);
+		const insert = `${prefix}${markdown}${suffix}`;
+		const anchor = position + prefix.length + markdown.length;
+
+		selectedQuote = '';
+		commentBody = '';
+		replacementBody = '';
+		selectionToolbar.visible = false;
+		error = '';
+
+		view.dispatch({
+			changes: { from: position, to: position, insert },
+			selection: { anchor }
+		});
+
+		view.focus();
+	}
+
+	function editorPositionFromCoordinates(
+		view: EditorView,
+		coordinates: { x: number; y: number } | null
+	) {
+		if (!coordinates) return view.state.selection.main.head;
+
+		const position = view.posAtCoords(coordinates);
+
+		if (position !== null) return position;
+
+		const scale = window.devicePixelRatio || 1;
+		const scaledPosition = scale === 1
+			? null
+			: view.posAtCoords({ x: coordinates.x / scale, y: coordinates.y / scale });
+
+		return scaledPosition ?? view.state.selection.main.head;
+	}
+
+	function markdownImageReference(source: string, alt: string) {
+		const destination = isAbsoluteLocalPath(source)
+			? markdownImageDestinationForPath(source)
+			: source;
+
+		return `![${escapeMarkdownImageAlt(alt)}](${markdownImageDestination(destination)})`;
+	}
+
+	function markdownImageDestinationForPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+		const documentDirectory = nativeFilePath ? directoryPath(nativeFilePath) : '';
+		const relative = documentDirectory ? relativeLocalPath(documentDirectory, normalized) : '';
+
+		return relative || normalized;
+	}
+
+	function markdownImageDestination(destination: string) {
+		const value = destination.trim();
+
+		if (/[\s()<>]/.test(value)) {
+			return `<${value.replace(/</g, '%3C').replace(/>/g, '%3E')}>`;
+		}
+
+		return value;
+	}
+
+	function escapeMarkdownImageAlt(value: string) {
+		return value.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+	}
+
+	function imageAltText(source: string) {
+		const name = fileNameFromPath(source.split(/[?#]/)[0] || source);
+		const withoutExtension = name.replace(/\.[^.]+$/, '');
+
+		return decodePathComponent(withoutExtension).replace(/[-_]+/g, ' ').trim() || 'Image';
+	}
+
+	function isImageSourceLike(source: string) {
+		return (/^(?:blob:|data:image\/)/i).test(source) || isImagePathLike(source) || source.startsWith('file://');
+	}
+
+	function isImagePathLike(path: string) {
+		return (/\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)(?:[?#].*)?$/i).test(path);
+	}
+
 	function tauriInvoke<T>(command: string, args?: Record<string, unknown>) {
 		const invoke = (window as TauriWindow).__TAURI__?.core?.invoke;
 
@@ -3034,10 +3661,27 @@
 
 		dragActive = false;
 
+		const imagePaths = payload.paths.filter(isImagePathLike);
 		const markdownPaths = payload.paths.filter(isMarkdownPathLike);
 
+		if (imagePaths.length > 0) {
+			if (!mainEditor) {
+				error = 'Open a Markdown document before dropping images.';
+
+				return;
+			}
+
+			insertMarkdownImages(
+				mainEditor,
+				imagePaths.map((path) => ({ source: path, alt: imageAltText(path) })),
+				dragCoordinatesFromNativePosition(payload.position)
+			);
+
+			return;
+		}
+
 		if (markdownPaths.length === 0) {
-			error = 'Drop Markdown or text documents to open them.';
+			error = 'Drop Markdown, text, or image files.';
 
 			return;
 		}
@@ -3049,12 +3693,112 @@
 		}
 	}
 
+	function dragCoordinatesFromNativePosition(position: unknown) {
+		if (!position || typeof position !== 'object') return null;
+
+		const maybePosition = position as { x?: unknown; y?: unknown };
+		const x = Number(maybePosition.x);
+		const y = Number(maybePosition.y);
+
+		if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+		return { x, y };
+	}
+
 	function isMarkdownPathLike(path: string) {
 		return (/\.(md|markdown|txt)$/i).test(path);
 	}
 
 	function fileNameFromPath(path: string) {
 		return path.split(/[\\/]/).filter(Boolean).at(-1) || 'Untitled.md';
+	}
+
+	function normalizePathSeparators(path: string) {
+		return decodePathComponent(path).replace(/\\/g, '/');
+	}
+
+	function decodePathComponent(path: string) {
+		try {
+			return decodeURIComponent(path);
+		} catch {
+			return path;
+		}
+	}
+
+	function isAbsoluteLocalPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+
+		return normalized.startsWith('/') || (/^[A-Za-z]:\//).test(normalized);
+	}
+
+	function directoryPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+		const index = normalized.lastIndexOf('/');
+
+		if (index < 0) return '';
+		if (index === 0) return '/';
+
+		return normalized.slice(0, index);
+	}
+
+	function joinLocalPath(base: string, path: string) {
+		const decodedPath = normalizePathSeparators(path);
+
+		if (isAbsoluteLocalPath(decodedPath)) return decodedPath;
+
+		const baseParts = splitLocalPath(base);
+		const parts = [...baseParts.parts];
+
+		for (const part of decodedPath.split('/')) {
+			if (!part || part === '.') continue;
+			if (part === '..') {
+				parts.pop();
+				continue;
+			}
+
+			parts.push(part);
+		}
+
+		return buildLocalPath(baseParts.root, parts);
+	}
+
+	function relativeLocalPath(fromDirectory: string, toPath: string) {
+		const from = splitLocalPath(fromDirectory);
+		const to = splitLocalPath(toPath);
+
+		if (from.root !== to.root) return '';
+
+		let shared = 0;
+
+		while (from.parts[shared] && from.parts[shared] === to.parts[shared]) {
+			shared += 1;
+		}
+
+		const up = from.parts.slice(shared).map(() => '..');
+		const down = to.parts.slice(shared);
+
+		return [...up, ...down].join('/');
+	}
+
+	function splitLocalPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+		const drive = /^([A-Za-z]:)(?:\/|$)/.exec(normalized);
+		const root = drive ? `${drive[1]}/` : normalized.startsWith('/') ? '/' : '';
+		const rest = root
+			? normalized.slice(root.length)
+			: normalized;
+
+		return {
+			root,
+			parts: rest.split('/').filter(Boolean)
+		};
+	}
+
+	function buildLocalPath(root: string, parts: string[]) {
+		if (!root) return parts.join('/');
+		if (root === '/') return `/${parts.join('/')}`;
+
+		return `${root}${parts.join('/')}`;
 	}
 
 	function createNewDocument() {
