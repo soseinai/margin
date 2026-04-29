@@ -1421,9 +1421,10 @@ textarea:not([data-slot]):focus {
 }
 
 .markdown-image-widget.block {
-  display: inline-grid;
+  display: grid;
   gap: 7px;
   margin: 10px 0 24px;
+  width: fit-content;
 }
 
 .markdown-image-widget.block img {

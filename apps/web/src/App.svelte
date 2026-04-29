@@ -14,7 +14,6 @@
 
 	import {
 		ChangeSet,
-		EditorSelection,
 		EditorState,
 		StateEffect,
 		StateField,
@@ -380,6 +379,7 @@
 	 };
 
 	const markdownImageBounds = new Map<string, { width: number; height: number }>();
+	const markdownImageResizeObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
 	class SuggestionWidget extends WidgetType {
 		text = '';
@@ -664,27 +664,46 @@
 				this.startResize(event, view, image, wrapper);
 			});
 
-			image.addEventListener('error', () => {
-				wrapper.classList.add('is-missing');
-			});
+			wrapper.append(image, fallback, resizeHandle);
 
 			const rememberBounds = () => {
-				window.requestAnimationFrame(() => {
-					const rect = image.getBoundingClientRect();
+				const rect = image.getBoundingClientRect();
 
-					if (rect.width <= 0 || rect.height <= 0) return;
+				if (rect.width <= 0 || rect.height <= 0) return;
 
-					markdownImageBounds.set(markdownImageBoundsKey(this.image), {
-						width: Math.round(rect.width),
-						height: Math.round(rect.height)
-					});
+				markdownImageBounds.set(markdownImageBoundsKey(this.image), {
+					width: Math.round(rect.width),
+					height: Math.round(rect.height)
 				});
 			};
 
-			image.addEventListener('load', rememberBounds);
-			if (image.complete) rememberBounds();
+			let measureFrame = 0;
+			const refreshGeometry = () => {
+				if (measureFrame) return;
 
-			wrapper.append(image, fallback, resizeHandle);
+				measureFrame = window.requestAnimationFrame(() => {
+					measureFrame = 0;
+					rememberBounds();
+					view.requestMeasure();
+					window.requestAnimationFrame(updateAnchorPositions);
+				});
+			};
+
+			image.addEventListener('error', () => {
+				wrapper.classList.add('is-missing');
+				refreshGeometry();
+			});
+
+			image.addEventListener('load', refreshGeometry);
+			if (image.complete) refreshGeometry();
+
+			if (typeof ResizeObserver === 'function') {
+				const observer = new ResizeObserver(refreshGeometry);
+
+				observer.observe(wrapper);
+				observer.observe(image);
+				markdownImageResizeObservers.set(wrapper, observer);
+			}
 
 			const editImage = (event: Event) => {
 				event.preventDefault();
@@ -755,6 +774,11 @@
 
 		ignoreEvent() {
 			return false;
+		}
+
+		destroy(dom: HTMLElement) {
+			markdownImageResizeObservers.get(dom)?.disconnect();
+			markdownImageResizeObservers.delete(dom);
 		}
 	}
 
@@ -1383,8 +1407,7 @@
 					}).range(line.from));
 				} else {
 					ranges.push(Decoration.replace({
-						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
-						block: true
+						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true)
 					}).range(line.from, line.to));
 				}
 
@@ -2619,13 +2642,13 @@
 					{ key: 'Backspace', run: smartMarkdownBackspace },
 					{
 						key: 'ArrowUp',
-						run: (view) => moveMarkdownSourceLine(view, -1),
-						shift: (view) => moveMarkdownSourceLine(view, -1, true)
+						run: (view) => moveAcrossMarkdownImageLine(view, -1),
+						shift: (view) => moveAcrossMarkdownImageLine(view, -1, true)
 					},
 					{
 						key: 'ArrowDown',
-						run: (view) => moveMarkdownSourceLine(view, 1),
-						shift: (view) => moveMarkdownSourceLine(view, 1, true)
+						run: (view) => moveAcrossMarkdownImageLine(view, 1),
+						shift: (view) => moveAcrossMarkdownImageLine(view, 1, true)
 					},
 					{ key: 'Tab', run: indentMore },
 					{ key: 'Shift-Tab', run: indentLess },
@@ -2862,39 +2885,37 @@
 		return currentDraftChanges.compose(update.changes);
 	}
 
-	function moveMarkdownSourceLine(view: EditorView, direction: -1 | 1, extend = false) {
+	function moveAcrossMarkdownImageLine(view: EditorView, direction: -1 | 1, extend = false) {
 		const selection = view.state.selection.main;
 
 		if (!selection.empty && !extend) return false;
-		if (!shouldUseMarkdownSourceLineMotion(view.state, selection.head, direction)) return false;
+		if (!shouldMoveAcrossMarkdownImageLine(view.state, selection.head, direction)) return false;
 
-		const target = adjacentMarkdownSourceLinePosition(view.state, selection.head, direction);
+		const target = adjacentSourceLinePosition(view.state, selection.head, direction);
 
 		if (target === null) return false;
 
 		view.dispatch({
 			selection: extend
-				? EditorSelection.range(selection.anchor, target)
-				: EditorSelection.cursor(target),
+				? { anchor: selection.anchor, head: target }
+				: { anchor: target },
 			effects: EditorView.scrollIntoView(target)
 		});
 
 		return true;
 	}
 
-	function shouldUseMarkdownSourceLineMotion(state: EditorState, position: number, direction: -1 | 1) {
+	function shouldMoveAcrossMarkdownImageLine(state: EditorState, position: number, direction: -1 | 1) {
 		const currentLine = state.doc.lineAt(position);
 		const targetLineNumber = currentLine.number + direction;
 
 		if (targetLineNumber < 1 || targetLineNumber > state.doc.lines) return false;
 
-		const blocks = markdownSourceMotionBlocks(state);
-
-		return lineNeedsMarkdownSourceMotion(state, currentLine.number, blocks)
-			|| lineNeedsMarkdownSourceMotion(state, targetLineNumber, blocks);
+		return isMarkdownImageOnlyLine(state, currentLine.number)
+			|| isMarkdownImageOnlyLine(state, targetLineNumber);
 	}
 
-	function adjacentMarkdownSourceLinePosition(state: EditorState, position: number, direction: -1 | 1) {
+	function adjacentSourceLinePosition(state: EditorState, position: number, direction: -1 | 1) {
 		const currentLine = state.doc.lineAt(position);
 		const targetLineNumber = currentLine.number + direction;
 
@@ -2906,26 +2927,8 @@
 		return targetLine.from + Math.min(column, targetLine.length);
 	}
 
-	function markdownSourceMotionBlocks(state: EditorState) {
-		return {
-			frontmatter: markdownFrontmatterBlocks(state),
-			fenced: fencedCodeBlocks(state),
-			tables: markdownTableBlocks(state)
-		};
-	}
-
-	function lineNeedsMarkdownSourceMotion(
-		state: EditorState,
-		lineNumber: number,
-		blocks: ReturnType<typeof markdownSourceMotionBlocks>
-	) {
-		if (blockForLine(blocks.frontmatter, lineNumber)) return true;
-		if (blockForLine(blocks.fenced, lineNumber)) return true;
-		if (blockForLine(blocks.tables, lineNumber)) return true;
-
-		const line = state.doc.line(lineNumber);
-
-		return Boolean(markdownImageOnly(line.text)) || isHorizontalRuleLine(line.text);
+	function isMarkdownImageOnlyLine(state: EditorState, lineNumber: number) {
+		return Boolean(markdownImageOnly(state.doc.line(lineNumber).text));
 	}
 
 	function smartMarkdownEnter(view: EditorView) {
