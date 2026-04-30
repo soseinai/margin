@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "ios"))]
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -8,8 +10,6 @@ use std::{
         Mutex,
     },
 };
-#[cfg(not(target_os = "ios"))]
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 #[cfg(not(target_os = "ios"))]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -191,6 +191,67 @@ fn choose_markdown_save_path(suggested_name: String) -> Result<Option<String>, S
 #[tauri::command]
 fn choose_markdown_save_path(_suggested_name: String) -> Result<Option<String>, String> {
     Err(ios_file_picker_message())
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+fn show_comment_context_menu(window: tauri::WebviewWindow, x: f64, y: f64) -> Result<(), String> {
+    let add_comment = MenuItem::with_id(
+        window.app_handle(),
+        "context_add_comment",
+        "Add Comment",
+        true,
+        Some("CmdOrCtrl+Alt+M"),
+    )
+    .map_err(|err| err.to_string())?;
+    let menu =
+        Menu::with_items(window.app_handle(), &[&add_comment]).map_err(|err| err.to_string())?;
+
+    window
+        .popup_menu_at(&menu, tauri::LogicalPosition::new(x, y))
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn show_comment_context_menu(_x: f64, _y: f64) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+fn confirm_close_tab(title: String) -> bool {
+    let title = if title.trim().is_empty() {
+        "this tab"
+    } else {
+        title.trim()
+    };
+
+    matches!(
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("Close Tab?")
+            .set_description(format!(
+                "{title} has unsaved changes. If you close it now, those changes will be discarded."
+            ))
+            .set_buttons(rfd::MessageButtons::OkCancelCustom(
+                "Discard and Close".to_string(),
+                "Cancel".to_string(),
+            ))
+            .show(),
+        rfd::MessageDialogResult::Custom(value) if value == "Discard and Close"
+    )
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn confirm_close_tab(_title: String) -> bool {
+    false
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -619,6 +680,14 @@ pub fn run() {
                 }
             }
 
+            let insert_comment = MenuItem::with_id(
+                app,
+                "insert_comment",
+                "Comment",
+                true,
+                Some("CmdOrCtrl+Alt+M"),
+            )?;
+            let insert_comment_separator = PredefinedMenuItem::separator(app)?;
             let insert_table = MenuItem::with_id(
                 app,
                 "insert_table",
@@ -653,6 +722,8 @@ pub fn run() {
                 "Insert",
                 true,
                 &[
+                    &insert_comment,
+                    &insert_comment_separator,
                     &insert_table,
                     &insert_tasks,
                     &insert_bullets,
@@ -667,6 +738,11 @@ pub fn run() {
                     .cloned()
                     .filter(|submenu| submenu.text().map(|text| text == "Window").unwrap_or(false))
             }) {
+                let item_count = window_menu.items()?.len();
+                for index in (0..item_count).rev() {
+                    window_menu.remove_at(index)?;
+                }
+
                 let previous_tab = MenuItem::with_id(
                     app,
                     "window_previous_tab",
@@ -682,7 +758,16 @@ pub fn run() {
                     Some("CmdOrCtrl+Shift+]"),
                 )?;
                 let tab_separator = PredefinedMenuItem::separator(app)?;
-                window_menu.insert_items(&[&previous_tab, &next_tab, &tab_separator], 0)?;
+                let minimize_window = PredefinedMenuItem::minimize(app, None)?;
+                let maximize_window = PredefinedMenuItem::maximize(app, None)?;
+
+                window_menu.append_items(&[
+                    &previous_tab,
+                    &next_tab,
+                    &tab_separator,
+                    &minimize_window,
+                    &maximize_window,
+                ])?;
             }
 
             app.set_menu(menu)?;
@@ -727,6 +812,8 @@ pub fn run() {
             let _ = app.emit("margin://previous-tab", ());
         } else if menu_id.as_ref() == "window_next_tab" {
             let _ = app.emit("margin://next-tab", ());
+        } else if matches!(menu_id.as_ref(), "insert_comment" | "context_add_comment") {
+            let _ = app.emit("margin://add-comment", ());
         } else if let Some(kind) = insert_payload(menu_id.as_ref()) {
             let _ = app.emit("margin://insert-block", kind);
         }
@@ -739,6 +826,9 @@ pub fn run() {
             open_markdown_document,
             watch_markdown_document,
             choose_markdown_save_path,
+            show_comment_context_menu,
+            confirm_close_tab,
+            quit_app,
             save_markdown_document,
             read_settings,
             write_settings,

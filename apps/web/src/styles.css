@@ -2063,48 +2063,6 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
   opacity: 0.72;
 }
 
-.selection-toolbar {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  position: absolute;
-  z-index: 30;
-}
-
-.selection-toolbar::after {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border-strong);
-  border-right: 1px solid var(--border-strong);
-  bottom: -5px;
-  content: "";
-  height: 8px;
-  left: 50%;
-  position: absolute;
-  transform: translateX(-50%) rotate(45deg);
-  width: 8px;
-}
-
-.selection-toolbar button {
-  background: var(--surface);
-  border-color: transparent;
-  border-radius: 4px;
-  color: var(--text-subtle);
-  font-size: 12px;
-  min-height: 36px;
-  padding: 0 10px;
-  position: relative;
-  z-index: 1;
-}
-
-.selection-toolbar button:hover,
-.selection-toolbar button.active {
-  background: var(--ink);
-  color: var(--paper);
-}
-
 .inline-composer,
 .thread-card,
 .empty-thread,
@@ -2928,22 +2886,6 @@ blockquote {
 
   textarea:not([data-slot]) {
     font-size: 16px;
-  }
-
-  .selection-toolbar {
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    left: 16px !important;
-    position: fixed;
-    right: 16px;
-    top: auto !important;
-  }
-
-  .selection-toolbar::after {
-    display: none;
-  }
-
-  .selection-toolbar button {
-    flex: 1;
   }
 
   .settings-dialog {

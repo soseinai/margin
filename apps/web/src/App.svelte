@@ -68,9 +68,8 @@
 	let baseMarkdown = '';
 	let pendingEditThreads: ThreadView[] = [];
 	let selectedQuote = '';
+	let selectionQuote = '';
 	let commentBody = '';
-	let replacementBody = '';
-	let mode: 'comment' | 'suggest' = 'comment';
 	let editMode: EditingMode = 'edit';
 	let appSettings: AppSettings = { theme: 'auto' };
 	let settingsDraftTheme: ThemeSetting = 'auto';
@@ -81,8 +80,8 @@
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
 	let mainEditor: EditorView | null = null;
-	let selectionToolbar = { visible: false, top: 0, left: 0 };
 	let selectedLineTop = 0;
+	let selectionLineTop = 0;
 	let documentHeight = 720;
 	let lineTops: Record<number, number> = {};
 	let annotationTops: Record<string, number> = {};
@@ -106,6 +105,7 @@
 	let saveMessage = '';
 	let fileChangeCheckInFlight = false;
 	let unlistenNativeInsertMenu: (() => void) | null = null;
+	let unlistenNativeCommentMenu: (() => void) | null = null;
 	let unlistenNativeNewMenu: (() => void) | null = null;
 	let unlistenNativeOpenUrls: (() => void) | null = null;
 	let unlistenNativeOpenMenu: (() => void) | null = null;
@@ -320,7 +320,7 @@
 			top: number;
 			anchorTop: number;
 			height: number;
-			connectorKind: 'comment' | 'suggestion'
+			connectorKind: 'comment'
 		 } |
 
 		{
@@ -1143,7 +1143,7 @@
 	$: threads = [...persistedThreads, ...pendingEditThreads].sort((a, b) => a.line - b.line);
 	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
 	$: selectionReady = selectedQuote.trim().length > 0 && review;
-	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, mode, lineTops, annotationTops, cardHeights);
+	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
 
 	$: if (mainEditor) {
@@ -1181,6 +1181,7 @@
 			window.removeEventListener('keydown', handleGlobalShortcut);
 			window.removeEventListener('beforeunload', handleBeforeUnload);
 			unlistenNativeInsertMenu?.();
+			unlistenNativeCommentMenu?.();
 			unlistenNativeNewMenu?.();
 			unlistenNativeOpenUrls?.();
 			unlistenNativeOpenMenu?.();
@@ -1283,7 +1284,7 @@
 		await applyDocumentTab(nextTab);
 	}
 
-	async function closeDocumentTab(tabId: string) {
+	async function closeDocumentTab(tabId: string, options: { discard?: boolean } = {}) {
 		syncActiveDocumentTab();
 
 		const tabIndex = documentTabs.findIndex((tab) => tab.id === tabId);
@@ -1292,11 +1293,15 @@
 
 		const tab = documentTabs[tabIndex];
 
-		if (tabHasDiscardableWork(tab) && !window.confirm(`Close ${tab.title}? Unsaved work in this tab will be discarded.`)) {
+		if (!options.discard && tabHasDiscardableWork(tab) && !(await confirmDiscardTabClose(tab))) {
 			return;
 		}
 
 		if (documentTabs.length <= 1) {
+			if (await quitDesktopApp()) {
+				return;
+			}
+
 			createUntitledMarkdownDocument({ replaceActive: true });
 
 			return;
@@ -1310,6 +1315,42 @@
 			const nextTab = nextTabs[Math.max(0, tabIndex - 1)] ?? nextTabs[0];
 
 			if (nextTab) await applyDocumentTab(nextTab);
+		}
+	}
+
+	async function confirmDiscardTabClose(tab: DocumentTab) {
+		if (desktopShell) {
+			const request = tauriInvoke<boolean>('confirm_close_tab', { title: tab.title });
+
+			if (request) {
+				try {
+					return await request;
+				} catch(err) {
+					console.warn('Unable to show native close confirmation', err);
+
+					return false;
+				}
+			}
+		}
+
+		return window.confirm(`Close ${tab.title}? Unsaved work in this tab will be discarded.`);
+	}
+
+	async function quitDesktopApp() {
+		if (!desktopShell) return false;
+
+		const request = tauriInvoke<void>('quit_app');
+
+		if (!request) return false;
+
+		try {
+			await request;
+
+			return true;
+		} catch(err) {
+			console.warn('Unable to quit desktop app', err);
+
+			return false;
 		}
 	}
 
@@ -1356,9 +1397,8 @@
 		documentSessionKey = nextTab.documentSessionKey;
 		activeThreadId = '';
 		selectedQuote = '';
+		selectionQuote = '';
 		commentBody = '';
-		replacementBody = '';
-		selectionToolbar.visible = false;
 		syncedEditKeys.clear();
 
 		for (const key of nextTab.syncedEditKeys) syncedEditKeys.add(key);
@@ -3415,6 +3455,13 @@
 					},
 
 					{
+						key: 'Mod-Alt-m',
+						run(view) {
+							return openCommentComposerForSelection(view);
+						}
+					},
+
+					{
 						key: 'Mod-,',
 						run() {
 							if (!shouldHandleWebNativeShortcut()) return false;
@@ -3512,9 +3559,12 @@
 						return handleEditorImageDrop(event, view);
 					},
 
+					contextmenu(event, view) {
+						return openCommentContextMenu(event, view);
+					},
+
 					blur(event, view) {
 						updateFootnoteJumpArmed(view, false);
-						selectionToolbar.visible = false;
 					},
 
 					focus() {
@@ -3595,32 +3645,78 @@
 	}
 
 	function updateSelectionFromEditor(view: EditorView) {
-		const selection = view.state.selection.main;
+		const anchor = commentAnchorForSelection(view);
 
-		if (selection.empty) {
-			selectedQuote = '';
-			selectionToolbar.visible = false;
-
+		if (!anchor) {
+			selectionQuote = '';
 			return;
 		}
 
+		selectionQuote = anchor.quote;
+		selectionLineTop = anchor.lineTop;
+	}
+
+	function commentAnchorForSelection(view: EditorView | null = mainEditor) {
+		if (!view || !documentSurface) return null;
+
+		const selection = view.state.selection.main;
+
+		if (selection.empty) return null;
+
 		const quote = view.state.sliceDoc(selection.from, selection.to).trim();
 		const fromRect = view.coordsAtPos(selection.from);
-		const toRect = view.coordsAtPos(selection.to);
 
-		if (!quote || !fromRect || !toRect || !documentSurface) return;
+		if (!quote || !fromRect) return null;
 
 		const documentRect = documentSurface.getBoundingClientRect();
 
-		selectedQuote = displayTextForMarkdownLine(quote);
-		replacementBody = selectedQuote;
-		selectedLineTop = Math.max(0, fromRect.top - documentRect.top + (fromRect.bottom - fromRect.top) / 2);
-
-		selectionToolbar = {
-			visible: true,
-			top: Math.max(116, fromRect.top + window.scrollY - 42),
-			left: Math.min(window.innerWidth - 196, Math.max(16, (fromRect.left + toRect.right) / 2 + window.scrollX - 92))
+		return {
+			quote: displayTextForMarkdownLine(quote),
+			lineTop: Math.max(0, fromRect.top - documentRect.top + (fromRect.bottom - fromRect.top) / 2)
 		};
+	}
+
+	function storedSelectionAnchor() {
+		if (!selectionQuote.trim()) return null;
+
+		return {
+			quote: selectionQuote,
+			lineTop: selectionLineTop
+		};
+	}
+
+	function openCommentComposerForSelection(view: EditorView | null = mainEditor) {
+		const anchor = commentAnchorForSelection(view) ?? storedSelectionAnchor();
+
+		if (!review || !anchor) return false;
+
+		selectedQuote = anchor.quote;
+		selectedLineTop = anchor.lineTop;
+		commentBody = '';
+
+		requestAnimationFrame(updateAnchorPositions);
+
+		return true;
+	}
+
+	function openCommentContextMenu(event: MouseEvent, view: EditorView) {
+		const anchor = commentAnchorForSelection(view);
+
+		if (!review || !anchor || !desktopShell) return false;
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		selectionQuote = anchor.quote;
+		selectionLineTop = anchor.lineTop;
+		tauriInvoke<void>('show_comment_context_menu', {
+			x: event.clientX,
+			y: event.clientY
+		})?.catch((err) => {
+			console.warn('Unable to show native comment menu', err);
+		});
+
+		return true;
 	}
 
 	function updateAnchorPositions() {
@@ -3861,7 +3957,6 @@
 		items: ThreadView[],
 		activeQuote: string,
 		activeLineTop: number,
-		activeMode: 'comment' | 'suggest',
 		anchorTops: Record<number, number>,
 		annotationAnchors: Record<string, number>,
 		measuredHeights: Record<string, number>
@@ -3881,7 +3976,7 @@
 				id: 'composer',
 				anchorTop: activeLineTop,
 				height: measuredHeights.composer ?? estimateComposerHeight(activeQuote),
-				connectorKind: activeMode === 'suggest' ? 'suggestion' : 'comment'
+				connectorKind: 'comment'
 			});
 		}
 
@@ -3949,19 +4044,10 @@
 		};
 	}
 
-	function openComposer(nextMode: 'comment' | 'suggest') {
-		mode = nextMode;
-
-		if (nextMode === 'comment') {
-			commentBody = '';
-		}
-	}
-
 	function clearSelection() {
 		selectedQuote = '';
+		selectionQuote = '';
 		commentBody = '';
-		replacementBody = '';
-		selectionToolbar.visible = false;
 		mainEditor?.dispatch({ selection: { anchor: mainEditor.state.selection.main.head } });
 	}
 
@@ -4035,6 +4121,10 @@
 				}
 			});
 
+			unlistenNativeCommentMenu = await listen('margin://add-comment', () => {
+				openCommentComposerForSelection();
+			});
+
 			nativeMenuBridgeReady = true;
 		} catch(err) {
 			nativeMenuBridgeReady = false;
@@ -4067,9 +4157,8 @@
 		const anchor = selection.from + prefix.length + Math.max(0, cursorOffset);
 
 		selectedQuote = '';
+		selectionQuote = '';
 		commentBody = '';
-		replacementBody = '';
-		selectionToolbar.visible = false;
 
 		mainEditor.dispatch({
 			changes: { from: selection.from, to: selection.to, insert },
@@ -4181,9 +4270,8 @@
 		const anchor = position + prefix.length + markdown.length;
 
 		selectedQuote = '';
+		selectionQuote = '';
 		commentBody = '';
-		replacementBody = '';
-		selectionToolbar.visible = false;
 		error = '';
 
 		view.dispatch({
@@ -5129,7 +5217,7 @@
 	}
 
 	function hasUnsavedLocalChanges(markdown = activeEditorMarkdown()) {
-		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0 || commentBody.trim().length > 0 || replacementBody.trim().length > 0;
+		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0 || commentBody.trim().length > 0;
 	}
 
 	async function reloadExternalChange() {
@@ -5354,10 +5442,16 @@
 		if (!shouldHandleWebNativeShortcut()) return;
 
 		const mod = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+
+		if (mod && event.altKey && !event.shiftKey && key === 'm') {
+			event.preventDefault();
+			openCommentComposerForSelection();
+
+			return;
+		}
 
 		if (!mod || event.altKey) return;
-
-		const key = event.key.toLowerCase();
 
 		if (!event.shiftKey && key === 's') {
 			event.preventDefault();
@@ -5424,43 +5518,10 @@
 			]
 		};
 
-			markLocalDocumentDirty('Unsaved comments');
-			await tick();
-			updateAnchorPositions();
-			settleEditorSelection();
-	}
-
-	async function submitSuggestion() {
-		if (!review || !selectedQuote || !replacementBody) return;
-
-		const anchor = localAnchorForSelection(selectedQuote);
-		const suggestionKeyValue = suggestionKey(anchor.start_line, anchor.end_line, selectedQuote, replacementBody);
-
-		replaceEditorSelection(replacementBody);
-
-		review = {
-			...review,
-			suggestions: [
-				...review.suggestions,
-				{
-					id: `local-suggestion-${Date.now()}`,
-					author: reviewer,
-					original: selectedQuote,
-					replacement: replacementBody,
-					applied: true,
-					resolved: false,
-					anchor,
-					created_at: new Date().toISOString()
-				}
-			]
-		};
-
-		syncedEditKeys.add(suggestionKeyValue);
-		pendingEditThreads = pendingEditThreads.filter((thread) => suggestionKey(thread.line, thread.endLine, thread.quote, thread.body) !== suggestionKeyValue && (thread.quote !== selectedQuote || thread.body !== replacementBody));
-			markLocalDocumentDirty('Unsaved suggestion');
-			await tick();
-			updateAnchorPositions();
-			settleEditorSelection();
+		markLocalDocumentDirty('Unsaved comments');
+		await tick();
+		updateAnchorPositions();
+		settleEditorSelection();
 	}
 
 	async function acceptSuggestion(thread: ThreadView) {
@@ -5541,21 +5602,6 @@
 
 		editorMarkdown = mainEditor.state.doc.toString();
 		pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: reviewer, syncedKeys: syncedEditKeys });
-	}
-
-	function replaceEditorSelection(replacement: string) {
-		if (!mainEditor) return;
-
-		const selection = mainEditor.state.selection.main;
-
-		if (selection.empty) return;
-
-		mainEditor.dispatch({
-			changes: { from: selection.from, to: selection.to, insert: replacement },
-			selection: { anchor: selection.from + replacement.length }
-		});
-
-		editorMarkdown = mainEditor.state.doc.toString();
 	}
 
 	function localAnchorForSelection(quote: string): MarginAnchor {
@@ -5674,21 +5720,19 @@
 					{/if}
 				</Button>
 
-				{#if visibleDocumentTabs.length > 1}
-						<Button
-							variant="ghost"
-							size="icon-xs"
-							class="document-tab-close"
-							aria-label={`Close ${tab.title}`}
-						onclick={(event) => {
-							event.stopPropagation();
-								closeDocumentTab(tab.id);
-							}}
-						>
-							<XIcon aria-hidden="true" />
-						</Button>
-					{/if}
-				</div>
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					class="document-tab-close"
+					aria-label={`Close ${tab.title}`}
+					onclick={(event) => {
+						event.stopPropagation();
+						closeDocumentTab(tab.id);
+					}}
+				>
+					<XIcon aria-hidden="true" />
+				</Button>
+			</div>
 			{/each}
 
 		<div
@@ -5902,29 +5946,6 @@
 		</section>
 	{/if}
 
-	{#if selectionToolbar.visible && selectedQuote}
-		<ToggleGroup.Root
-			class="selection-toolbar"
-			aria-label="Selection actions"
-			type="single"
-			value={mode}
-			style={`top: ${selectionToolbar.top}px; left: ${selectionToolbar.left}px;`}
-			onmousedown={(event) => event.preventDefault()}
-		>
-			<ToggleGroup.Item
-				class={mode === 'comment' ? 'active' : ''}
-				value="comment"
-				onclick={() => openComposer('comment')}
-			>Comment</ToggleGroup.Item>
-
-			<ToggleGroup.Item
-				class={mode === 'suggest' ? 'active' : ''}
-				value="suggest"
-				onclick={() => openComposer('suggest')}
-			>Suggest</ToggleGroup.Item>
-		</ToggleGroup.Root>
-	{/if}
-
 	<div class="review-canvas">
 		<section class="paper-column">
 			<article
@@ -5992,7 +6013,7 @@
 				{#if threads.length === 0 && !selectedQuote}
 					<section class="empty-thread">
 						<strong>No comments yet</strong>
-						<p>Select text to comment, or type in the document to suggest an edit.</p>
+						<p>Select text, then use Add Comment from the context menu or Insert menu.</p>
 					</section>
 				{/if}
 
@@ -6000,7 +6021,6 @@
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"
-							class:suggestion={item.connectorKind === 'suggestion'}
 							aria-label="New review note"
 							style={`top: ${item.top}px;`}
 							use:measureHeight={item.id}
@@ -6009,66 +6029,43 @@
 								<div class="avatar">AF</div>
 
 								<div>
-									<strong>{mode === 'comment' ? 'Add comment' : 'Suggest edit'}</strong>
+									<strong>Add comment</strong>
 									<span>Anchored to selected text</span>
 								</div>
 
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										class="icon-button"
-										aria-label="Close composer"
-										onclick={clearSelection}
-									>
-										<XIcon aria-hidden="true" />
-									</Button>
-								</div>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									class="icon-button"
+									aria-label="Close composer"
+									onclick={clearSelection}
+								>
+									<XIcon aria-hidden="true" />
+								</Button>
+							</div>
 
 							<blockquote>{selectedQuote}</blockquote>
 
-							{#if mode === 'comment'}
-								<Textarea
-									bind:value={commentBody}
-									placeholder="Comment on this selection"
-								/>
+							<Textarea
+								bind:value={commentBody}
+								placeholder="Comment on this selection"
+							/>
 
-								<div class="composer-actions">
-									<Button
-										variant="outline"
-										size="sm"
-										class="ghost-button"
-										onclick={clearSelection}
-									>Cancel</Button>
+							<div class="composer-actions">
+								<Button
+									variant="outline"
+									size="sm"
+									class="ghost-button"
+									onclick={clearSelection}
+								>Cancel</Button>
 
-									<Button
-										size="sm"
-										class="primary"
-										onclick={submitComment}
-										disabled={!selectionReady || !commentBody}
-									>Comment</Button>
-								</div>
-							{:else}
-								<Textarea
-									bind:value={replacementBody}
-									aria-label="Replacement text"
-								/>
-
-								<div class="composer-actions">
-									<Button
-										variant="outline"
-										size="sm"
-										class="ghost-button"
-										onclick={clearSelection}
-									>Cancel</Button>
-
-									<Button
-										size="sm"
-										class="primary"
-										onclick={submitSuggestion}
-										disabled={!selectionReady || !replacementBody}
-									>Suggest</Button>
-								</div>
-							{/if}
+								<Button
+									size="sm"
+									class="primary"
+									onclick={submitComment}
+									disabled={!selectionReady || !commentBody}
+								>Comment</Button>
+							</div>
 						</section>
 					{:else}
 						<div
@@ -6090,9 +6087,9 @@
 							<div class="thread-header">
 								<div class="avatar">{item.thread.author.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div>
 
-									<div>
-										<strong>{item.thread.author}</strong>
-									</div>
+								<div>
+									<strong>{item.thread.author}</strong>
+								</div>
 
 								{#if item.thread.kind === 'suggestion'}
 									<Badge
