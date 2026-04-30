@@ -31,8 +31,22 @@ const backgroundFileName = 'background.tiff';
 const backgroundDirName = '.background';
 const backgroundStageDir = path.join(stageDir, backgroundDirName);
 const backgroundStagePath = path.join(backgroundStageDir, backgroundFileName);
+const signingMode = process.env.MARGIN_MACOS_SIGNING ?? 'none';
 
-run('npm', ['--workspace', '@margin/desktop', 'run', 'tauri', '--', 'build', '--bundles', 'app', '--no-sign', '--ci']);
+if (signingMode === 'adhoc') {
+  process.env.APPLE_SIGNING_IDENTITY ??= '-';
+} else if (signingMode !== 'none' && signingMode !== 'identity') {
+  console.error(`Unknown MARGIN_MACOS_SIGNING mode: ${signingMode}`);
+  process.exit(1);
+}
+
+const tauriBuildArgs = ['--workspace', '@margin/desktop', 'run', 'tauri', '--', 'build', '--bundles', 'app', '--ci'];
+
+if (signingMode === 'none') {
+  tauriBuildArgs.push('--no-sign');
+}
+
+run('npm', tauriBuildArgs);
 
 rmSync(stageRoot, { force: true, recursive: true });
 rmSync(outputPath, { force: true });

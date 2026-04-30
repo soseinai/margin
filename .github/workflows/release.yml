@@ -1,7 +1,8 @@
 name: Release
 
 # This workflow mirrors the release shape used by ../ought, but only ships
-# Margin's macOS DMG for now.
+# Margin's macOS DMG for now. Until we have a Developer ID Application
+# certificate, the release DMG is ad-hoc signed and not notarized.
 #
 # 1. workflow_dispatch bumps version files, commits to main, and pushes vX.Y.Z.
 # 2. push tags ["v*"] builds the DMG and attaches it to a GitHub release.
@@ -156,6 +157,8 @@ jobs:
         run: npm ci
 
       - name: Build DMG
+        env:
+          MARGIN_MACOS_SIGNING: adhoc
         run: just package-mac-dmg
 
       - uses: actions/upload-artifact@v4
@@ -177,4 +180,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: true
+          body: |
+            This release contains a macOS DMG for Margin.
+
+            The DMG is currently ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. macOS may require manual approval in Privacy & Security, or quarantine removal, before opening the app.
           files: Margin_*.dmg
