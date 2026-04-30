@@ -92,16 +92,16 @@
   --suggestion-label: var(--fg-3);
   --code-bg: var(--paper-sunk);
   --code-text: var(--gray-80);
-  --code-keyword: color-mix(in srgb, var(--code-text) 76%, #6f3f91);
-  --code-atom: color-mix(in srgb, var(--code-text) 78%, #845200);
-  --code-number: color-mix(in srgb, var(--code-text) 78%, #8a3b16);
-  --code-string: color-mix(in srgb, var(--code-text) 78%, #1f6a48);
+  --code-keyword: color-mix(in srgb, var(--code-text) 58%, #6f3f91);
+  --code-atom: color-mix(in srgb, var(--code-text) 62%, #845200);
+  --code-number: color-mix(in srgb, var(--code-text) 60%, #8a3b16);
+  --code-string: color-mix(in srgb, var(--code-text) 58%, #1f6a48);
   --code-comment: var(--gray-40);
-  --code-definition: color-mix(in srgb, var(--code-text) 76%, #184f87);
+  --code-definition: color-mix(in srgb, var(--code-text) 58%, #184f87);
   --code-variable: var(--code-text);
-  --code-type: color-mix(in srgb, var(--code-text) 80%, #6d4e00);
+  --code-type: color-mix(in srgb, var(--code-text) 62%, #6d4e00);
   --code-operator: var(--gray-60);
-  --code-invalid: color-mix(in srgb, var(--code-text) 60%, var(--sosein-danger));
+  --code-invalid: color-mix(in srgb, var(--code-text) 45%, var(--sosein-danger));
   --connector: var(--gray-40);
   --neutral-dot: var(--gray-40);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -188,16 +188,16 @@
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
   --error-border: color-mix(in srgb, var(--sosein-danger) 28%, var(--rule));
-  --code-keyword: color-mix(in srgb, var(--code-text) 76%, #6f3f91);
-  --code-atom: color-mix(in srgb, var(--code-text) 78%, #845200);
-  --code-number: color-mix(in srgb, var(--code-text) 78%, #8a3b16);
-  --code-string: color-mix(in srgb, var(--code-text) 78%, #1f6a48);
+  --code-keyword: color-mix(in srgb, var(--code-text) 58%, #6f3f91);
+  --code-atom: color-mix(in srgb, var(--code-text) 62%, #845200);
+  --code-number: color-mix(in srgb, var(--code-text) 60%, #8a3b16);
+  --code-string: color-mix(in srgb, var(--code-text) 58%, #1f6a48);
   --code-comment: var(--gray-40);
-  --code-definition: color-mix(in srgb, var(--code-text) 76%, #184f87);
+  --code-definition: color-mix(in srgb, var(--code-text) 58%, #184f87);
   --code-variable: var(--code-text);
-  --code-type: color-mix(in srgb, var(--code-text) 80%, #6d4e00);
+  --code-type: color-mix(in srgb, var(--code-text) 62%, #6d4e00);
   --code-operator: var(--gray-60);
-  --code-invalid: color-mix(in srgb, var(--code-text) 60%, var(--sosein-danger));
+  --code-invalid: color-mix(in srgb, var(--code-text) 45%, var(--sosein-danger));
 }
 
 :root[data-theme="dark"] {

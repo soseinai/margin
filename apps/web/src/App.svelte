@@ -10,7 +10,14 @@
 
 	import { markdown } from '@codemirror/lang-markdown';
 	import { languages } from '@codemirror/language-data';
-	import { HighlightStyle, defaultHighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language';
+	import {
+		HighlightStyle,
+		LanguageDescription,
+		defaultHighlightStyle,
+		forceParsing,
+		indentUnit,
+		syntaxHighlighting
+	} from '@codemirror/language';
 
 	import {
 		ChangeSet,
@@ -132,6 +139,7 @@
 	const settingsStorageKey = 'margin:settings:v1';
 	const maxRecentDocuments = 10;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
+	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	const marginHighlightStyle = HighlightStyle.define([
 		{
 			tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword],
@@ -2421,6 +2429,45 @@
 			.replace(/\}$/, '');
 	}
 
+	function markdownCodeLanguage(info: string) {
+		const language = codeFenceLanguage(info);
+
+		if (!language) return null;
+
+		return LanguageDescription.matchLanguageName(languages, language, true);
+	}
+
+	function preloadMarkdownCodeLanguages(view: EditorView) {
+		for (const block of fencedCodeBlocks(view.state)) {
+			if (!block.language) continue;
+
+			const description = markdownCodeLanguage(block.language);
+
+			if (!description || description.support) continue;
+
+			const key = description.name.toLowerCase();
+
+			if (loadingMarkdownCodeLanguages.has(key)) continue;
+
+			const loading = description.load()
+				.then(() => {
+					loadingMarkdownCodeLanguages.delete(key);
+
+					if (mainEditor !== view) return;
+
+					forceParsing(view, view.state.doc.length, 100);
+					view.dispatch({ effects: refreshLivePreviewEffect.of() });
+					view.requestMeasure();
+					requestAnimationFrame(updateAnchorPositions);
+				})
+				.catch(() => {
+					loadingMarkdownCodeLanguages.delete(key);
+				});
+
+			loadingMarkdownCodeLanguages.set(key, loading);
+		}
+	}
+
 	function isClosingFence(text: string, fence: FenceInfo) {
 		const trimmed = text.trim();
 
@@ -3250,6 +3297,7 @@
 
 		mainEditor = view;
 		view.dispatch({ effects: setThreadsEffect.of(options.threads) });
+		preloadMarkdownCodeLanguages(view);
 		updateSelectionFromEditor(view);
 		requestAnimationFrame(updateAnchorPositions);
 
@@ -3286,7 +3334,7 @@
 				history(),
 				EditorState.tabSize.of(4),
 				indentUnit.of('    '),
-				markdown({ codeLanguages: languages }),
+				markdown({ codeLanguages: markdownCodeLanguage }),
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
 				livePreviewField,
@@ -3399,6 +3447,7 @@
 
 					if (update.docChanged) {
 						editorMarkdown = update.state.doc.toString();
+						preloadMarkdownCodeLanguages(update.view);
 
 						if (localFileMode) {
 							refreshLocalSaveState(editorMarkdown);
