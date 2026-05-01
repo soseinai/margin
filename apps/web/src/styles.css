@@ -674,18 +674,7 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .doc-topbar {
-  min-height: 114px;
-  padding: 58px 32px 8px;
-}
-
-.desktop-shell .doc-topbar .eyebrow {
-  margin: 0 0 4px;
-}
-
-.desktop-shell .brand-mark {
-  height: 28px;
-  opacity: 0.72;
-  width: 28px;
+  display: none;
 }
 
 .brand-cluster,
@@ -768,7 +757,7 @@ textarea:not([data-slot]):focus {
   align-items: center;
   background: var(--sheet-bg);
   border-bottom: 0;
-  display: flex;
+  display: none;
   gap: 0;
   min-height: 26px;
   overflow-x: auto;
@@ -1066,6 +1055,10 @@ textarea:not([data-slot]):focus {
   padding: 14px 32px 104px;
 }
 
+.desktop-shell .editor-layout {
+  padding-top: 32px;
+}
+
 .paper-column {
   display: grid;
   gap: 16px;
@@ -1081,6 +1074,10 @@ textarea:not([data-slot]):focus {
   min-height: calc(100vh - 150px);
   padding: 34px 72px 64px;
   width: 100%;
+}
+
+.desktop-shell .document-surface {
+  padding-top: 24px;
 }
 
 .document-surface h1,
@@ -1118,6 +1115,10 @@ textarea:not([data-slot]):focus {
 .live-preview-surface {
   cursor: text;
   padding: 34px 74px 66px;
+}
+
+.desktop-shell .live-preview-surface {
+  padding-top: 24px;
 }
 
 .live-preview-editor {
@@ -2765,6 +2766,7 @@ blockquote {
 
   .doc-toolbar {
     align-items: center;
+    display: flex;
     gap: 10px;
     min-height: 38px;
     overflow: hidden;
