@@ -25,6 +25,16 @@ Rust formatting and Clippy catch desktop-shell drift before it reaches packaging
 
 There is no dedicated frontend lint command configured yet. Until one is added, `svelte-check` is the frontend static-analysis gate.
 
+The web test lanes are:
+
+```sh
+npm run test:web:unit
+npm run test:web:integration
+npm run test:web:e2e
+```
+
+`test:web:e2e` is intentionally empty for now. Install the browser used by integration tests with `just setup-web-integration` on local machines; CI installs Chromium before running the test gate.
+
 ## Test Groups
 
 ### Unit Tests
@@ -51,6 +61,8 @@ Component unit tests should mount one bounded component with mocked dependencies
 
 Rule of thumb: when changing behavior currently embedded in `App.svelte`, extract the pure part into `apps/web/src/lib/` and add focused Vitest coverage there. Keep CodeMirror/Svelte wiring thin and test the underlying model directly.
 
+Command: `npm run test:web:unit`.
+
 ### Integration Tests
 
 Use integration tests for behavior that spans several components or frontend subsystems.
@@ -75,11 +87,15 @@ Browser integration candidates:
 
 Keep the first browser suite small and deterministic. It should run against `npm run dev:web` and cover the happy path plus one persistence regression. Larger visual/layout checks can remain local or release-gated until they are stable in CI.
 
+Command: `npm run test:web:integration`.
+
 ### E2E Tests
 
 No tests belong in this group yet.
 
 Reserve E2E for flows that include the real outer systems, such as the Tauri desktop shell, filesystem/native commands, or a future real cloud backend. Until those are part of the automated path, browser-level Playwright coverage should stay classified as integration testing.
+
+Command: `npm run test:web:e2e`, currently a no-op placeholder.
 
 ## Native Boundary
 

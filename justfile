@@ -74,8 +74,27 @@ test: test-rust test-web
 test-rust:
     cargo test --workspace
 
+# Run web unit and integration tests.
+test-web: test-web-unit test-web-integration
+
 # Run web unit/property tests.
-test-web:
+test-web-unit:
+    npm run test:web:unit
+
+# Run web browser integration tests.
+test-web-integration:
+    npm run test:web:integration
+
+# Run web end-to-end tests. Empty by design for now.
+test-web-e2e:
+    npm run test:web:e2e
+
+# Install Playwright browsers for web integration tests.
+setup-web-integration:
+    npm --workspace @margin/web exec playwright -- install chromium
+
+# Run all web tests through the package script.
+test-web-all:
     npm run test:web
 
 # Build the web app for local deploy.
