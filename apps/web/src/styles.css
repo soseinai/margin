@@ -340,8 +340,15 @@ textarea:not([data-slot]):focus {
 
 .ghost-button {
   background: transparent;
-  border-color: var(--rule);
-  color: var(--fg-2);
+  border-color: transparent;
+  color: var(--fg-3);
+}
+
+.ghost-button:hover:not(:disabled),
+.ghost-button:focus-visible {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: transparent;
+  color: var(--fg);
 }
 
 .icon-button {
@@ -1183,17 +1190,6 @@ textarea:not([data-slot]):focus {
   font-size: 12px;
   min-height: 28px;
   padding: 0 10px;
-}
-
-.settings-actions .ghost-button {
-  border-color: transparent;
-  color: var(--fg-3);
-}
-
-.settings-actions .ghost-button:hover:not(:disabled),
-.settings-actions .ghost-button:focus-visible {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  color: var(--fg);
 }
 
 .settings-actions .primary {
@@ -2384,17 +2380,6 @@ blockquote {
   height: 32px;
   min-height: 32px;
   padding-inline: 14px;
-}
-
-.composer-actions .ghost-button {
-  border-color: transparent;
-  color: var(--fg-3);
-}
-
-.composer-actions .ghost-button:hover:not(:disabled),
-.composer-actions .ghost-button:focus-visible {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  color: var(--fg);
 }
 
 .composer-actions .primary {
