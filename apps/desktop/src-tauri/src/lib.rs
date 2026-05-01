@@ -811,6 +811,212 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod native_document_tests {
+    use super::*;
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time is before unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "margin-desktop-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+
+        fs::create_dir_all(&dir).expect("failed to create temp test directory");
+
+        dir
+    }
+
+    #[test]
+    fn save_markdown_document_adds_extension_and_round_trips() {
+        let dir = temp_test_dir("save-open");
+        let requested_path = dir.join("Brief");
+
+        let saved = save_markdown_document(
+            requested_path.to_string_lossy().to_string(),
+            "# Brief\n\nSaved from Rust.".to_string(),
+        )
+        .expect("document should save");
+
+        assert_eq!(saved.name, "Brief.md");
+        assert_eq!(
+            Path::new(&saved.path)
+                .extension()
+                .and_then(|extension| extension.to_str()),
+            Some("md")
+        );
+        assert_eq!(
+            fs::read_to_string(&saved.path).expect("saved markdown should exist"),
+            "# Brief\n\nSaved from Rust."
+        );
+
+        let opened = open_markdown_document(saved.path.clone()).expect("document should open");
+        assert_eq!(opened.name, "Brief.md");
+        assert_eq!(opened.path, saved.path);
+        assert_eq!(opened.markdown, "# Brief\n\nSaved from Rust.");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_non_markdown_paths_for_open_and_save() {
+        let dir = temp_test_dir("reject-extension");
+        let pdf_path = dir.join("Brief.pdf");
+        fs::write(&pdf_path, "not markdown").expect("failed to write test file");
+
+        assert!(
+            save_markdown_document(pdf_path.to_string_lossy().to_string(), "body".to_string())
+                .is_err()
+        );
+        assert!(open_markdown_document(pdf_path.to_string_lossy().to_string()).is_err());
+
+        assert!(is_markdown_path(Path::new("Draft.MD")));
+        assert!(is_markdown_path(Path::new("Draft.markdown")));
+        assert!(is_markdown_path(Path::new("Draft.txt")));
+        assert!(!is_markdown_path(Path::new("Draft.pdf")));
+        assert!(!is_markdown_path(Path::new("Draft")));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn markdown_payload_uses_canonical_path_and_file_name() {
+        let dir = temp_test_dir("payload");
+        let path = dir.join("Nested.md");
+        fs::write(&path, "Body").expect("failed to write test file");
+
+        let payload = markdown_document_payload(&path, "Body".to_string());
+
+        assert_eq!(payload.name, "Nested.md");
+        assert_eq!(
+            payload.path,
+            path.canonicalize()
+                .expect("test file should canonicalize")
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(payload.markdown, "Body");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn normalizes_recent_documents_by_path_title_and_limit() {
+        let entries = vec![
+            RecentDocumentEntry {
+                title: "   ".to_string(),
+                path: "  /tmp/One.md  ".to_string(),
+                opened_at: 9,
+            },
+            RecentDocumentEntry {
+                title: "Duplicate".to_string(),
+                path: "/tmp/One.md".to_string(),
+                opened_at: 8,
+            },
+            RecentDocumentEntry {
+                title: "Missing path".to_string(),
+                path: "   ".to_string(),
+                opened_at: 7,
+            },
+            RecentDocumentEntry {
+                title: "Two".to_string(),
+                path: "/tmp/Two.md".to_string(),
+                opened_at: 6,
+            },
+        ]
+        .into_iter()
+        .chain((0..12).map(|index| RecentDocumentEntry {
+            title: format!("Extra {index}"),
+            path: format!("/tmp/Extra-{index}.md"),
+            opened_at: index,
+        }))
+        .collect();
+
+        let normalized = normalized_recent_documents(entries);
+
+        assert_eq!(normalized.len(), RECENT_DOCUMENT_LIMIT);
+        assert_eq!(normalized[0].title, "One.md");
+        assert_eq!(normalized[0].path, "/tmp/One.md");
+        assert_eq!(normalized[0].opened_at, 9);
+        assert_eq!(normalized[1].title, "Two");
+        assert_eq!(normalized[1].path, "/tmp/Two.md");
+        assert!(!normalized.iter().any(|entry| entry.path.trim().is_empty()));
+        assert_eq!(
+            normalized
+                .iter()
+                .filter(|entry| entry.path == "/tmp/One.md")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn normalizes_settings_values_for_parse_and_serialize() {
+        let settings = parse_settings_toml(
+            "theme = \"purple\"\nlocalUserName = \"  Ada   Lovelace  \"\nunknown = \"ignored\"\n",
+        );
+
+        assert_eq!(settings.theme, DEFAULT_THEME);
+        assert_eq!(settings.local_user_name, "Ada Lovelace");
+        assert_eq!(
+            settings_toml(&AppSettings {
+                theme: "DARK".to_string(),
+                local_user_name: "  Grace   Hopper  ".to_string(),
+            }),
+            "theme = \"dark\"\nlocal_user_name = \"Grace Hopper\"\n"
+        );
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn parses_recent_document_and_insert_menu_ids() {
+        assert_eq!(recent_document_menu_index("file_recent_123456_4"), Some(4));
+        assert_eq!(recent_document_menu_index("file_recent__4"), None);
+        assert_eq!(recent_document_menu_index("file_recent_nonce_4"), None);
+        assert_eq!(
+            recent_document_menu_index("file_clear_recent_123456_4"),
+            None
+        );
+
+        assert_eq!(insert_payload("insert_table"), Some("table"));
+        assert_eq!(insert_payload("insert_tasks"), Some("tasks"));
+        assert_eq!(insert_payload("insert_bullets"), Some("bullets"));
+        assert_eq!(insert_payload("insert_numbers"), Some("numbers"));
+        assert_eq!(insert_payload("insert_image"), None);
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn filters_watched_document_events_to_relevant_path_and_kind() {
+        use notify::event::{DataChange, ModifyKind};
+
+        let watched = PathBuf::from("/tmp/Watched.md");
+        let other = PathBuf::from("/tmp/Other.md");
+        let changed_watched = Event {
+            kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            paths: vec![watched.clone()],
+            attrs: Default::default(),
+        };
+        let changed_other = Event {
+            kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            paths: vec![other],
+            attrs: Default::default(),
+        };
+        let irrelevant_kind = Event {
+            kind: EventKind::Other,
+            paths: vec![watched.clone()],
+            attrs: Default::default(),
+        };
+
+        assert!(should_emit_document_change(&changed_watched, &watched));
+        assert!(!should_emit_document_change(&changed_other, &watched));
+        assert!(!should_emit_document_change(&irrelevant_kind, &watched));
+    }
+}
+
 #[cfg(target_os = "ios")]
 fn ios_file_picker_message() -> String {
     "Native document picking is not available in the iOS preview yet.".to_string()
