@@ -1156,7 +1156,6 @@
 	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
-	$: hasDocumentToolbarMetadata = (annotations?.comments.length ?? 0) > 0 || (annotations?.suggestions.length ?? 0) > 0 || pendingEditThreads.length > 0;
 	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
@@ -6010,7 +6009,6 @@
 
 	<div
 		class="doc-toolbar"
-		class:has-document-metadata={hasDocumentToolbarMetadata}
 		aria-label="Document tools"
 		data-tauri-drag-region
 	>
@@ -6056,18 +6054,6 @@
 					</svg>
 				</ToggleGroup.Item>
 			</ToggleGroup.Root>
-
-			{#if (annotations?.comments.length ?? 0) > 0}
-				<span>{countLabel(annotations?.comments.length ?? 0, 'comment')}</span>
-			{/if}
-
-			{#if (annotations?.suggestions.length ?? 0) > 0}
-				<span>{countLabel(annotations?.suggestions.length ?? 0, 'suggestion')}</span>
-			{/if}
-
-			{#if pendingEditThreads.length > 0}
-				<span>{countLabel(pendingEditThreads.length, 'draft suggestion')}</span>
-			{/if}
 	</div>
 
 	{#if error}

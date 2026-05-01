@@ -775,30 +775,6 @@ textarea:not([data-slot]):focus {
   padding: 0 32px 12px 98px;
 }
 
-.doc-toolbar:not(.has-document-metadata) {
-  min-height: 0;
-  padding-bottom: 0;
-}
-
-.doc-toolbar span {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  color: var(--fg-4);
-  flex: 0 0 auto;
-  font-family: var(--font-plex-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  padding: 0;
-}
-
-.doc-toolbar span + span::before {
-  color: var(--fg-4);
-  content: "/";
-  margin: 0 10px;
-  opacity: 0.55;
-}
-
 .error {
   background: var(--paper-sunk);
   border-bottom: 1px solid var(--error-border);
@@ -2794,28 +2770,6 @@ blockquote {
     overflow: hidden;
     padding: 6px 20px 12px;
     position: static;
-  }
-
-  .doc-toolbar:not(.has-document-metadata) {
-    min-height: 38px;
-    padding: 6px 20px 12px;
-  }
-
-  .doc-toolbar > span {
-    font-size: 10px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .doc-toolbar > span + span::before {
-    content: none;
-    margin: 0;
-  }
-
-  .doc-toolbar > span {
-    flex: 0 0 auto;
   }
 
   .save-progress-indicator {
