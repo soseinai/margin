@@ -1,5 +1,35 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+
+async function iconButtonDesign(locator: Locator) {
+  await locator.hover();
+  await locator.focus();
+  await locator.page().waitForTimeout(250);
+
+  return locator.evaluate((button: HTMLElement) => {
+    const style = getComputedStyle(button);
+    const rect = button.getBoundingClientRect();
+    const svg = button.querySelector('svg');
+    const svgStyle = svg ? getComputedStyle(svg) : null;
+
+    return {
+      backgroundColor: style.backgroundColor,
+      borderColor: style.borderTopColor,
+      boxShadow: style.boxShadow,
+      color: style.color,
+      height: Math.round(rect.height),
+      opacity: style.opacity,
+      outlineColor: style.outlineColor,
+      outlineOffset: style.outlineOffset,
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+      svgHeight: svgStyle?.height ?? '',
+      svgWidth: svgStyle?.width ?? '',
+      transform: style.transform,
+      width: Math.round(rect.width)
+    };
+  });
+}
 
 test('edits a new Markdown document in the browser editor', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 });
@@ -89,4 +119,82 @@ test('edits a saved margin comment', async ({ page }) => {
   const savedMarkdown = await readFile(savedPath as string, 'utf8');
   expect(savedMarkdown).toContain('Updated note after review.');
   expect(savedMarkdown).not.toContain('First note');
+});
+
+test('finds and replaces text from the keyboard-opened dialog', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto('/');
+
+  const editor = page.locator('.cm-content[contenteditable="true"]').first();
+  await expect(editor).toBeVisible();
+
+  await editor.click();
+  await page.keyboard.type('Alpha beta');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('second Alpha line');
+
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.keyboard.press(`${modifier}+F`);
+
+  const findDialog = page.getByRole('dialog', { name: 'Find and replace' });
+  await expect(findDialog).toHaveClass(/is-compact/);
+
+  const findField = page.getByRole('textbox', { name: 'Find' });
+  await expect(findField).toBeVisible();
+  await findField.fill('Alpha');
+
+  await page.getByRole('button', { name: 'Show more options' }).click();
+  await expect(findDialog).toHaveClass(/is-expanded/);
+  await expect(page.locator('.margin-find-status')).toHaveText('2 matches');
+
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.margin-find-status')).toHaveText('1 of 2');
+
+  await page.getByRole('textbox', { name: 'Replace' }).fill('Gamma');
+  await page.getByRole('button', { name: 'Replace all matches' }).click();
+
+  await expect(editor).toContainText('Gamma beta');
+  await expect(editor).toContainText('second Gamma line');
+  await expect(editor).not.toContainText('Alpha');
+});
+
+test('keeps find and settings dialogs mutually exclusive', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto('/');
+
+  const editor = page.locator('.cm-content[contenteditable="true"]').first();
+  await expect(editor).toBeVisible();
+
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+  await editor.click();
+  await page.keyboard.press(`${modifier}+F`);
+
+  const findDialog = page.getByRole('dialog', { name: 'Find and replace' });
+  await expect(findDialog).toBeVisible();
+
+  await page
+    .locator('button[aria-label="Settings"]')
+    .evaluate((button: HTMLButtonElement) => button.click());
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settingsDialog).toBeVisible();
+  await expect(findDialog).toBeHidden();
+
+  const settingsClose = page.getByRole('button', { name: 'Close settings' });
+  const settingsCloseBox = await settingsClose.boundingBox();
+  expect(settingsCloseBox?.width).toBe(20);
+  expect(settingsCloseBox?.height).toBe(20);
+  const settingsIconDesign = await iconButtonDesign(settingsClose);
+
+  await page.keyboard.press(`${modifier}+F`);
+
+  await expect(settingsDialog).toBeHidden();
+  await expect(findDialog).toBeVisible();
+
+  const findMoreButton = page.getByRole('button', { name: 'Show more options' });
+  const findMoreBox = await findMoreButton.boundingBox();
+  expect(findMoreBox?.width).toBe(20);
+  expect(findMoreBox?.height).toBe(20);
+  expect(await iconButtonDesign(findMoreButton)).toEqual(settingsIconDesign);
 });

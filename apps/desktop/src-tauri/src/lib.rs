@@ -1172,6 +1172,30 @@ pub fn run() {
                 }
             }
 
+            let find_separator = PredefinedMenuItem::separator(app)?;
+            let find = MenuItem::with_id(app, "edit_find", "Find...", true, Some("CmdOrCtrl+F"))?;
+            let find_next = MenuItem::with_id(
+                app,
+                "edit_find_next",
+                "Find Next",
+                true,
+                Some("CmdOrCtrl+G"),
+            )?;
+            let find_previous = MenuItem::with_id(
+                app,
+                "edit_find_previous",
+                "Find Previous",
+                true,
+                Some("CmdOrCtrl+Shift+G"),
+            )?;
+            if let Some(edit_menu) = menu.items()?.into_iter().find_map(|item| {
+                item.as_submenu()
+                    .cloned()
+                    .filter(|submenu| submenu.text().map(|text| text == "Edit").unwrap_or(false))
+            }) {
+                edit_menu.append_items(&[&find_separator, &find, &find_next, &find_previous])?;
+            }
+
             let insert_comment = MenuItem::with_id(
                 app,
                 "insert_comment",
@@ -1322,6 +1346,12 @@ pub fn run() {
             let _ = app.emit("margin://previous-tab", ());
         } else if menu_id.as_ref() == "window_next_tab" {
             let _ = app.emit("margin://next-tab", ());
+        } else if menu_id.as_ref() == "edit_find" {
+            let _ = app.emit("margin://open-find", ());
+        } else if menu_id.as_ref() == "edit_find_next" {
+            let _ = app.emit("margin://find-next", ());
+        } else if menu_id.as_ref() == "edit_find_previous" {
+            let _ = app.emit("margin://find-previous", ());
         } else if matches!(menu_id.as_ref(), "insert_comment" | "context_add_comment") {
             let _ = app.emit("margin://add-comment", ());
         } else if let Some(kind) = insert_payload(menu_id.as_ref()) {

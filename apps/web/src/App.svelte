@@ -11,6 +11,19 @@
 	import { markdown } from '@codemirror/lang-markdown';
 	import { languages } from '@codemirror/language-data';
 	import {
+		SearchQuery,
+		closeSearchPanel,
+		findNext,
+		findPrevious,
+		getSearchQuery,
+		openSearchPanel,
+		replaceAll,
+		replaceNext,
+		search,
+		searchKeymap,
+		setSearchQuery
+	} from '@codemirror/search';
+	import {
 		HighlightStyle,
 		LanguageDescription,
 		defaultHighlightStyle,
@@ -35,7 +48,9 @@
 		ViewPlugin,
 		WidgetType,
 		keymap,
+		runScopeHandlers,
 		type DecorationSet,
+		type Panel,
 		type ViewUpdate
 	} from '@codemirror/view';
 	import { tags } from '@lezer/highlight';
@@ -126,6 +141,9 @@
 	let localEditRevision = 0;
 	let localAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let localAutosaveInFlight = false;
+	let findPanelMode: FindPanelMode = 'compact';
+	let findPanelPosition: FindPanelPosition | null = null;
+	let activeFindPanel: FindPanelHandle | null = null;
 	let saveProgressVisible = false;
 	let saveProgressFading = false;
 	let saveProgressShownAt = 0;
@@ -147,6 +165,9 @@
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
 	let unlistenNativeSettingsMenu: (() => void) | null = null;
 	let unlistenNativeCheckUpdatesMenu: (() => void) | null = null;
+	let unlistenNativeOpenFindMenu: (() => void) | null = null;
+	let unlistenNativeFindNextMenu: (() => void) | null = null;
+	let unlistenNativeFindPreviousMenu: (() => void) | null = null;
 	let unlistenNativeDocumentChanged: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
 	let tauriShell = false;
@@ -239,6 +260,14 @@
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
+	type FindPanelMode = 'compact' | 'expanded';
+	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
+	type FindPanelPosition = { left: number; top: number };
+	type FindPanelModeOptions = { resetPosition?: boolean };
+	type FindPanelHandle = {
+		setMode: (mode: FindPanelMode, options?: FindPanelModeOptions) => void;
+		focus: () => void;
+	};
 	type TauriEvent<T> = { payload: T };
 	type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -1457,6 +1486,9 @@
 			unlistenNativeNextTabMenu?.();
 			unlistenNativeSettingsMenu?.();
 			unlistenNativeCheckUpdatesMenu?.();
+			unlistenNativeOpenFindMenu?.();
+			unlistenNativeFindNextMenu?.();
+			unlistenNativeFindPreviousMenu?.();
 			unlistenNativeDocumentChanged?.();
 			unlistenNativeDragDrop?.();
 			nativeMenuBridgeReady = false;
@@ -3880,6 +3912,7 @@
 				marginDropCursor,
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
+				search({ top: true, createPanel: marginSearchPanel }),
 				livePreviewField,
 				keymap.of([
 					{
@@ -3988,6 +4021,15 @@
 					},
 					{ key: 'Tab', run: indentMore },
 					{ key: 'Shift-Tab', run: indentLess },
+					{
+						key: 'Mod-f',
+						run(view) {
+							openFindPanel(view);
+
+							return true;
+						}
+					},
+					...searchKeymap,
 					...defaultKeymap,
 					...historyKeymap
 				]),
@@ -4081,6 +4123,417 @@
 				})
 			];
 		}
+	}
+
+	function marginSearchPanel(view: EditorView): Panel {
+		let query = getSearchQuery(view.state);
+		let mode = findPanelMode;
+		let position = findPanelPosition;
+		let dragging: {
+			startX: number;
+			startY: number;
+			startLeft: number;
+			startTop: number;
+			width: number;
+			height: number;
+		} | null = null;
+		const dom = document.createElement('div');
+		dom.className = 'cm-search margin-find-panel';
+		dom.setAttribute('role', 'dialog');
+		dom.setAttribute('aria-label', 'Find and replace');
+		dom.setAttribute('aria-modal', 'false');
+
+		const searchInput = findPanelTextInput('search', 'Find', query.search, true);
+		const replaceInput = findPanelTextInput('replace', 'Replace', query.replace, false);
+		const caseInput = findPanelCheckbox('case', query.caseSensitive);
+		const wordInput = findPanelCheckbox('word', query.wholeWord);
+		const regexInput = findPanelCheckbox('regex', query.regexp);
+		const status = document.createElement('span');
+		const commandButtons: HTMLButtonElement[] = [];
+		const replaceButtons: HTMLButtonElement[] = [];
+
+		status.className = 'margin-find-status';
+		status.setAttribute('aria-live', 'polite');
+
+		const titleBar = document.createElement('div');
+		titleBar.className = 'margin-find-titlebar expanded-only';
+
+		const titleDragHandle = document.createElement('div');
+		titleDragHandle.className = 'margin-find-title-drag';
+
+		const title = document.createElement('span');
+		title.className = 'margin-find-title';
+		title.textContent = 'Find and replace';
+
+		titleDragHandle.append(title);
+		titleBar.append(
+			titleDragHandle,
+			findPanelButton('compact', 'Compact', 'Show compact find', () => {
+				setPanelMode('compact');
+
+				return true;
+			}, undefined, 'scaling-contract'),
+			findPanelButton('close-expanded', 'x', 'Close find and replace', () => closeSearchPanel(view))
+		);
+		titleBar.addEventListener('pointerdown', startFindPanelDrag);
+
+		const topRow = document.createElement('div');
+		topRow.className = 'margin-find-row find-primary';
+		topRow.append(
+			findPanelField(searchInput),
+			findPanelButton('previous', 'Prev', 'Previous match', () => findPrevious(view), commandButtons, 'up'),
+			findPanelButton('next', 'Next', 'Next match', () => findNext(view), commandButtons, 'down'),
+			status,
+			findPanelButton('more', 'More', 'Show more options', () => {
+				setPanelMode('expanded', { resetPosition: true });
+
+				return true;
+			}, undefined, 'scaling'),
+			findPanelButton('close-compact', 'x', 'Close find and replace', () => closeSearchPanel(view))
+		);
+
+		const replaceRow = document.createElement('div');
+		replaceRow.className = 'margin-find-row replace';
+		replaceRow.append(
+			findPanelField(replaceInput),
+			findPanelButton('replace', 'Replace', 'Replace current match', () => replaceNext(view), replaceButtons),
+			findPanelButton('replaceAll', 'All', 'Replace all matches', () => replaceAll(view), replaceButtons)
+		);
+
+		const optionsRow = document.createElement('div');
+		optionsRow.className = 'margin-find-row options';
+		optionsRow.append(
+			findPanelOption('Case', caseInput),
+			findPanelOption('Word', wordInput),
+			findPanelOption('Regex', regexInput)
+		);
+
+		dom.append(titleBar, topRow, replaceRow, optionsRow);
+		dom.addEventListener('keydown', handleFindPanelKeydown);
+
+		searchInput.addEventListener('input', commit);
+		replaceInput.addEventListener('input', commit);
+		caseInput.addEventListener('change', commit);
+		wordInput.addEventListener('change', commit);
+		regexInput.addEventListener('change', commit);
+		applyPanelMode();
+		refreshFindPanelControls();
+
+		const handle: FindPanelHandle = {
+			setMode: setPanelMode,
+			focus: focusFindInput
+		};
+
+		activeFindPanel = handle;
+
+		return {
+			dom,
+			top: true,
+			mount() {
+				focusFindInput();
+			},
+			update(update) {
+				const nextQuery = getSearchQuery(update.state);
+
+				if (!nextQuery.eq(query)) {
+					query = nextQuery;
+					searchInput.value = query.search;
+					replaceInput.value = query.replace;
+					caseInput.checked = query.caseSensitive;
+					wordInput.checked = query.wholeWord;
+					regexInput.checked = query.regexp;
+					refreshFindPanelControls();
+				} else if (update.docChanged || update.selectionSet) {
+					refreshFindPanelControls();
+				}
+			},
+			destroy() {
+				stopFindPanelDrag();
+				if (activeFindPanel === handle) activeFindPanel = null;
+			}
+		};
+
+		function setPanelMode(nextMode: FindPanelMode, options: FindPanelModeOptions = {}) {
+			mode = nextMode;
+			findPanelMode = nextMode;
+
+			if (nextMode === 'compact' || options.resetPosition) {
+				position = null;
+				findPanelPosition = null;
+			}
+
+			applyPanelMode();
+			focusFindInput();
+		}
+
+		function applyPanelMode() {
+			dom.classList.toggle('is-compact', mode === 'compact');
+			dom.classList.toggle('is-expanded', mode === 'expanded');
+			dom.classList.toggle('is-dragged', mode === 'expanded' && Boolean(position));
+
+			if (mode === 'expanded' && position) {
+				dom.style.left = `${position.left}px`;
+				dom.style.top = `${position.top}px`;
+				dom.style.right = 'auto';
+				dom.style.transform = 'none';
+			} else {
+				dom.style.left = '';
+				dom.style.top = '';
+				dom.style.right = '';
+				dom.style.transform = '';
+			}
+		}
+
+		function focusFindInput() {
+			searchInput.focus();
+			searchInput.select();
+		}
+
+		function commit() {
+			const nextQuery = new SearchQuery({
+				search: searchInput.value,
+				replace: replaceInput.value,
+				caseSensitive: caseInput.checked,
+				wholeWord: wordInput.checked,
+				regexp: regexInput.checked
+			});
+
+			if (!nextQuery.eq(query)) {
+				query = nextQuery;
+				view.dispatch({ effects: setSearchQuery.of(query) });
+			}
+
+			refreshFindPanelControls();
+		}
+
+		function handleFindPanelKeydown(event: KeyboardEvent) {
+			const mod = event.metaKey || event.ctrlKey;
+			const key = event.key.toLowerCase();
+
+			if (mod && !event.altKey && !event.shiftKey && key === 'f') {
+				event.preventDefault();
+				setPanelMode('compact');
+
+				return;
+			}
+
+			if (runScopeHandlers(view, event, 'search-panel')) {
+				event.preventDefault();
+				return;
+			}
+
+			if (event.key === 'Enter' && event.target === searchInput) {
+				event.preventDefault();
+				(event.shiftKey ? findPrevious : findNext)(view);
+				refreshFindPanelControls();
+			}
+
+			if (event.key === 'Enter' && event.target === replaceInput) {
+				event.preventDefault();
+				replaceNext(view);
+				refreshFindPanelControls();
+			}
+		}
+
+		function refreshFindPanelControls() {
+			const canSearch = query.search.length > 0 && query.valid;
+			const canReplace = canSearch && !view.state.readOnly;
+
+			commandButtons.forEach((button) => {
+				button.disabled = !canSearch;
+			});
+			replaceButtons.forEach((button) => {
+				button.disabled = !canReplace;
+			});
+			status.textContent = findPanelStatus(view, query);
+		}
+
+		function startFindPanelDrag(event: PointerEvent) {
+			if (mode !== 'expanded' || event.button !== 0) return;
+
+			const target = event.target;
+			if (target instanceof Element && target.closest('button, input, label')) return;
+
+			const rect = dom.getBoundingClientRect();
+			dragging = {
+				startX: event.clientX,
+				startY: event.clientY,
+				startLeft: rect.left,
+				startTop: rect.top,
+				width: rect.width,
+				height: rect.height
+			};
+			dom.classList.add('is-dragging');
+			event.preventDefault();
+			window.addEventListener('pointermove', dragFindPanel);
+			window.addEventListener('pointerup', stopFindPanelDrag);
+			window.addEventListener('pointercancel', stopFindPanelDrag);
+		}
+
+		function dragFindPanel(event: PointerEvent) {
+			if (!dragging) return;
+
+			const margin = 8;
+			const nextLeft = clampNumber(
+				dragging.startLeft + event.clientX - dragging.startX,
+				margin,
+				Math.max(margin, window.innerWidth - dragging.width - margin)
+			);
+			const nextTop = clampNumber(
+				dragging.startTop + event.clientY - dragging.startY,
+				margin,
+				Math.max(margin, window.innerHeight - dragging.height - margin)
+			);
+
+			position = { left: nextLeft, top: nextTop };
+			findPanelPosition = position;
+			applyPanelMode();
+		}
+
+		function stopFindPanelDrag() {
+			if (!dragging) return;
+
+			dragging = null;
+			dom.classList.remove('is-dragging');
+			window.removeEventListener('pointermove', dragFindPanel);
+			window.removeEventListener('pointerup', stopFindPanelDrag);
+			window.removeEventListener('pointercancel', stopFindPanelDrag);
+		}
+	}
+
+	function findPanelTextInput(name: string, label: string, value: string, main: boolean) {
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.name = name;
+		input.className = 'margin-find-input';
+		input.value = value;
+		input.placeholder = label;
+		input.autocomplete = 'off';
+		input.spellcheck = false;
+		input.setAttribute('aria-label', label);
+		input.setAttribute('form', '');
+
+		if (main) input.setAttribute('main-field', 'true');
+
+		return input;
+	}
+
+	function findPanelCheckbox(name: string, checked: boolean) {
+		const input = document.createElement('input');
+		input.type = 'checkbox';
+		input.name = name;
+		input.checked = checked;
+		input.setAttribute('form', '');
+
+		return input;
+	}
+
+	function findPanelField(input: HTMLInputElement) {
+		const field = document.createElement('div');
+
+		field.className = 'margin-find-field';
+		field.append(input);
+
+		return field;
+	}
+
+	function findPanelOption(labelText: string, input: HTMLInputElement) {
+		const label = document.createElement('label');
+		const text = document.createElement('span');
+
+		label.className = 'margin-find-option';
+		text.textContent = labelText;
+		label.append(input, text);
+
+		return label;
+	}
+
+	function findPanelButton(
+		name: string,
+		label: string,
+		ariaLabel: string,
+		run: () => boolean,
+		group?: HTMLButtonElement[],
+		icon?: FindPanelIconName
+	) {
+		const button = document.createElement('button');
+		const text = document.createElement('span');
+
+		button.type = 'button';
+		button.name = name;
+		button.className = `margin-find-button ${name}`;
+		button.setAttribute('aria-label', ariaLabel);
+		text.className = 'margin-find-button-label';
+		text.textContent = label;
+		if (icon) button.append(findPanelIcon(icon));
+		button.append(text);
+		button.addEventListener('mousedown', (event) => event.preventDefault());
+		button.addEventListener('click', () => run());
+		group?.push(button);
+
+		return button;
+	}
+
+	function findPanelIcon(name: FindPanelIconName) {
+		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		svg.setAttribute('class', `margin-find-button-icon icon-${name}`);
+		svg.setAttribute('viewBox', '0 0 24 24');
+		svg.setAttribute('aria-hidden', 'true');
+
+		const paths: Record<FindPanelIconName, string[]> = {
+			up: ['M6 15l6-6 6 6'],
+			down: ['M6 9l6 6 6-6'],
+			scaling: [
+				'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7',
+				'M14 15H9v-5',
+				'M16 3h5v5',
+				'M21 3 9 15'
+			],
+			'scaling-contract': [
+				'M12 21h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7',
+				'M10 9h5v5',
+				'M8 21H3v-5',
+				'M3 21 15 9'
+			]
+		};
+
+		for (const d of paths[name]) {
+			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+			path.setAttribute('d', d);
+			svg.append(path);
+		}
+
+		return svg;
+	}
+
+	function clampNumber(value: number, min: number, max: number) {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	function findPanelStatus(view: EditorView, query: SearchQuery) {
+		if (!query.search) return '';
+		if (!query.valid) return 'Invalid pattern';
+
+		const selection = view.state.selection.main;
+		const cursor = query.getCursor(view.state);
+		let count = 0;
+		let selectedIndex = 0;
+
+		for (let next = cursor.next(); !next.done; next = cursor.next()) {
+			const match = next.value;
+			count += 1;
+
+			if (match.from === selection.from && match.to === selection.to) {
+				selectedIndex = count;
+			}
+
+			if (count > 9999) return '9999+ matches';
+		}
+
+		if (count === 0) return 'No matches';
+		if (selectedIndex > 0) return `${selectedIndex} of ${count}`;
+
+		return count === 1 ? '1 match' : `${count} matches`;
 	}
 
 	function updateFootnoteJumpArmed(view: EditorView, armed: boolean) {
@@ -4770,6 +5223,18 @@
 				checkForDesktopUpdate(true);
 			});
 
+			unlistenNativeOpenFindMenu = await listen('margin://open-find', () => {
+				openFindPanel();
+			});
+
+			unlistenNativeFindNextMenu = await listen('margin://find-next', () => {
+				findNextInEditor();
+			});
+
+			unlistenNativeFindPreviousMenu = await listen('margin://find-previous', () => {
+				findPreviousInEditor();
+			});
+
 			unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
 				if (isInsertBlockKind(event.payload)) {
 					insertMarkdownBlock(event.payload);
@@ -5045,6 +5510,38 @@
 		return desktopShell && !nativeMenuBridgeReady;
 	}
 
+	function openFindPanel(view: EditorView | null = mainEditor) {
+		if (!view) return;
+		if (settingsDialogOpen) {
+			closeSettingsDialog();
+			if (settingsDialogOpen) return;
+		}
+
+		findPanelMode = 'compact';
+		findPanelPosition = null;
+		openSearchPanel(view);
+		activeFindPanel?.setMode('compact', { resetPosition: true });
+		activeFindPanel?.focus();
+	}
+
+	function closeFindPanel(view: EditorView | null = mainEditor) {
+		if (!view) return;
+
+		closeSearchPanel(view);
+	}
+
+	function findNextInEditor() {
+		if (!mainEditor) return;
+
+		findNext(mainEditor);
+	}
+
+	function findPreviousInEditor() {
+		if (!mainEditor) return;
+
+		findPrevious(mainEditor);
+	}
+
 	async function loadAppSettings() {
 		const request = desktopShell ? tauriInvoke<AppSettings>('read_settings') : null;
 
@@ -5097,6 +5594,7 @@
 	}
 
 	function openSettingsDialog() {
+		closeFindPanel();
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
@@ -6422,6 +6920,8 @@
 	}
 
 	function handleGlobalShortcut(event: KeyboardEvent) {
+		if (event.defaultPrevented) return;
+		if (handleFindShortcut(event)) return;
 		if (!shouldHandleWebNativeShortcut()) return;
 
 		const mod = event.metaKey || event.ctrlKey;
@@ -6470,6 +6970,49 @@
 			event.preventDefault();
 			activateAdjacentDocumentTab(1);
 		}
+	}
+
+	function handleFindShortcut(event: KeyboardEvent) {
+		if (!mainEditor) return false;
+
+		const target = event.target;
+		if (target instanceof Element && target.closest('.margin-find-panel')) return false;
+
+		const mod = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+
+		if (mod && !event.altKey && !event.shiftKey && key === 'f') {
+			event.preventDefault();
+			openFindPanel();
+
+			return true;
+		}
+
+		if (mod && !event.altKey && key === 'g') {
+			event.preventDefault();
+
+			if (event.shiftKey) {
+				findPreviousInEditor();
+			} else {
+				findNextInEditor();
+			}
+
+			return true;
+		}
+
+		if (!mod && !event.altKey && key === 'f3') {
+			event.preventDefault();
+
+			if (event.shiftKey) {
+				findPreviousInEditor();
+			} else {
+				findNextInEditor();
+			}
+
+			return true;
+		}
+
+		return false;
 	}
 
 	function handleBeforeUnload(event: BeforeUnloadEvent) {
