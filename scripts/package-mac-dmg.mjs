@@ -32,6 +32,7 @@ const backgroundDirName = '.background';
 const backgroundStageDir = path.join(stageDir, backgroundDirName);
 const backgroundStagePath = path.join(backgroundStageDir, backgroundFileName);
 const signingMode = process.env.MARGIN_MACOS_SIGNING ?? 'none';
+const createUpdaterArtifacts = process.env.MARGIN_CREATE_UPDATER_ARTIFACTS === 'true';
 
 if (signingMode === 'adhoc') {
   process.env.APPLE_SIGNING_IDENTITY ??= '-';
@@ -44,6 +45,10 @@ const tauriBuildArgs = ['--workspace', '@margin/desktop', 'run', 'tauri', '--', 
 
 if (signingMode === 'none') {
   tauriBuildArgs.push('--no-sign');
+}
+
+if (createUpdaterArtifacts) {
+  tauriBuildArgs.push('--config', JSON.stringify({ bundle: { createUpdaterArtifacts: true } }));
 }
 
 run('npm', tauriBuildArgs);

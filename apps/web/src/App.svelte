@@ -41,6 +41,8 @@
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import SaveIcon from '@lucide/svelte/icons/save';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -76,6 +78,11 @@
 	let settingsDialogOpen = false;
 	let settingsSaving = false;
 	let settingsError = '';
+	let availableAppUpdate: AppUpdateMetadata | null = null;
+	let updateCheckState: AppUpdateCheckState = 'idle';
+	let updateStatusMessage = '';
+	let updateNoticeVisible = false;
+	let updateAutoCheckTimer: ReturnType<typeof setTimeout> | null = null;
 	let error = '';
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
@@ -125,6 +132,7 @@
 	let unlistenNativePreviousTabMenu: (() => void) | null = null;
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
 	let unlistenNativeSettingsMenu: (() => void) | null = null;
+	let unlistenNativeCheckUpdatesMenu: (() => void) | null = null;
 	let unlistenNativeDocumentChanged: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
 	let tauriShell = false;
@@ -211,6 +219,8 @@
 	type EditingMode = 'edit' | 'suggest';
 	type ThemeSetting = 'auto' | 'light' | 'dark';
 	type AppSettings = { theme: ThemeSetting };
+	type AppUpdateMetadata = { currentVersion: string; version: string; notes?: string | null };
+	type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
@@ -1192,6 +1202,12 @@
 
 		const nativeListenersReady = setupNativeDesktopListeners();
 		const recentDocumentsReady = initializeRecentDocuments();
+		if (desktopShell) {
+			updateAutoCheckTimer = setTimeout(() => {
+				updateAutoCheckTimer = null;
+				checkForDesktopUpdate(false);
+			}, 1800);
+		}
 
 		bootstrapStandaloneDocument(nativeListenersReady, recentDocumentsReady);
 		window.addEventListener('resize', updateAnchorPositions);
@@ -1204,6 +1220,7 @@
 			window.removeEventListener('beforeunload', handleBeforeUnload);
 			clearLocalAutosaveTimer();
 			clearSaveProgressTimers();
+			clearUpdateAutoCheckTimer();
 			unlistenNativeInsertMenu?.();
 			unlistenNativeCommentMenu?.();
 			unlistenNativeNewMenu?.();
@@ -1217,6 +1234,7 @@
 			unlistenNativePreviousTabMenu?.();
 			unlistenNativeNextTabMenu?.();
 			unlistenNativeSettingsMenu?.();
+			unlistenNativeCheckUpdatesMenu?.();
 			unlistenNativeDocumentChanged?.();
 			unlistenNativeDragDrop?.();
 			nativeMenuBridgeReady = false;
@@ -4155,6 +4173,11 @@
 				openSettingsDialog();
 			});
 
+			unlistenNativeCheckUpdatesMenu = await listen('margin://check-for-updates', () => {
+				openSettingsDialog();
+				checkForDesktopUpdate(true);
+			});
+
 			unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
 				if (isInsertBlockKind(event.payload)) {
 					insertMarkdownBlock(event.payload);
@@ -4435,6 +4458,13 @@
 		}
 	}
 
+	function clearUpdateAutoCheckTimer() {
+		if (!updateAutoCheckTimer) return;
+
+		clearTimeout(updateAutoCheckTimer);
+		updateAutoCheckTimer = null;
+	}
+
 	function openSettingsDialog() {
 		settingsDraftTheme = appSettings.theme;
 		settingsError = '';
@@ -4473,6 +4503,82 @@
 		} finally {
 			settingsSaving = false;
 		}
+	}
+
+	async function checkForDesktopUpdate(manual: boolean) {
+		if (!desktopShell || updateCheckState === 'checking' || updateCheckState === 'installing') {
+			return;
+		}
+
+		updateCheckState = 'checking';
+		updateStatusMessage = manual ? 'Checking for updates' : '';
+
+		const request = tauriInvoke<AppUpdateMetadata | null>('check_for_app_update');
+		if (!request) {
+			if (manual) {
+				updateCheckState = 'error';
+				updateStatusMessage = 'Unable to check for updates';
+			} else {
+				updateCheckState = 'idle';
+			}
+			return;
+		}
+
+		try {
+			const update = await request;
+
+			if (update) {
+				availableAppUpdate = update;
+				updateCheckState = 'available';
+				updateStatusMessage = `Version ${update.version} is available`;
+				updateNoticeVisible = true;
+			} else {
+				availableAppUpdate = null;
+				updateCheckState = manual ? 'current' : 'idle';
+				updateStatusMessage = manual ? 'Margin is up to date' : '';
+				updateNoticeVisible = false;
+			}
+		} catch(err) {
+			const message = updateErrorMessage(err, 'Unable to check for updates');
+
+			if (manual) {
+				updateCheckState = 'error';
+				updateStatusMessage = message;
+			} else {
+				updateCheckState = 'idle';
+				updateStatusMessage = '';
+				console.warn(message, err);
+			}
+		}
+	}
+
+	async function installDesktopUpdate() {
+		if (!desktopShell || updateCheckState === 'installing') return;
+
+		updateCheckState = 'installing';
+		updateStatusMessage = 'Installing update';
+		updateNoticeVisible = true;
+
+		const request = tauriInvoke<void>('install_app_update');
+		if (!request) {
+			updateCheckState = 'error';
+			updateStatusMessage = 'Unable to install update';
+			return;
+		}
+
+		try {
+			await request;
+			updateStatusMessage = 'Relaunching';
+		} catch(err) {
+			updateCheckState = 'error';
+			updateStatusMessage = updateErrorMessage(err, 'Unable to install update');
+		}
+	}
+
+	function updateErrorMessage(err: unknown, fallback: string) {
+		if (err instanceof Error && err.message.trim()) return err.message;
+		if (typeof err === 'string' && err.trim()) return err;
+		return fallback;
 	}
 
 	async function flushPendingNativeOpenUrls() {
@@ -6394,6 +6500,38 @@
 		</div>
 	{/if}
 
+	{#if updateNoticeVisible && availableAppUpdate}
+		<div class="app-update-notice" role="status" aria-live="polite">
+			<div class="app-update-copy">
+				<span class="app-update-title">Update {availableAppUpdate.version}</span>
+				<span class="app-update-detail">
+					{updateCheckState === 'installing' ? 'Installing' : 'Ready to install'}
+				</span>
+			</div>
+
+			<Button
+				size="sm"
+				class="primary app-update-install"
+				onclick={installDesktopUpdate}
+				disabled={updateCheckState === 'installing'}
+			>
+				<DownloadIcon aria-hidden="true" />
+				<span>{updateCheckState === 'installing' ? 'Installing' : 'Install'}</span>
+			</Button>
+
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="icon-button app-update-dismiss"
+				aria-label="Dismiss update"
+				onclick={() => updateNoticeVisible = false}
+				disabled={updateCheckState === 'installing'}
+			>
+				<XIcon aria-hidden="true" />
+			</Button>
+		</div>
+	{/if}
+
 		<Dialog.Root bind:open={settingsDialogOpen}>
 			<Dialog.Content
 				class="settings-dialog"
@@ -6436,6 +6574,50 @@
 							{/each}
 						</ToggleGroup.Root>
 					</fieldset>
+
+					{#if desktopShell}
+						<section class="settings-fieldset settings-update-fieldset" aria-labelledby="settings-updates-title">
+							<div class="settings-update-header">
+								<div>
+									<Label id="settings-updates-title">Updates</Label>
+									{#if updateStatusMessage}
+										<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
+											{updateStatusMessage}
+										</p>
+									{/if}
+								</div>
+
+								<Button
+									variant="outline"
+									size="sm"
+									class="ghost-button settings-update-check"
+									onclick={() => checkForDesktopUpdate(true)}
+									disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
+								>
+									<RefreshCwIcon aria-hidden="true" />
+									<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
+								</Button>
+							</div>
+
+							{#if availableAppUpdate}
+								<div class="settings-update-available">
+									<p>Version {availableAppUpdate.version} is available</p>
+									{#if availableAppUpdate.notes}
+										<p>{availableAppUpdate.notes}</p>
+									{/if}
+									<Button
+										size="sm"
+										class="primary settings-update-install"
+										onclick={installDesktopUpdate}
+										disabled={updateCheckState === 'installing'}
+									>
+										<DownloadIcon aria-hidden="true" />
+										<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
+									</Button>
+								</div>
+							{/if}
+						</section>
+					{/if}
 
 					{#if settingsError}
 						<p class="settings-error">{settingsError}</p>
