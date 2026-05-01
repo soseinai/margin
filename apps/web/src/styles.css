@@ -1063,13 +1063,13 @@ textarea:not([data-slot]):focus {
   display: flex;
   gap: 32px;
   justify-content: center;
-  padding: 28px 32px 104px;
+  padding: 14px 32px 104px;
 }
 
 .paper-column {
   display: grid;
   gap: 16px;
-  flex: 0 1 760px;
+  flex: 0 1 887px;
   min-width: 0;
 }
 
@@ -1079,7 +1079,7 @@ textarea:not([data-slot]):focus {
   border-radius: 0;
   line-height: 1.6;
   min-height: calc(100vh - 150px);
-  padding: 64px 72px;
+  padding: 34px 72px 64px;
   width: 100%;
 }
 
@@ -1117,7 +1117,7 @@ textarea:not([data-slot]):focus {
 
 .live-preview-surface {
   cursor: text;
-  padding: 66px 74px;
+  padding: 34px 74px 66px;
 }
 
 .live-preview-editor {
