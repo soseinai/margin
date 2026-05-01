@@ -158,6 +158,7 @@
 	let activeDocumentTabId = '';
 	let recentDocuments: RecentDocument[] = [];
 	let dragActive = false;
+	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
 	const anchorContextCharacters = 96;
@@ -403,6 +404,18 @@
 	 };
 
 	type FenceInfo = { marker: '`' | '~'; length: number; language: string };
+	type MarkdownHeadingLine = { level: number; text: string; syntaxLength: number };
+	type MarkdownHeading = {
+		blockEnd: number;
+		collapseKey: string;
+		level: number;
+		lineNumber: number;
+		text: string
+	 };
+	type MarkdownHeadingModel = {
+		collapsedAncestorByLine: Map<number, number>;
+		items: Map<number, MarkdownHeading>
+	 };
 	type ListInfo = { indent: number; contentIndent: number; marker: string; task: boolean };
 	type ListContinuationInfo = {
 		sourceIndentLength: number;
@@ -659,6 +672,62 @@
 				event.stopPropagation();
 
 				toggleMarkdownListCollapse(view, this.key, this.lineNumber);
+				view.focus();
+			});
+
+			return button;
+		}
+
+		ignoreEvent() {
+			return false;
+		}
+	}
+
+	class HeadingCollapseToggleWidget extends WidgetType {
+		key = '';
+		collapsed = false;
+		lineNumber = 1;
+
+		constructor(key: string, collapsed: boolean, lineNumber: number) {
+			super();
+			this.key = key;
+			this.collapsed = collapsed;
+			this.lineNumber = lineNumber;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof HeadingCollapseToggleWidget
+				&& other.key === this.key
+				&& other.collapsed === this.collapsed
+				&& other.lineNumber === this.lineNumber;
+		}
+
+		toDOM(view: EditorView) {
+			const button = document.createElement('button');
+
+			button.type = 'button';
+			button.dataset.slot = 'heading-collapse-toggle';
+			button.className = `markdown-heading-collapse-toggle${this.collapsed ? ' is-collapsed' : ''}`;
+			button.setAttribute('aria-label', this.collapsed ? 'Expand heading section' : 'Collapse heading section');
+			button.setAttribute('aria-expanded', String(!this.collapsed));
+
+			const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+			icon.classList.add('markdown-heading-collapse-icon');
+			icon.setAttribute('aria-hidden', 'true');
+			icon.setAttribute('focusable', 'false');
+			icon.setAttribute('viewBox', '0 0 16 16');
+			path.setAttribute('d', 'M4.75 6.25L8 9.5L11.25 6.25');
+			icon.append(path);
+			button.append(icon);
+
+			button.addEventListener('mousedown', (event) => event.preventDefault());
+			button.addEventListener('click', (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+
+				toggleMarkdownHeadingCollapse(view, this.key, this.lineNumber);
 				view.focus();
 			});
 
@@ -1506,17 +1575,16 @@
 		const frontmatterBlocks = markdownFrontmatterBlocks(state);
 		const fencedBlocks = fencedCodeBlocks(state);
 		const tableBlocks = markdownTableBlocks(state);
-		const orderedListMarkers = markdownOrderedListMarkers(state, [
+		const ignoredContainerBlocks = [
 			...frontmatterBlocks,
 			...fencedBlocks,
 			...tableBlocks
-		]);
-		const listModel = markdownListModel(state, orderedListMarkers, [
-			...frontmatterBlocks,
-			...fencedBlocks,
-			...tableBlocks
-		]);
+		];
+		const headingModel = markdownHeadingModel(state, ignoredContainerBlocks);
+		const orderedListMarkers = markdownOrderedListMarkers(state, ignoredContainerBlocks);
+		const listModel = markdownListModel(state, orderedListMarkers, ignoredContainerBlocks);
 		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
+		const activeHeadingControlLines = activeHeadingControlLineNumbers(state, headingModel);
 		const activeListControlLines = activeListControlLineNumbers(state, listModel);
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
@@ -1529,6 +1597,14 @@
 			const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
 			const fencedBlock = blockForLine(fencedBlocks, line.number);
 			const tableBlock = blockForLine(tableBlocks, line.number);
+
+			if (headingModel.collapsedAncestorByLine.has(line.number)) {
+				ranges.push(Decoration.line({
+					class: 'cm-collapsed-heading-hidden-line'
+				}).range(line.from));
+
+				continue;
+			}
 
 			if (listModel.collapsedAncestorByLine.has(line.number)) {
 				ranges.push(Decoration.line({
@@ -1633,7 +1709,7 @@
 				continue;
 			}
 
-			const heading = (/^(#{1,6})(\s+)(.*)/).exec(text);
+			const heading = markdownHeadingLine(text);
 			const blockquote = (/^([ \t]{0,3}>[ \t]?)(.*)/).exec(text);
 			const footnoteDefinition = footnoteDefinitionMatch(text);
 			const imageLine = markdownImageOnly(text);
@@ -1724,22 +1800,41 @@
 			}
 
 			if (heading) {
+				const item = headingModel.items.get(line.number);
+				const headingFoldable = Boolean(item && item.blockEnd > line.number);
+				const headingCollapseKey = headingFoldable ? item?.collapseKey ?? '' : '';
+				const headingCollapsed = headingCollapseKey ? collapsedHeadingKeys.has(headingCollapseKey) : false;
+				const headingControlsVisible = activeHeadingControlLines.has(line.number);
+
 				ranges.push(Decoration.line({
-					class: `cm-live-heading cm-live-heading-${heading[1].length}${active
+					class: `cm-live-heading cm-live-heading-${heading.level}${headingFoldable
+						? ' cm-live-heading-foldable'
+						: ''}${headingControlsVisible
+						? ' cm-live-heading-controls-visible'
+						: ''}${headingCollapsed
+						? ' cm-live-heading-collapsed'
+						: ''}${active
 						? ` ${activeClass}`
 						: ''}`,
 					attributes: activeAttributes
 				}).range(line.from));
 
+				if (headingCollapseKey) {
+					ranges.push(Decoration.widget({
+						widget: new HeadingCollapseToggleWidget(headingCollapseKey, headingCollapsed, line.number),
+						side: -1
+					}).range(line.from));
+				}
+
 				if (active) {
 					ranges.push(Decoration.mark({
 						class: 'cm-markdown-source-syntax cm-markdown-heading-syntax'
-					}).range(line.from, line.from + heading[1].length + heading[2].length));
+					}).range(line.from, line.from + heading.syntaxLength));
 				}
 
 				if (!active) {
-					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.from + heading[1].length + heading[2].length));
-					addInlineMarkdownPreview(ranges, line, heading[0].length - heading[3].length);
+					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.from + heading.syntaxLength));
+					addInlineMarkdownPreview(ranges, line, heading.syntaxLength);
 				}
 
 				continue;
@@ -2076,6 +2171,31 @@
 		return lines;
 	}
 
+	function activeHeadingControlLineNumbers(state: EditorState, headingModel: MarkdownHeadingModel) {
+		const lines = new Set<number>();
+
+		for (const range of state.selection.ranges) {
+			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
+			const startLine = state.doc.lineAt(range.from).number;
+			const endLine = state.doc.lineAt(endPosition).number;
+
+			for (const heading of headingModel.items.values()) {
+				if (
+					heading.blockEnd <= heading.lineNumber
+					|| heading.blockEnd < startLine
+					|| heading.lineNumber > endLine
+					|| headingModel.collapsedAncestorByLine.has(heading.lineNumber)
+				) {
+					continue;
+				}
+
+				lines.add(heading.lineNumber);
+			}
+		}
+
+		return lines;
+	}
+
 	function rootMarkdownListItem(item: MarkdownListItem, listModel: MarkdownListModel) {
 		let root = item;
 
@@ -2158,6 +2278,77 @@
 
 	function blockForLine(blocks: SourceBlock[], lineNumber: number) {
 		return blocks.find((block) => lineInBlock(lineNumber, block)) ?? null;
+	}
+
+	function markdownHeadingLine(text: string): MarkdownHeadingLine | null {
+		const match = (/^(#{1,6})(\s+)(.*)/).exec(text);
+
+		if (!match) return null;
+
+		return {
+			level: match[1].length,
+			text: match[3].trim(),
+			syntaxLength: match[1].length + match[2].length
+		};
+	}
+
+	function markdownHeadingModelForState(state: EditorState) {
+		return markdownHeadingModel(state, [
+			...markdownFrontmatterBlocks(state),
+			...fencedCodeBlocks(state),
+			...markdownTableBlocks(state)
+		]);
+	}
+
+	function markdownHeadingModel(state: EditorState, ignoredBlocks: SourceBlock[] = []): MarkdownHeadingModel {
+		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
+		const headings: MarkdownHeading[] = [];
+		const items = new Map<number, MarkdownHeading>();
+		const collapsedAncestorByLine = new Map<number, number>();
+
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			if (ignoredLines.has(lineNumber)) continue;
+
+			const line = state.doc.line(lineNumber);
+			const heading = markdownHeadingLine(line.text);
+
+			if (!heading) continue;
+
+			headings.push({
+				blockEnd: state.doc.lines,
+				collapseKey: markdownHeadingCollapseKey(state, lineNumber),
+				level: heading.level,
+				lineNumber,
+				text: heading.text
+			});
+		}
+
+		for (let index = 0; index < headings.length; index += 1) {
+			const heading = headings[index];
+
+			for (let nextIndex = index + 1; nextIndex < headings.length; nextIndex += 1) {
+				const nextHeading = headings[nextIndex];
+
+				if (nextHeading.level <= heading.level) {
+					heading.blockEnd = nextHeading.lineNumber - 1;
+					break;
+				}
+			}
+
+			items.set(heading.lineNumber, heading);
+		}
+
+		for (const heading of headings) {
+			if (heading.blockEnd <= heading.lineNumber || !collapsedHeadingKeys.has(heading.collapseKey)) continue;
+
+			for (let lineNumber = heading.lineNumber + 1; lineNumber <= heading.blockEnd; lineNumber += 1) {
+				if (!collapsedAncestorByLine.has(lineNumber)) {
+					collapsedAncestorByLine.set(lineNumber, heading.lineNumber);
+				}
+			}
+		}
+
+		return { collapsedAncestorByLine, items };
 	}
 
 	function fencedCodeBlocks(state: EditorState): SourceBlock[] {
@@ -2868,6 +3059,48 @@
 
 	function markdownListCollapseKey(state: EditorState, lineNumber: number) {
 		return `${documentSessionKey}:${lineNumber}:${state.doc.line(lineNumber).text}`;
+	}
+
+	function markdownHeadingCollapseKey(state: EditorState, lineNumber: number) {
+		return `${documentSessionKey}:${lineNumber}:${state.doc.line(lineNumber).text}`;
+	}
+
+	function toggleMarkdownHeadingCollapse(view: EditorView, key: string, lineNumber: number) {
+		const next = new Set(collapsedHeadingKeys);
+		const collapsing = !next.has(key);
+		const selection = collapsing ? selectionOutsideCollapsingHeadingSection(view.state, lineNumber) : null;
+
+		if (collapsing) {
+			next.add(key);
+		} else {
+			next.delete(key);
+		}
+
+		collapsedHeadingKeys = next;
+		view.dispatch({
+			effects: refreshLivePreviewEffect.of(),
+			selection: selection ?? undefined
+		});
+		requestAnimationFrame(updateAnchorPositions);
+	}
+
+	function selectionOutsideCollapsingHeadingSection(state: EditorState, lineNumber: number) {
+		const headingModel = markdownHeadingModelForState(state);
+		const item = headingModel.items.get(lineNumber);
+
+		if (!item || item.blockEnd <= lineNumber) return null;
+
+		const headLine = state.doc.lineAt(state.selection.main.head).number;
+
+		if (headLine <= lineNumber || headLine > item.blockEnd) return null;
+
+		const headingLine = state.doc.line(lineNumber);
+
+		return { anchor: markdownHeadingContentPosition(headingLine) };
+	}
+
+	function markdownHeadingContentPosition(line: Line) {
+		return line.from + (markdownHeadingLine(line.text)?.syntaxLength ?? 0);
 	}
 
 	function toggleMarkdownListCollapse(view: EditorView, key: string, lineNumber: number) {
