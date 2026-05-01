@@ -1340,6 +1340,298 @@ textarea:not([data-slot]):focus {
   z-index: 3;
 }
 
+.live-preview-editor .cm-panels:has(.margin-find-panel) {
+  background: transparent;
+  border: 0;
+  height: 0;
+  overflow: visible;
+  position: static;
+}
+
+.live-preview-editor .cm-panel.cm-search.margin-find-panel {
+  background: color-mix(in srgb, var(--paper-raised) 94%, var(--paper-sunk));
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 8px;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 10%) inset,
+    0 14px 34px rgb(0 0 0 / 14%);
+  color: var(--fg-2);
+  display: grid;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  gap: 6px;
+  line-height: 1.2;
+  margin: 0;
+  position: fixed;
+  z-index: 80;
+}
+
+.live-preview-editor .cm-panel.cm-search.margin-find-panel.is-compact {
+  gap: 0;
+  padding: 6px 8px;
+  right: calc(24px + env(safe-area-inset-right));
+  top: calc(74px + env(safe-area-inset-top));
+  width: min(380px, calc(100vw - 32px));
+}
+
+.live-preview-editor .cm-panel.cm-search.margin-find-panel.is-expanded {
+  left: 50%;
+  padding: 0 14px 12px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 32px));
+}
+
+:root[data-theme="dark"] .live-preview-editor .cm-panel.cm-search.margin-find-panel {
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 8%) inset,
+    0 16px 36px rgb(0 0 0 / 36%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .live-preview-editor .cm-panel.cm-search.margin-find-panel {
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 8%) inset,
+      0 16px 36px rgb(0 0 0 / 36%);
+  }
+}
+
+.live-preview-editor .margin-find-panel.is-compact .expanded-only,
+.live-preview-editor .margin-find-panel.is-compact .replace,
+.live-preview-editor .margin-find-panel.is-compact .options,
+.live-preview-editor .margin-find-panel.is-compact .margin-find-status,
+.live-preview-editor .margin-find-panel.is-expanded .compact-only,
+.live-preview-editor .margin-find-panel.is-expanded .more,
+.live-preview-editor .margin-find-panel.is-expanded .close-compact {
+  display: none;
+}
+
+.live-preview-editor .cm-panel.cm-search.margin-find-panel input,
+.live-preview-editor .cm-panel.cm-search.margin-find-panel button,
+.live-preview-editor .cm-panel.cm-search.margin-find-panel label {
+  margin: 0;
+}
+
+.live-preview-editor .margin-find-titlebar {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  cursor: grab;
+  display: flex;
+  gap: 6px;
+  margin: 0 -14px 12px;
+  min-height: 34px;
+  min-width: 0;
+  padding: 6px 7px 6px 14px;
+  touch-action: none;
+  user-select: none;
+}
+
+.live-preview-editor .margin-find-panel.is-dragging .margin-find-titlebar {
+  cursor: grabbing;
+}
+
+.live-preview-editor .margin-find-title-drag {
+  align-items: center;
+  color: var(--fg-3);
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.live-preview-editor .margin-find-title {
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-preview-editor .margin-find-row {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+.live-preview-editor .margin-find-field {
+  align-items: center;
+  display: flex;
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.live-preview-editor .margin-find-panel.is-compact .margin-find-row {
+  gap: 5px;
+}
+
+.live-preview-editor .margin-find-panel.is-compact .margin-find-field {
+  flex-basis: auto;
+  min-width: 0;
+}
+
+.live-preview-editor .margin-find-input {
+  background: color-mix(in srgb, var(--paper-sunk) 54%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 5px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  height: 32px;
+  min-width: 0;
+  outline: none;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.live-preview-editor .margin-find-input:focus {
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.live-preview-editor .margin-find-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
+  border-radius: 5px;
+  color: var(--fg-2);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: inherit;
+  height: 28px;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 9px;
+  transition:
+    background var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out),
+    color var(--dur-base) var(--ease-out);
+}
+
+.live-preview-editor .margin-find-button:hover:not(:disabled),
+.live-preview-editor .margin-find-button:focus-visible {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  color: var(--fg);
+  outline: none;
+}
+
+.live-preview-editor .margin-find-button:active:not(:disabled) {
+  transform: none;
+}
+
+.live-preview-editor .margin-find-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.live-preview-editor .margin-find-button-icon {
+  display: block;
+  fill: none;
+  flex: 0 0 auto;
+  height: 12px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 12px;
+}
+
+.live-preview-editor .margin-find-panel :is(
+  .previous,
+  .next,
+  .more,
+  .close-compact,
+  .compact,
+  .close-expanded
+) {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 4px;
+  color: var(--fg-3);
+  flex-basis: 20px;
+  height: 20px;
+  opacity: 0.64;
+  padding: 0;
+  width: 20px;
+}
+
+.live-preview-editor .margin-find-panel :is(
+  .previous,
+  .next,
+  .more,
+  .close-compact,
+  .compact,
+  .close-expanded
+):hover:not(:disabled),
+.live-preview-editor .margin-find-panel :is(
+  .previous,
+  .next,
+  .more,
+  .close-compact,
+  .compact,
+  .close-expanded
+):focus-visible {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--fg);
+  opacity: 1;
+  outline: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+  outline-offset: 1px;
+}
+
+.live-preview-editor .margin-find-panel.is-compact .previous .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-compact .next .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-compact .more .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-expanded .previous .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-expanded .next .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-expanded .compact .margin-find-button-label {
+  display: none;
+}
+
+.live-preview-editor .margin-find-status {
+  color: var(--fg-3);
+  flex: 0 0 auto;
+  font-family: var(--font-plex-mono);
+  font-size: 10px;
+  line-height: 1;
+  margin-left: auto;
+  min-width: 76px;
+  text-align: right;
+}
+
+.live-preview-editor .margin-find-row.options {
+  gap: 14px;
+}
+
+.live-preview-editor .margin-find-option {
+  align-items: center;
+  color: var(--fg-3);
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.live-preview-editor .margin-find-option input {
+  accent-color: var(--ink);
+}
+
+.live-preview-editor .cm-searchMatch {
+  background: color-mix(in srgb, var(--suggestion-soft) 82%, #f4d45f 34%);
+  border-radius: 3px;
+}
+
+.live-preview-editor .cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--suggestion-soft) 64%, #d99a21 46%);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
 .live-preview-editor .cm-line {
   font-family: var(--font-body);
   padding: 2px 0;
@@ -3264,6 +3556,35 @@ blockquote {
 
   .live-preview-editor .cm-content {
     min-height: 58dvh;
+  }
+
+  .live-preview-editor .cm-panel.cm-search.margin-find-panel.is-compact {
+    top: calc(12px + env(safe-area-inset-top));
+    width: calc(100vw - 24px);
+  }
+
+  .live-preview-editor .cm-panel.cm-search.margin-find-panel.is-expanded {
+    top: 50%;
+    width: calc(100vw - 24px);
+  }
+
+  .live-preview-editor .margin-find-row {
+    flex-wrap: wrap;
+  }
+
+  .live-preview-editor .margin-find-field {
+    flex-basis: 100%;
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .live-preview-editor .margin-find-status {
+    margin-left: 0;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .live-preview-editor .margin-find-row.options {
+    padding-left: 0;
   }
 
   .live-preview-editor .cm-live-heading-1 {
