@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400;1,500&display=swap");
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 @import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 
 @import "tailwindcss";
 
@@ -502,6 +503,10 @@ textarea:not([data-slot]):focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.placeholder-eyebrow {
+  font-style: italic;
 }
 
 .document-tab-dirty {

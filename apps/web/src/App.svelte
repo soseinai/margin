@@ -1156,7 +1156,14 @@
 	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
-	$: titlebarEyebrowLabel = documentLocationLabel || (!nativeFilePath && !localFileHandle && saveState !== 'saved' ? 'Unsaved draft' : '');
+	$: titlebarEyebrowPlaceholder = localFileMode
+		&& !nativeFilePath
+		&& !localFileHandle
+		&& !lastPersistedSerializedMarkdown
+		&& documentSessionKey.startsWith('local:untitled:');
+	$: titlebarEyebrowLabel = documentLocationLabel || (titlebarEyebrowPlaceholder
+		? 'Unsaved'
+		: '');
 	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
@@ -5951,6 +5958,7 @@
 				<p
 					class="eyebrow"
 					class:eyebrow-placeholder={!titlebarEyebrowLabel}
+					class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
 					aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
 				>
 					{titlebarEyebrowLabel}
