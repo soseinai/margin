@@ -1173,7 +1173,14 @@ pub fn run() {
             }
 
             let find_separator = PredefinedMenuItem::separator(app)?;
-            let find = MenuItem::with_id(app, "edit_find", "Find...", true, Some("CmdOrCtrl+F"))?;
+            let find = MenuItem::with_id(app, "edit_find", "Find", true, Some("CmdOrCtrl+F"))?;
+            let find_and_replace = MenuItem::with_id(
+                app,
+                "edit_find_and_replace",
+                "Find and Replace...",
+                true,
+                Some("CmdOrCtrl+Alt+F"),
+            )?;
             let find_next = MenuItem::with_id(
                 app,
                 "edit_find_next",
@@ -1193,7 +1200,13 @@ pub fn run() {
                     .cloned()
                     .filter(|submenu| submenu.text().map(|text| text == "Edit").unwrap_or(false))
             }) {
-                edit_menu.append_items(&[&find_separator, &find, &find_next, &find_previous])?;
+                edit_menu.append_items(&[
+                    &find_separator,
+                    &find,
+                    &find_and_replace,
+                    &find_next,
+                    &find_previous,
+                ])?;
             }
 
             let insert_comment = MenuItem::with_id(
@@ -1348,6 +1361,8 @@ pub fn run() {
             let _ = app.emit("margin://next-tab", ());
         } else if menu_id.as_ref() == "edit_find" {
             let _ = app.emit("margin://open-find", ());
+        } else if menu_id.as_ref() == "edit_find_and_replace" {
+            let _ = app.emit("margin://open-find-and-replace", ());
         } else if menu_id.as_ref() == "edit_find_next" {
             let _ = app.emit("margin://find-next", ());
         } else if menu_id.as_ref() == "edit_find_previous" {

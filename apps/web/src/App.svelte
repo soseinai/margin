@@ -166,6 +166,7 @@
 	let unlistenNativeSettingsMenu: (() => void) | null = null;
 	let unlistenNativeCheckUpdatesMenu: (() => void) | null = null;
 	let unlistenNativeOpenFindMenu: (() => void) | null = null;
+	let unlistenNativeOpenFindReplaceMenu: (() => void) | null = null;
 	let unlistenNativeFindNextMenu: (() => void) | null = null;
 	let unlistenNativeFindPreviousMenu: (() => void) | null = null;
 	let unlistenNativeDocumentChanged: (() => void) | null = null;
@@ -1487,6 +1488,7 @@
 			unlistenNativeSettingsMenu?.();
 			unlistenNativeCheckUpdatesMenu?.();
 			unlistenNativeOpenFindMenu?.();
+			unlistenNativeOpenFindReplaceMenu?.();
 			unlistenNativeFindNextMenu?.();
 			unlistenNativeFindPreviousMenu?.();
 			unlistenNativeDocumentChanged?.();
@@ -5227,6 +5229,10 @@
 				openFindPanel();
 			});
 
+			unlistenNativeOpenFindReplaceMenu = await listen('margin://open-find-and-replace', () => {
+				openFindAndReplacePanel();
+			});
+
 			unlistenNativeFindNextMenu = await listen('margin://find-next', () => {
 				findNextInEditor();
 			});
@@ -5511,16 +5517,24 @@
 	}
 
 	function openFindPanel(view: EditorView | null = mainEditor) {
+		openSearchDialog('compact', view);
+	}
+
+	function openFindAndReplacePanel(view: EditorView | null = mainEditor) {
+		openSearchDialog('expanded', view);
+	}
+
+	function openSearchDialog(mode: FindPanelMode, view: EditorView | null = mainEditor) {
 		if (!view) return;
 		if (settingsDialogOpen) {
 			closeSettingsDialog();
 			if (settingsDialogOpen) return;
 		}
 
-		findPanelMode = 'compact';
+		findPanelMode = mode;
 		findPanelPosition = null;
 		openSearchPanel(view);
-		activeFindPanel?.setMode('compact', { resetPosition: true });
+		activeFindPanel?.setMode(mode, { resetPosition: true });
 		activeFindPanel?.focus();
 	}
 
@@ -6984,6 +6998,13 @@
 		if (mod && !event.altKey && !event.shiftKey && key === 'f') {
 			event.preventDefault();
 			openFindPanel();
+
+			return true;
+		}
+
+		if (mod && event.altKey && !event.shiftKey && key === 'f') {
+			event.preventDefault();
+			openFindAndReplacePanel();
 
 			return true;
 		}

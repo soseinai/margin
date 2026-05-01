@@ -158,6 +158,24 @@ test('finds and replaces text from the keyboard-opened dialog', async ({ page })
   await expect(editor).not.toContainText('Alpha');
 });
 
+test('opens the expanded find and replace dialog from its shortcut', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto('/');
+
+  const editor = page.locator('.cm-content[contenteditable="true"]').first();
+  await expect(editor).toBeVisible();
+
+  await editor.click();
+
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.keyboard.press(`${modifier}+Alt+F`);
+
+  const findDialog = page.getByRole('dialog', { name: 'Find and replace' });
+  await expect(findDialog).toHaveClass(/is-expanded/);
+  await expect(page.getByRole('textbox', { name: 'Find' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Replace' })).toBeVisible();
+});
+
 test('keeps find and settings dialogs mutually exclusive', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/');
