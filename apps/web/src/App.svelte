@@ -71,6 +71,8 @@
 	let pendingEditThreads: ThreadView[] = [];
 	let selectedQuote = '';
 	let selectionQuote = '';
+	let selectedCommentAnchor: CommentSelectionAnchor | null = null;
+	let selectionCommentAnchor: CommentSelectionAnchor | null = null;
 	let commentBody = '';
 	let editMode: EditingMode = 'edit';
 	let appSettings: AppSettings = { theme: 'auto' };
@@ -87,6 +89,7 @@
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
 	let commentTextarea: HTMLElement | null = null;
+	let commentComposerAttention = false;
 	let mainEditor: EditorView | null = null;
 	let selectedLineTop = 0;
 	let selectionLineTop = 0;
@@ -119,6 +122,7 @@
 	let saveProgressShownAt = 0;
 	let saveProgressFadeTimer: ReturnType<typeof setTimeout> | null = null;
 	let saveProgressHideTimer: ReturnType<typeof setTimeout> | null = null;
+	let commentComposerAttentionTimer: ReturnType<typeof setTimeout> | null = null;
 	let fileChangeCheckInFlight = false;
 	let unlistenNativeInsertMenu: (() => void) | null = null;
 	let unlistenNativeCommentMenu: (() => void) | null = null;
@@ -365,9 +369,18 @@
 		matched: 'body' | 'quote' | 'deletion'
 	 };
 
+	type CommentSelectionAnchor = {
+		quote: string;
+		markdownQuote: string;
+		lineTop: number;
+		startLine: number;
+		endLine: number
+	 };
+
 	type LivePreviewState = {
 		threads: ThreadView[];
 		activeThreadId: string;
+		commentAnchor: CommentSelectionAnchor | null;
 		decorations: DecorationSet
 	 };
 
@@ -1082,6 +1095,7 @@
 
 	const setThreadsEffect = StateEffect.define<ThreadView[]>();
 	const setActiveThreadEffect = StateEffect.define<string>();
+	const setCommentAnchorEffect = StateEffect.define<CommentSelectionAnchor | null>();
 	const refreshLivePreviewEffect = StateEffect.define<void>();
 
 	const livePreviewField = StateField.define<LivePreviewState>({
@@ -1089,15 +1103,18 @@
 			return {
 				threads: [],
 				activeThreadId: '',
-				decorations: buildLivePreviewDecorations(state, [], '')
+				commentAnchor: null,
+				decorations: buildLivePreviewDecorations(state, [], '', null)
 			};
 		},
 
 		update(value, transaction) {
 			let threadsForState = value.threads;
 			let activeThreadForState = value.activeThreadId;
+			let commentAnchorForState = value.commentAnchor;
 			let threadChange = false;
 			let activeThreadChange = false;
+			let commentAnchorChange = false;
 			let refreshPreview = false;
 
 			for (const effect of transaction.effects) {
@@ -1111,16 +1128,22 @@
 					activeThreadChange = true;
 				}
 
+				if (effect.is(setCommentAnchorEffect)) {
+					commentAnchorForState = effect.value;
+					commentAnchorChange = true;
+				}
+
 				if (effect.is(refreshLivePreviewEffect)) {
 					refreshPreview = true;
 				}
 			}
 
-			if (transaction.docChanged || transaction.selection || threadChange || activeThreadChange || refreshPreview) {
+			if (transaction.docChanged || transaction.selection || threadChange || activeThreadChange || commentAnchorChange || refreshPreview) {
 				return {
 					threads: threadsForState,
 					activeThreadId: activeThreadForState,
-					decorations: buildLivePreviewDecorations(transaction.state, threadsForState, activeThreadForState)
+					commentAnchor: commentAnchorForState,
+					decorations: buildLivePreviewDecorations(transaction.state, threadsForState, activeThreadForState, commentAnchorForState)
 				};
 			}
 
@@ -1184,7 +1207,8 @@
 		mainEditor.dispatch({
 			effects: [
 				setThreadsEffect.of(threads),
-				setActiveThreadEffect.of(activeThreadId)
+				setActiveThreadEffect.of(activeThreadId),
+				setCommentAnchorEffect.of(selectedCommentAnchor)
 			]
 		});
 
@@ -1222,6 +1246,7 @@
 			clearLocalAutosaveTimer();
 			clearSaveProgressTimers();
 			clearUpdateAutoCheckTimer();
+			clearCommentComposerAttention();
 			unlistenNativeInsertMenu?.();
 			unlistenNativeCommentMenu?.();
 			unlistenNativeNewMenu?.();
@@ -1447,7 +1472,10 @@
 		activeThreadId = '';
 		selectedQuote = '';
 		selectionQuote = '';
+		selectedCommentAnchor = null;
+		selectionCommentAnchor = null;
 		commentBody = '';
+		clearCommentComposerAttention();
 		syncedEditKeys.clear();
 
 		for (const key of nextTab.syncedEditKeys) syncedEditKeys.add(key);
@@ -1460,7 +1488,8 @@
 	function buildLivePreviewDecorations(
 		state: EditorState,
 		activeThreads: ThreadView[],
-		focusedThreadId: string
+		focusedThreadId: string,
+		activeCommentAnchor: CommentSelectionAnchor | null
 	) {
 		const ranges: Range<Decoration>[] = [];
 		const frontmatterBlocks = markdownFrontmatterBlocks(state);
@@ -1893,6 +1922,14 @@
 					}).range(range.to));
 				}
 			}
+		}
+
+		const activeCommentRange = activeCommentAnchor ? commentAnchorRangeInState(state, activeCommentAnchor) : null;
+
+		if (activeCommentRange) {
+			ranges.push(Decoration.mark({
+				class: 'annotation-mark composer-selection'
+			}).range(activeCommentRange.from, activeCommentRange.to));
 		}
 
 		return Decoration.set(ranges, true);
@@ -3297,6 +3334,35 @@
 		return null;
 	}
 
+	function commentAnchorRangeInState(state: EditorState, anchor: CommentSelectionAnchor): ThreadRangeMatch | null {
+		const candidates = [
+			{ value: anchor.markdownQuote, matched: 'quote' as const },
+			{ value: anchor.quote, matched: 'quote' as const }
+		].filter((candidate, index, items) => (
+			candidate.value.trim().length > 0 &&
+			items.findIndex((item) => item.value === candidate.value) === index
+		));
+		const rangeMatch = rangeForCandidates(state, anchor.startLine, anchor.endLine, candidates);
+
+		if (rangeMatch) return rangeMatch;
+
+		const doc = state.doc.toString();
+
+		for (const candidate of candidates) {
+			const index = doc.indexOf(candidate.value);
+
+			if (index >= 0) {
+				return {
+					from: index,
+					to: index + candidate.value.length,
+					matched: candidate.matched
+				};
+			}
+		}
+
+		return null;
+	}
+
 	function deletionAnchorInState(state: EditorState, thread: ThreadView): ThreadRangeMatch {
 		const lineNumber = thread.currentLine ?? thread.line;
 
@@ -3704,11 +3770,13 @@
 
 		if (!anchor) {
 			selectionQuote = '';
+			selectionCommentAnchor = null;
 			return;
 		}
 
 		selectionQuote = anchor.quote;
 		selectionLineTop = anchor.lineTop;
+		selectionCommentAnchor = anchor;
 	}
 
 	function commentAnchorForSelection(view: EditorView | null = mainEditor) {
@@ -3724,35 +3792,49 @@
 		if (!quote || !fromRect) return null;
 
 		const documentRect = documentSurface.getBoundingClientRect();
+		const startLine = view.state.doc.lineAt(Math.min(selection.from, selection.to)).number;
+		const endLine = view.state.doc.lineAt(Math.max(selection.from, selection.to) - 1).number;
 
 		return {
 			quote: displayTextForMarkdownLine(quote),
-			lineTop: Math.max(0, fromRect.top - documentRect.top + (fromRect.bottom - fromRect.top) / 2)
+			markdownQuote: quote,
+			lineTop: Math.max(0, fromRect.top - documentRect.top + (fromRect.bottom - fromRect.top) / 2),
+			startLine,
+			endLine
 		};
 	}
 
 	function storedSelectionAnchor() {
-		if (!selectionQuote.trim()) return null;
-
-		return {
-			quote: selectionQuote,
-			lineTop: selectionLineTop
-		};
+		return selectionCommentAnchor;
 	}
 
 	function openCommentComposerForSelection(view: EditorView | null = mainEditor) {
+		if (selectedQuote.trim()) {
+			refocusActiveCommentComposer();
+
+			return true;
+		}
+
 		const anchor = commentAnchorForSelection(view) ?? storedSelectionAnchor();
 
 		if (!annotations || !anchor) return false;
 
 		selectedQuote = anchor.quote;
+		selectedCommentAnchor = anchor;
 		selectedLineTop = anchor.lineTop;
 		commentBody = '';
+		clearCommentComposerAttention();
 
 		requestAnimationFrame(updateAnchorPositions);
 		focusCommentTextarea();
 
 		return true;
+	}
+
+	function refocusActiveCommentComposer() {
+		focusCommentTextarea();
+		pulseCommentComposer();
+		requestAnimationFrame(updateAnchorPositions);
 	}
 
 	function focusCommentTextarea() {
@@ -3766,6 +3848,30 @@
 			commentTextarea.addEventListener('keydown', handleCommentComposerKeydown);
 			commentTextarea.focus();
 		});
+	}
+
+	function pulseCommentComposer() {
+		clearCommentComposerAttention();
+
+		void tick().then(() => {
+			if (!selectedQuote.trim()) return;
+			if (commentComposerAttentionTimer) clearTimeout(commentComposerAttentionTimer);
+
+			commentComposerAttention = true;
+			commentComposerAttentionTimer = setTimeout(() => {
+				commentComposerAttention = false;
+				commentComposerAttentionTimer = null;
+			}, 700);
+		});
+	}
+
+	function clearCommentComposerAttention() {
+		if (commentComposerAttentionTimer) {
+			clearTimeout(commentComposerAttentionTimer);
+			commentComposerAttentionTimer = null;
+		}
+
+		commentComposerAttention = false;
 	}
 
 	function handleCommentComposerKeydown(event: KeyboardEvent) {
@@ -4138,7 +4244,11 @@
 	function clearSelection() {
 		selectedQuote = '';
 		selectionQuote = '';
+		selectedCommentAnchor = null;
+		selectionCommentAnchor = null;
 		commentBody = '';
+		commentTextarea?.removeEventListener('keydown', handleCommentComposerKeydown);
+		clearCommentComposerAttention();
 		mainEditor?.dispatch({ selection: { anchor: mainEditor.state.selection.main.head } });
 	}
 
@@ -4254,6 +4364,8 @@
 
 		selectedQuote = '';
 		selectionQuote = '';
+		selectedCommentAnchor = null;
+		selectionCommentAnchor = null;
 		commentBody = '';
 
 		mainEditor.dispatch({
@@ -4367,6 +4479,8 @@
 
 		selectedQuote = '';
 		selectionQuote = '';
+		selectedCommentAnchor = null;
+		selectionCommentAnchor = null;
 		commentBody = '';
 		error = '';
 
@@ -6368,6 +6482,7 @@
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"
+							class:needs-attention={commentComposerAttention}
 							aria-label="New comment"
 							style={`top: ${item.top}px;`}
 							use:measureHeight={item.id}
