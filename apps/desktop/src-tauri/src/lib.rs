@@ -433,7 +433,7 @@ fn recent_documents_path(app: &AppHandle) -> Result<PathBuf, String> {
 fn app_state_dir(app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "linux")]
     {
-        return linux_app_state_dir(app);
+        linux_app_state_dir(app)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -775,7 +775,10 @@ pub fn run() {
                 Some("CmdOrCtrl+,"),
             )?;
             let settings_separator = PredefinedMenuItem::separator(app)?;
+            #[cfg(target_os = "macos")]
             let mut settings_item_added = false;
+            #[cfg(not(target_os = "macos"))]
+            let settings_item_added = false;
 
             #[cfg(target_os = "macos")]
             if let Some(app_menu) = menu
@@ -1027,14 +1030,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Margin desktop app")
-        .run(|app, event| match event {
+        .run(|app_handle, event| match event {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             tauri::RunEvent::Opened { urls } => {
                 dispatch_native_open_urls(
-                    app,
+                    app_handle,
                     urls.into_iter().map(|url| url.to_string()).collect(),
                 );
             }
-            _ => {}
+            _ => {
+                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                let _ = app_handle;
+            }
         });
 }
