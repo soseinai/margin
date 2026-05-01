@@ -55,6 +55,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
+	import { authorInitials, avatarStyle, defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
 	import { orderedListMarkersForLines } from './lib/markdown-lists';
 
 	import {
@@ -76,8 +77,10 @@
 	let selectionCommentAnchor: CommentSelectionAnchor | null = null;
 	let commentBody = '';
 	let editMode: EditingMode = 'edit';
-	let appSettings: AppSettings = { theme: 'auto' };
+	let appSettings: AppSettings = { theme: 'auto', localUserName: defaultLocalUserName() };
 	let settingsDraftTheme: ThemeSetting = 'auto';
+	let settingsDraftLocalUserName = defaultLocalUserName();
+	let localAuthor = defaultLocalUserName();
 	let settingsDialogOpen = false;
 	let settingsSaving = false;
 	let settingsError = '';
@@ -153,7 +156,6 @@
 	let dragActive = false;
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
-	const localAuthor = 'Me';
 	const anchorContextCharacters = 96;
 	const gutterCardGap = 14;
 	const gutterReservedTop = 86;
@@ -224,7 +226,7 @@
 	type SuggestionStatus = 'applied' | 'rejected' | 'resolved';
 	type EditingMode = 'edit' | 'suggest';
 	type ThemeSetting = 'auto' | 'light' | 'dark';
-	type AppSettings = { theme: ThemeSetting };
+	type AppSettings = { theme: ThemeSetting; localUserName: string };
 	type AppUpdateMetadata = { currentVersion: string; version: string; notes?: string | null };
 	type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
@@ -1203,6 +1205,7 @@
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
 	$: updateSaveProgressIndicator(saveState);
+	$: localAuthor = appSettings.localUserName;
 
 	$: if (mainEditor) {
 		mainEditor.dispatch({
@@ -1224,7 +1227,7 @@
 		tauriShell = Boolean((window as TauriWindow).__TAURI__);
 		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
 		desktopShell = desktopPreview || (tauriShell && !mobileShell);
-		loadAppSettings();
+		const settingsReady = loadAppSettings();
 
 		const nativeListenersReady = setupNativeDesktopListeners();
 		const recentDocumentsReady = initializeRecentDocuments();
@@ -1235,7 +1238,7 @@
 			}, 1800);
 		}
 
-		bootstrapStandaloneDocument(nativeListenersReady, recentDocumentsReady);
+		bootstrapStandaloneDocument(settingsReady, nativeListenersReady, recentDocumentsReady);
 		window.addEventListener('resize', updateAnchorPositions);
 		window.addEventListener('keydown', handleGlobalShortcut);
 		window.addEventListener('beforeunload', handleBeforeUnload);
@@ -1276,9 +1279,11 @@
 	}
 
 	async function bootstrapStandaloneDocument(
+		settingsReady: Promise<void>,
 		nativeListenersReady: Promise<void>,
 		recentDocumentsReady: Promise<void>
 	) {
+		await settingsReady;
 		await nativeListenersReady;
 		await recentDocumentsReady;
 		await flushPendingNativeOpenUrls();
@@ -4128,10 +4133,6 @@
 		return `${count} ${count === 1 ? singular : plural}`;
 	}
 
-	function authorInitials(author: string) {
-		return author.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'ME';
-	}
-
 	function suggestionSurfaceKind(thread: ThreadView): SuggestionSurfaceKind {
 		const removed = diffQuote(thread).trim().length > 0;
 		const added = diffBody(thread).trim().length > 0;
@@ -4575,10 +4576,11 @@
 			appSettings = normalizeSettings(loadedSettings);
 		} catch(err) {
 			console.warn('Unable to load settings', err);
-			appSettings = { theme: 'auto' };
+			appSettings = { theme: 'auto', localUserName: defaultLocalUserName() };
 		}
 
 		settingsDraftTheme = appSettings.theme;
+		settingsDraftLocalUserName = appSettings.localUserName;
 		applyTheme(appSettings.theme);
 	}
 
@@ -4591,7 +4593,10 @@
 	}
 
 	function normalizeSettings(settings: Partial<AppSettings> | null | undefined): AppSettings {
-		return { theme: normalizeTheme(settings?.theme) };
+		return {
+			theme: normalizeTheme(settings?.theme),
+			localUserName: normalizeLocalUserName(settings?.localUserName, defaultLocalUserName())
+		};
 	}
 
 	function normalizeTheme(theme: unknown): ThemeSetting {
@@ -4615,6 +4620,7 @@
 
 	function openSettingsDialog() {
 		settingsDraftTheme = appSettings.theme;
+		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
 		settingsDialogOpen = true;
 	}
@@ -4624,6 +4630,7 @@
 
 		settingsDialogOpen = false;
 		settingsDraftTheme = appSettings.theme;
+		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
 	}
 
@@ -4631,7 +4638,10 @@
 		settingsSaving = true;
 		settingsError = '';
 
-		const nextSettings: AppSettings = { theme: settingsDraftTheme };
+		const nextSettings: AppSettings = {
+			theme: settingsDraftTheme,
+			localUserName: settingsDraftLocalUserName.trim()
+		};
 
 		const request = desktopShell
 			? tauriInvoke<AppSettings>('write_settings', { settings: nextSettings })
@@ -4641,6 +4651,7 @@
 			const savedSettings = request ? await request : nextSettings;
 
 			appSettings = normalizeSettings(savedSettings);
+			settingsDraftLocalUserName = appSettings.localUserName;
 
 			if (!request) localStorage.setItem(settingsStorageKey, JSON.stringify(appSettings));
 
@@ -5787,6 +5798,7 @@
 
 		return {
 			...annotations,
+			author: localAuthor,
 			suggestions: [...annotations.suggestions, ...materializedSuggestions]
 		};
 	}
@@ -5979,6 +5991,7 @@
 
 		annotations = {
 			...annotations,
+			author: localAuthor,
 			comments: [
 				...annotations.comments,
 				{
@@ -6489,7 +6502,7 @@
 							use:measureHeight={item.id}
 						>
 							<div class="composer-author">
-								<div class="avatar">{authorInitials(localAuthor)}</div>
+								<div class="avatar" style={avatarStyle(localAuthor)}>{authorInitials(localAuthor)}</div>
 								<strong>{localAuthor}</strong>
 							</div>
 
@@ -6538,7 +6551,7 @@
 							use:measureHeight={item.id}
 						>
 							<div class="thread-header">
-								<div class="avatar">{authorInitials(item.thread.author)}</div>
+								<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
 
 								<div>
 									<strong>{item.thread.author}</strong>
@@ -6720,6 +6733,21 @@
 								</ToggleGroup.Item>
 							{/each}
 						</ToggleGroup.Root>
+					</fieldset>
+
+					<fieldset class="settings-fieldset">
+						<Label for="settings-local-user-name">Local name</Label>
+
+						<div class="settings-user-control">
+							<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
+							<input
+								id="settings-local-user-name"
+								class="settings-text-input"
+								bind:value={settingsDraftLocalUserName}
+								autocomplete="name"
+								maxlength="80"
+							/>
+						</div>
 					</fieldset>
 
 					{#if desktopShell}
