@@ -41,6 +41,7 @@
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
+	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import SaveIcon from '@lucide/svelte/icons/save';
@@ -6527,6 +6528,7 @@
 							class:resolved={item.thread.status === 'resolved'}
 							class:focused={activeThreadId === item.thread.id}
 							role="button"
+							aria-label={`Go to ${item.thread.kind}`}
 							tabindex="0"
 							style={`top: ${item.top}px;`}
 							on:click={() => goToThread(item.thread)}
@@ -6547,6 +6549,20 @@
 										variant="outline"
 										class="status-pill"
 									>{suggestionStatusLabel(item.thread)}</Badge>
+								{:else}
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										class="thread-resolve-button"
+										aria-label="Resolve comment"
+										title="Resolve comment"
+										onclick={(event) => {
+											event.stopPropagation();
+											resolveComment(item.thread);
+										}}
+									>
+										<CheckIcon aria-hidden="true" />
+									</Button>
 								{/if}
 							</div>
 
@@ -6580,8 +6596,8 @@
 								<p>{item.thread.body}</p>
 							{/if}
 
-							<div class="thread-actions">
-								{#if item.thread.kind === 'suggestion'}
+							{#if item.thread.kind === 'suggestion'}
+								<div class="thread-actions">
 									<Button
 										variant="ghost"
 										size="sm"
@@ -6611,17 +6627,8 @@
 										}}
 										disabled={item.thread.status === 'resolved'}
 									>Resolve</Button>
-								{:else}
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(event) => {
-											event.stopPropagation();
-											resolveComment(item.thread);
-										}}
-									>Resolve</Button>
-								{/if}
-							</div>
+								</div>
+							{/if}
 						</div>
 					{/if}
 				{/each}

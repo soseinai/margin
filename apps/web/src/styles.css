@@ -2745,6 +2745,10 @@ blockquote {
   padding: 2px 0 2px 15px;
 }
 
+.thread-card:not(.suggestion) {
+  width: 85%;
+}
+
 .thread-card::before {
   background: color-mix(in srgb, var(--quote-rule) 70%, transparent);
   content: "";
@@ -2779,7 +2783,7 @@ blockquote {
 }
 
 .thread-header {
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   min-height: 0;
 }
@@ -2813,6 +2817,37 @@ blockquote {
   padding: 0;
 }
 
+.thread-resolve-button {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 4px;
+  color: var(--ink);
+  height: 22px;
+  margin-left: auto;
+  min-height: 22px;
+  padding: 0;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+  width: 22px;
+}
+
+.thread-resolve-button svg {
+  height: 17px;
+  stroke-width: 2.5;
+  width: 17px;
+}
+
+.thread-resolve-button:hover:not(:disabled),
+.thread-resolve-button:focus-visible {
+  background: transparent;
+  border-color: var(--ink);
+  box-shadow: none;
+  color: var(--ink);
+}
+
 .thread-card blockquote {
   display: none;
 }
@@ -2821,6 +2856,7 @@ blockquote {
   color: var(--fg-2);
   font-size: 12.5px;
   line-height: 1.42;
+  overflow-wrap: anywhere;
 }
 
 .suggestion-diff {
