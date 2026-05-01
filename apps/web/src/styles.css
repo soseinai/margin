@@ -1086,6 +1086,7 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .editor-layout {
+  gap: 12px;
   padding-top: 26px;
 }
 
