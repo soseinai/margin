@@ -2775,6 +2775,12 @@ blockquote {
   width: 85%;
 }
 
+.thread-card.editing-comment {
+  cursor: default;
+  padding-left: 0;
+  width: 100%;
+}
+
 .thread-card::before {
   background: color-mix(in srgb, var(--quote-rule) 70%, transparent);
   content: "";
@@ -2784,6 +2790,10 @@ blockquote {
     background var(--dur-base) var(--ease-out),
     opacity var(--dur-base) var(--ease-out);
   width: 1px;
+}
+
+.thread-card.editing-comment::before {
+  display: none;
 }
 
 .thread-card.suggestion::before {
@@ -2825,6 +2835,28 @@ blockquote {
   gap: 5px;
 }
 
+.thread-header-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-1px);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    visibility var(--dur-fast) var(--ease-out);
+  visibility: hidden;
+}
+
+.thread-card:not(.suggestion):hover .thread-header-actions,
+.thread-card:not(.suggestion):focus-within .thread-header-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  visibility: visible;
+}
+
 .thread-header strong,
 .thread-header span,
 .status-pill {
@@ -2843,13 +2875,12 @@ blockquote {
   padding: 0;
 }
 
-.thread-resolve-button {
+.thread-icon-button {
   background: transparent;
   border-color: transparent;
   border-radius: 4px;
   color: var(--ink);
   height: 22px;
-  margin-left: auto;
   min-height: 22px;
   padding: 0;
   transition:
@@ -2860,14 +2891,20 @@ blockquote {
   width: 22px;
 }
 
-.thread-resolve-button svg {
+.thread-icon-button svg {
   height: 17px;
   stroke-width: 2.5;
   width: 17px;
 }
 
-.thread-resolve-button:hover:not(:disabled),
-.thread-resolve-button:focus-visible {
+.thread-edit-button svg {
+  height: 15px;
+  stroke-width: 2;
+  width: 15px;
+}
+
+.thread-icon-button:hover:not(:disabled),
+.thread-icon-button:focus-visible {
   background: transparent;
   border-color: var(--ink);
   box-shadow: none;
@@ -2883,6 +2920,11 @@ blockquote {
   font-size: 12.5px;
   line-height: 1.42;
   overflow-wrap: anywhere;
+}
+
+.comment-edit-form {
+  position: static;
+  width: 100%;
 }
 
 .suggestion-diff {
