@@ -197,13 +197,14 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
-          prerelease: true
+          fail_on_unmatched_files: true
+          prerelease: false
           body: |
             This release contains a macOS DMG and Tauri updater metadata for Margin.
 
             The DMG is currently ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. macOS may require manual approval in Privacy & Security, or quarantine removal, before opening the app.
           files: |
-            Margin_*.dmg
-            Margin_*.app.tar.gz
-            Margin_*.app.tar.gz.sig
-            latest.json
+            dmg/Margin_*.dmg
+            updater/Margin_*.app.tar.gz
+            updater/Margin_*.app.tar.gz.sig
+            updater/latest.json

@@ -1,7 +1,7 @@
 #[cfg(not(target_os = "ios"))]
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::env;
 use std::{
     collections::{HashMap, HashSet},
@@ -342,6 +342,9 @@ async fn check_for_app_update() -> Result<Option<AppUpdateMetadata>, String> {
 #[cfg(not(target_os = "ios"))]
 #[tauri::command]
 async fn install_app_update(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    ensure_macos_app_update_location()?;
+
     let updater = app_updater(&app).map_err(|err| format!("Unable to install update: {err}"))?;
     let Some(update) = updater
         .check()
@@ -470,6 +473,114 @@ fn app_updater(app: &AppHandle) -> Result<Updater, tauri_plugin_updater::Error> 
         .pubkey(UPDATER_PUBLIC_KEY)
         .endpoints(vec![UPDATER_ENDPOINT.parse()?])?
         .build()
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_macos_app_update_location() -> Result<(), String> {
+    const NO_SUCH_FILE_ERROR: i32 = 2;
+    const READ_ONLY_FILESYSTEM_ERROR: i32 = 30;
+
+    let Some(app_bundle_path) = current_macos_app_bundle_path()? else {
+        return Ok(());
+    };
+    if is_transient_macos_app_location(&app_bundle_path) {
+        return Err(macos_update_location_error(&app_bundle_path));
+    }
+
+    let Some(parent) = app_bundle_path.parent() else {
+        return Ok(());
+    };
+
+    let probe_path = parent.join(format!(".margin-update-write-test-{}", std::process::id()));
+
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+    {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe_path);
+            Ok(())
+        }
+        Err(err)
+            if matches!(
+                err.raw_os_error(),
+                Some(NO_SUCH_FILE_ERROR | READ_ONLY_FILESYSTEM_ERROR)
+            ) =>
+        {
+            Err(macos_update_location_error(&app_bundle_path))
+        }
+        Err(_) => Ok(()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn current_macos_app_bundle_path() -> Result<Option<PathBuf>, String> {
+    let executable_path =
+        env::current_exe().map_err(|err| format!("Unable to locate the running app: {err}"))?;
+
+    Ok(macos_app_bundle_path_from_executable(&executable_path))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_bundle_path_from_executable(executable_path: &Path) -> Option<PathBuf> {
+    executable_path
+        .ancestors()
+        .find(|path| path.extension().and_then(|extension| extension.to_str()) == Some("app"))
+        .map(PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
+fn is_transient_macos_app_location(app_bundle_path: &Path) -> bool {
+    app_bundle_path.starts_with("/Volumes")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_update_location_error(app_bundle_path: &Path) -> String {
+    format!(
+        "Margin is running from a location that cannot be updated in place: {}. Drag Margin to Applications, quit this copy, reopen /Applications/Margin.app, then install the update.",
+        app_bundle_path.display()
+    )
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_macos_app_bundle_from_executable_path() {
+        let executable_path = Path::new("/Applications/Margin.app/Contents/MacOS/margin-desktop");
+
+        assert_eq!(
+            macos_app_bundle_path_from_executable(executable_path),
+            Some(PathBuf::from("/Applications/Margin.app"))
+        );
+    }
+
+    #[test]
+    fn ignores_executable_paths_outside_app_bundles() {
+        let executable_path = Path::new("/usr/local/bin/margin-desktop");
+
+        assert_eq!(macos_app_bundle_path_from_executable(executable_path), None);
+    }
+
+    #[test]
+    fn treats_apps_launched_from_mounted_volumes_as_transient() {
+        assert!(is_transient_macos_app_location(Path::new(
+            "/Volumes/Margin/Margin.app"
+        )));
+        assert!(!is_transient_macos_app_location(Path::new(
+            "/Applications/Margin.app"
+        )));
+    }
+
+    #[test]
+    fn update_location_error_points_user_to_applications_copy() {
+        let message = macos_update_location_error(Path::new("/Volumes/Margin/Margin.app"));
+
+        assert!(message.contains("/Volumes/Margin/Margin.app"));
+        assert!(message.contains("/Applications/Margin.app"));
+    }
 }
 
 #[cfg(target_os = "ios")]
