@@ -1,7 +1,6 @@
 #[cfg(not(target_os = "ios"))]
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::env;
 use std::{
     collections::{HashMap, HashSet},
@@ -31,6 +30,7 @@ const RECENT_DOCUMENT_LIMIT: usize = 10;
 const RECENT_DOCUMENTS_FILE_NAME: &str = "recent-documents.json";
 const SETTINGS_FILE_NAME: &str = "settings.toml";
 const DEFAULT_THEME: &str = "auto";
+const DEFAULT_LOCAL_USER_NAME: &str = "Me";
 #[cfg(not(target_os = "ios"))]
 const UPDATER_ENDPOINT: &str =
     "https://github.com/soseinai/margin/releases/latest/download/latest.json";
@@ -64,7 +64,10 @@ struct RecentDocumentEntry {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
+    #[serde(default = "default_theme")]
     theme: String,
+    #[serde(default = "default_local_user_name")]
+    local_user_name: String,
 }
 
 #[derive(Serialize)]
@@ -79,6 +82,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: DEFAULT_THEME.to_string(),
+            local_user_name: default_local_user_name(),
         }
     }
 }
@@ -303,6 +307,7 @@ fn read_settings(app: AppHandle) -> Result<AppSettings, String> {
 fn write_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
     let settings = AppSettings {
         theme: normalized_theme(&settings.theme).to_string(),
+        local_user_name: normalized_local_user_name(&settings.local_user_name),
     };
     let path = settings_path(&app)?;
 
@@ -647,23 +652,39 @@ fn parse_settings_toml(contents: &str) -> AppSettings {
     let mut settings = AppSettings::default();
 
     for line in contents.lines() {
-        let line = line.split('#').next().unwrap_or("").trim();
-        let Some(value) = line
-            .strip_prefix("theme")
-            .and_then(|rest| rest.trim_start().strip_prefix('='))
-        else {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
             continue;
         };
 
-        settings.theme =
-            normalized_theme(value.trim().trim_matches('"').trim_matches('\'')).to_string();
+        let value = settings_value(value);
+
+        match key.trim() {
+            "theme" => settings.theme = normalized_theme(&value).to_string(),
+            "local_user_name" | "localUserName" => {
+                settings.local_user_name = normalized_local_user_name(&value);
+            }
+            _ => {}
+        }
     }
 
     settings
 }
 
 fn settings_toml(settings: &AppSettings) -> String {
-    format!("theme = \"{}\"\n", normalized_theme(&settings.theme))
+    format!(
+        "theme = {}\nlocal_user_name = {}\n",
+        toml_string_literal(normalized_theme(&settings.theme)),
+        toml_string_literal(&normalized_local_user_name(&settings.local_user_name))
+    )
+}
+
+fn default_theme() -> String {
+    DEFAULT_THEME.to_string()
 }
 
 fn normalized_theme(theme: &str) -> &'static str {
@@ -672,6 +693,102 @@ fn normalized_theme(theme: &str) -> &'static str {
         "dark" => "dark",
         _ => DEFAULT_THEME,
     }
+}
+
+fn normalized_local_user_name(name: &str) -> String {
+    cleaned_local_user_name(name).unwrap_or_else(default_local_user_name)
+}
+
+fn default_local_user_name() -> String {
+    os_local_user_name().unwrap_or_else(|| DEFAULT_LOCAL_USER_NAME.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn os_local_user_name() -> Option<String> {
+    env::var("USERNAME")
+        .ok()
+        .and_then(|name| cleaned_local_user_name(&name))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn os_local_user_name() -> Option<String> {
+    env::var("USER")
+        .ok()
+        .and_then(|name| cleaned_local_user_name(&name))
+}
+
+fn cleaned_local_user_name(name: &str) -> Option<String> {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn settings_value(value: &str) -> String {
+    let value = value.trim();
+
+    if let Some(rest) = value.strip_prefix('"') {
+        return quoted_settings_value(rest, '"', true);
+    }
+
+    if let Some(rest) = value.strip_prefix('\'') {
+        return quoted_settings_value(rest, '\'', false);
+    }
+
+    value.split('#').next().unwrap_or("").trim().to_string()
+}
+
+fn quoted_settings_value(value: &str, quote: char, escaped: bool) -> String {
+    let mut output = String::new();
+    let mut chars = value.chars();
+
+    while let Some(character) = chars.next() {
+        if character == quote {
+            break;
+        }
+
+        if escaped && character == '\\' {
+            let Some(escaped_character) = chars.next() else {
+                break;
+            };
+
+            output.push(match escaped_character {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                other => other,
+            });
+
+            continue;
+        }
+
+        output.push(character);
+    }
+
+    output
+}
+
+fn toml_string_literal(value: &str) -> String {
+    let mut output = String::from("\"");
+
+    for character in value.chars() {
+        match character {
+            '\\' => output.push_str("\\\\"),
+            '"' => output.push_str("\\\""),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            other => output.push(other),
+        }
+    }
+
+    output.push('"');
+    output
 }
 
 fn read_recent_documents_file(app: &AppHandle) -> Result<Vec<RecentDocumentEntry>, String> {
@@ -1245,4 +1362,31 @@ pub fn run() {
                 let _ = app_handle;
             }
         });
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    #[test]
+    fn parses_local_user_name_from_settings() {
+        let settings =
+            parse_settings_toml("theme = \"dark\"\nlocal_user_name = \"Ada Lovelace\"\n");
+
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.local_user_name, "Ada Lovelace");
+    }
+
+    #[test]
+    fn round_trips_quoted_local_user_name() {
+        let settings = AppSettings {
+            theme: "light".to_string(),
+            local_user_name: "Ada # One".to_string(),
+        };
+
+        let parsed = parse_settings_toml(&settings_toml(&settings));
+
+        assert_eq!(parsed.theme, "light");
+        assert_eq!(parsed.local_user_name, "Ada # One");
+    }
 }

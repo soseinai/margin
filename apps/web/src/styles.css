@@ -1107,6 +1107,32 @@ textarea:not([data-slot]):focus {
   color: var(--fg);
 }
 
+.settings-user-control {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+}
+
+.settings-text-input {
+  background: color-mix(in srgb, var(--paper-sunk) 48%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 5px;
+  color: var(--fg);
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 13px;
+  height: 32px;
+  min-width: 0;
+  outline: none;
+  padding: 0 10px;
+}
+
+.settings-text-input:focus {
+  border-color: color-mix(in srgb, var(--ink) 28%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
 .theme-option:focus-visible {
   outline: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
   outline-offset: 2px;
@@ -2336,10 +2362,10 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 
 .avatar {
   align-items: center;
-  background: var(--paper-sunk);
-  border: 1px solid var(--rule);
+  background: var(--avatar-bg, var(--paper-sunk));
+  border: 1px solid var(--avatar-border, var(--rule));
   border-radius: 3px;
-  color: var(--fg-3);
+  color: var(--avatar-fg, var(--fg-3));
   display: flex;
   flex: 0 0 auto;
   font-family: var(--font-plex-mono);
