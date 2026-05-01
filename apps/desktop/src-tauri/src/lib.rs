@@ -341,7 +341,7 @@ fn set_recent_documents_menu_entries(
     recent_menu: &Submenu<Wry>,
     entries: &[RecentDocumentEntry],
 ) -> Result<(), String> {
-    clear_submenu(&recent_menu)?;
+    clear_submenu(recent_menu)?;
 
     let nonce = recent_menu_nonce();
 
@@ -433,7 +433,7 @@ fn recent_documents_path(app: &AppHandle) -> Result<PathBuf, String> {
 fn app_state_dir(app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "linux")]
     {
-        return linux_app_state_dir(app);
+        linux_app_state_dir(app)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -638,9 +638,7 @@ fn recent_menu_nonce() -> u128 {
 fn recent_document_menu_index(menu_id: &str) -> Option<usize> {
     let suffix = menu_id.strip_prefix(RECENT_MENU_ITEM_PREFIX)?;
 
-    let mut parts = suffix.rsplitn(2, '_');
-    let index = parts.next()?;
-    let nonce = parts.next()?;
+    let (nonce, index) = suffix.rsplit_once('_')?;
 
     if nonce.is_empty() || !nonce.chars().all(|character| character.is_ascii_digit()) {
         return None;
@@ -777,7 +775,10 @@ pub fn run() {
                 Some("CmdOrCtrl+,"),
             )?;
             let settings_separator = PredefinedMenuItem::separator(app)?;
+            #[cfg(target_os = "macos")]
             let mut settings_item_added = false;
+            #[cfg(not(target_os = "macos"))]
+            let settings_item_added = false;
 
             #[cfg(target_os = "macos")]
             if let Some(app_menu) = menu
@@ -1029,14 +1030,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Margin desktop app")
-        .run(|app, event| match event {
+        .run(|app_handle, event| match event {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             tauri::RunEvent::Opened { urls } => {
                 dispatch_native_open_urls(
-                    app,
+                    app_handle,
                     urls.into_iter().map(|url| url.to_string()).collect(),
                 );
             }
-            _ => {}
+            _ => {
+                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                let _ = app_handle;
+            }
         });
 }

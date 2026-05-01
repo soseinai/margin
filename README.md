@@ -46,6 +46,28 @@ just deploy local
 
 `just build` builds the Svelte web app. `just build-all` also builds the Tauri desktop app. Remote deploy targets such as `staging` and `production` are reserved in the `justfile` but intentionally fail until hosting infrastructure is configured.
 
+## Testing
+
+The frontend testing strategy is documented in [docs/frontend-testing-strategy.md](docs/frontend-testing-strategy.md). The standard local gates are:
+
+```sh
+just check
+just test
+npm run build:web
+```
+
+`just check` includes Rust formatting, Rust compile checks, Clippy, and the Svelte typecheck. `npm run build:web` is a buildability gate rather than a test.
+
+Web tests are split into:
+
+```sh
+npm run test:web:unit
+npm run test:web:integration
+npm run test:web:e2e
+```
+
+`test:web:e2e` is intentionally empty until Margin has automated coverage against the real desktop shell, filesystem/native commands, or a cloud backend. Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
+
 ## Desktop
 
 ```sh

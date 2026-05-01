@@ -17,6 +17,9 @@
     "ios:build": "npm --workspace @margin/desktop run ios:build --",
     "package:mac:app": "npm --workspace @margin/desktop run package:mac:app",
     "package:mac:dmg": "npm --workspace @margin/desktop run package:mac:dmg",
-    "test:web": "npm --workspace @margin/web run test"
+    "test:web": "npm --workspace @margin/web run test",
+    "test:web:unit": "npm --workspace @margin/web run test:unit",
+    "test:web:integration": "npm --workspace @margin/web run test:integration",
+    "test:web:e2e": "npm --workspace @margin/web run test:e2e"
   }
 }

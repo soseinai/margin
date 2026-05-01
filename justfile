@@ -49,11 +49,19 @@ run: build-desktop
     open target/release/bundle/macos/Margin.app
 
 # Run all standard checks.
-check: check-rust check-web
+check: format-rust-check check-rust lint-rust check-web
+
+# Check Rust formatting.
+format-rust-check:
+    cargo fmt --all -- --check
 
 # Typecheck/compile the Rust desktop workspace.
 check-rust:
     cargo check --workspace
+
+# Lint the Rust desktop workspace.
+lint-rust:
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Typecheck the Svelte app.
 check-web:
@@ -66,8 +74,27 @@ test: test-rust test-web
 test-rust:
     cargo test --workspace
 
+# Run web unit and integration tests.
+test-web: test-web-unit test-web-integration
+
 # Run web unit/property tests.
-test-web:
+test-web-unit:
+    npm run test:web:unit
+
+# Run web browser integration tests.
+test-web-integration:
+    npm run test:web:integration
+
+# Run web end-to-end tests. Empty by design for now.
+test-web-e2e:
+    npm run test:web:e2e
+
+# Install Playwright browsers for web integration tests.
+setup-web-integration:
+    npm --workspace @margin/web exec playwright -- install chromium
+
+# Run all web tests through the package script.
+test-web-all:
     npm run test:web
 
 # Build the web app for local deploy.
