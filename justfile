@@ -19,7 +19,7 @@ dev-web:
     npm run dev:web
 
 # Start the Tauri desktop app.
-dev-desktop:
+dev-desktop: setup
     npm run dev:desktop
 
 # Initialize the Tauri iOS target files and dependencies.
@@ -109,11 +109,11 @@ build-desktop: setup icons
     npm run build:desktop
 
 # Package the desktop app as an unsigned macOS .app bundle.
-package-mac-app: icons
+package-mac-app: setup icons
     npm run package:mac:app
 
 # Package the desktop app as an unsigned macOS DMG.
-package-mac-dmg: icons
+package-mac-dmg: setup icons
     npm run package:mac:dmg
 
 # Build every distributable target.
