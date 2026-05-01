@@ -60,10 +60,10 @@
 		type MarginCommentBlock
 	} from './lib/embedded-margin';
 
-	import type { DocumentResponse, MarginAnchor, MarginSuggestion, Review } from './lib/types';
+	import type { LocalDocument, MarginAnchor, MarginSuggestion, LocalAnnotations } from './lib/types';
 
-	let documentData: DocumentResponse | null = null;
-	let review: Review | null = null;
+	let documentData: LocalDocument | null = null;
+	let annotations: LocalAnnotations | null = null;
 	let editorMarkdown = '';
 	let baseMarkdown = '';
 	let pendingEditThreads: ThreadView[] = [];
@@ -103,6 +103,14 @@
 	let externalChange: ExternalDocumentChange | null = null;
 	let saveState: SaveState = 'idle';
 	let saveMessage = '';
+	let localEditRevision = 0;
+	let localAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+	let localAutosaveInFlight = false;
+	let saveProgressVisible = false;
+	let saveProgressFading = false;
+	let saveProgressShownAt = 0;
+	let saveProgressFadeTimer: ReturnType<typeof setTimeout> | null = null;
+	let saveProgressHideTimer: ReturnType<typeof setTimeout> | null = null;
 	let fileChangeCheckInFlight = false;
 	let unlistenNativeInsertMenu: (() => void) | null = null;
 	let unlistenNativeCommentMenu: (() => void) | null = null;
@@ -131,13 +139,16 @@
 	let dragActive = false;
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
-	const reviewer = 'Aisha Fenton';
+	const localAuthor = 'Me';
 	const anchorContextCharacters = 96;
 	const gutterCardGap = 14;
 	const gutterReservedTop = 86;
 	const recentDocumentsStorageKey = 'margin:recent-documents:v1';
 	const settingsStorageKey = 'margin:settings:v1';
 	const maxRecentDocuments = 10;
+	const localAutosaveDelayMs = 900;
+	const saveProgressMinVisibleMs = 1000;
+	const saveProgressFadeMs = 500;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	const marginHighlightStyle = HighlightStyle.define([
@@ -201,6 +212,7 @@
 	type ThemeSetting = 'auto' | 'light' | 'dark';
 	type AppSettings = { theme: ThemeSetting };
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
+	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type TauriEvent<T> = { payload: T };
 	type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -292,8 +304,8 @@
 	type DocumentTab = {
 		id: string;
 		title: string;
-		documentData: DocumentResponse;
-		review: Review | null;
+		documentData: LocalDocument;
+		annotations: LocalAnnotations | null;
 		editorMarkdown: string;
 		baseMarkdown: string;
 		draftBaseMarkdown: string;
@@ -1106,9 +1118,9 @@
 		provide: (field) => EditorView.decorations.from(field, (value) => value.decorations)
 	});
 
-	$: persistedThreads = review
+	$: persistedThreads = annotations
 		? [
-			...review.comments.filter((comment) => !comment.resolved).map((comment) => ({
+			...annotations.comments.filter((comment) => !comment.resolved).map((comment) => ({
 				id: comment.id,
 				kind: 'comment' as const,
 				author: comment.author,
@@ -1121,7 +1133,7 @@
 				resolved: comment.resolved
 			})),
 
-			...review.suggestions.map((suggestion) => ({
+			...annotations.suggestions.map((suggestion) => ({
 				id: suggestion.id,
 				kind: 'suggestion' as const,
 				author: suggestion.author,
@@ -1142,9 +1154,13 @@
 
 	$: threads = [...persistedThreads, ...pendingEditThreads].sort((a, b) => a.line - b.line);
 	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
-	$: selectionReady = selectedQuote.trim().length > 0 && review;
+	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
+	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
+	$: titlebarEyebrowLabel = documentLocationLabel || (!nativeFilePath && !localFileHandle && saveState !== 'saved' ? 'Unsaved draft' : '');
+	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
+	$: updateSaveProgressIndicator(saveState);
 
 	$: if (mainEditor) {
 		mainEditor.dispatch({
@@ -1180,6 +1196,8 @@
 			window.removeEventListener('resize', updateAnchorPositions);
 			window.removeEventListener('keydown', handleGlobalShortcut);
 			window.removeEventListener('beforeunload', handleBeforeUnload);
+			clearLocalAutosaveTimer();
+			clearSaveProgressTimers();
 			unlistenNativeInsertMenu?.();
 			unlistenNativeCommentMenu?.();
 			unlistenNativeNewMenu?.();
@@ -1224,17 +1242,15 @@
 			? { ...documentData, markdown }
 			: previous?.documentData ?? {
 				id: documentSessionKey,
-				repo: 'Loading repo',
-				file_path: 'Opening document',
-				source_commit: 'pending',
+				fileName: 'Untitled.md',
 				markdown
 			};
 
 		return {
 			id: previous?.id ?? (activeDocumentTabId || documentSessionKey),
-			title: nextDocumentData.file_path,
+			title: nextDocumentData.fileName,
 			documentData: nextDocumentData,
-			review,
+			annotations,
 			editorMarkdown: markdown,
 			baseMarkdown,
 			draftBaseMarkdown,
@@ -1275,6 +1291,7 @@
 	async function activateDocumentTab(tabId: string) {
 		if (tabId === activeDocumentTabId) return;
 
+		await flushLocalAutosave();
 		syncActiveDocumentTab();
 
 		const nextTab = documentTabs.find((tab) => tab.id === tabId);
@@ -1285,6 +1302,8 @@
 	}
 
 	async function closeDocumentTab(tabId: string, options: { discard?: boolean } = {}) {
+		if (tabId === activeDocumentTabId) await flushLocalAutosave();
+
 		syncActiveDocumentTab();
 
 		const tabIndex = documentTabs.findIndex((tab) => tab.id === tabId);
@@ -1372,13 +1391,14 @@
 	}
 
 	function tabHasDiscardableWork(tab: DocumentTab) {
-		return tab.saveState === 'dirty' || tab.saveState === 'conflict' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.review?.comments.length ?? 0) + (tab.review?.suggestions.length ?? 0));
+		return tab.saveState === 'dirty' || tab.saveState === 'conflict' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.annotations?.comments.length ?? 0) + (tab.annotations?.suggestions.length ?? 0));
 	}
 
 	async function applyDocumentTab(nextTab: DocumentTab) {
+		clearLocalAutosaveTimer();
 		activeDocumentTabId = nextTab.id;
 		documentData = { ...nextTab.documentData, markdown: nextTab.editorMarkdown };
-		review = nextTab.review;
+		annotations = nextTab.annotations;
 		editorMarkdown = nextTab.editorMarkdown;
 		baseMarkdown = nextTab.baseMarkdown;
 		draftBaseMarkdown = nextTab.draftBaseMarkdown || nextTab.baseMarkdown;
@@ -1403,6 +1423,7 @@
 
 		for (const key of nextTab.syncedEditKeys) syncedEditKeys.add(key);
 
+		scheduleLocalAutosave();
 		await tick();
 		updateAnchorPositions();
 	}
@@ -3496,15 +3517,20 @@
 						editorMarkdown = update.state.doc.toString();
 						preloadMarkdownCodeLanguages(update.view);
 
-						if (localFileMode) {
+						if (!applyingExternalValue) {
+							localEditRevision += 1;
+						}
+
+						if (localFileMode && !applyingExternalValue) {
 							refreshLocalSaveState(editorMarkdown);
+							scheduleLocalAutosave();
 						}
 
 						if (applyingExternalValue) {
 							resetSuggestionDraftState(editorMarkdown);
 						} else if (editMode === 'suggest') {
 							draftChanges = composeDraftChanges(draftChanges, update);
-							pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: reviewer, syncedKeys: syncedEditKeys });
+							pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: localAuthor, syncedKeys: syncedEditKeys });
 						} else {
 							resetSuggestionDraftState(editorMarkdown);
 						}
@@ -3688,7 +3714,7 @@
 	function openCommentComposerForSelection(view: EditorView | null = mainEditor) {
 		const anchor = commentAnchorForSelection(view) ?? storedSelectionAnchor();
 
-		if (!review || !anchor) return false;
+		if (!annotations || !anchor) return false;
 
 		selectedQuote = anchor.quote;
 		selectedLineTop = anchor.lineTop;
@@ -3702,7 +3728,7 @@
 	function openCommentContextMenu(event: MouseEvent, view: EditorView) {
 		const anchor = commentAnchorForSelection(view);
 
-		if (!review || !anchor || !desktopShell) return false;
+		if (!annotations || !anchor || !desktopShell) return false;
 
 		event.preventDefault();
 		event.stopPropagation();
@@ -3932,6 +3958,10 @@
 
 	function countLabel(count: number, singular: string, plural = `${singular}s`) {
 		return `${count} ${count === 1 ? singular : plural}`;
+	}
+
+	function authorInitials(author: string) {
+		return author.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'ME';
 	}
 
 	function suggestionSurfaceKind(thread: ThreadView): SuggestionSurfaceKind {
@@ -4515,12 +4545,6 @@
 			}
 		}
 
-		if (action === 'document' || action === 'doc' || action === 'review' || action === 'cloud') {
-			error = 'Cloud documents are planned for a later Margin version.';
-
-			return;
-		}
-
 		error = `Margin link received, but no handler exists for "${action}" yet.`;
 	}
 
@@ -4715,6 +4739,12 @@
 		return normalized.slice(0, index);
 	}
 
+	function compactLocalPath(path: string) {
+		const normalized = normalizePathSeparators(path);
+
+		return normalized.replace(/^\/Users\/[^/]+(?=\/|$)/, '~') || 'Local file';
+	}
+
 	function joinLocalPath(base: string, path: string) {
 		const decodedPath = normalizePathSeparators(path);
 
@@ -4784,6 +4814,8 @@
 		const fileName = nextUntitledFileName();
 		const nextDocumentSessionKey = `local:untitled:${Date.now()}`;
 
+		clearLocalAutosaveTimer();
+
 		if (!options.replaceActive) syncActiveDocumentTab();
 
 		localFileMode = true;
@@ -4798,7 +4830,7 @@
 		documentSessionKey = nextDocumentSessionKey;
 		activeDocumentTabId = nextDocumentSessionKey;
 		documentData = standaloneDocumentData(fileName, '');
-		review = emptyLocalReview(fileName);
+		annotations = emptyLocalAnnotations(fileName);
 		resetDraftState('');
 		clearSelection();
 
@@ -4824,12 +4856,10 @@
 		return `Untitled ${Date.now()}.md`;
 	}
 
-	function standaloneDocumentData(fileName: string, markdown: string): DocumentResponse {
+	function standaloneDocumentData(fileName: string, markdown: string): LocalDocument {
 		return {
 			id: documentSessionKey,
-			repo: 'Standalone Markdown',
-			file_path: fileName,
-			source_commit: 'local',
+			fileName,
 			markdown
 		};
 	}
@@ -4929,6 +4959,8 @@
 		const fileName = nativeDocument.name || fileNameFromPath(nativeDocument.path);
 		const splitDocument = splitMarginCommentBlock(nativeDocument.markdown);
 
+		clearLocalAutosaveTimer();
+
 		if (options.forceEditorReload) {
 			documentSessionKey = `${activeDocumentTabId || documentSessionKey}:reload:${Date.now()}`;
 		}
@@ -4943,7 +4975,7 @@
 		saveState = 'saved';
 		saveMessage = message;
 		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
-		review = localReviewFromEmbeddedBlock(fileName, splitDocument.comments);
+		annotations = localAnnotationsFromEmbeddedBlock(fileName, splitDocument.comments);
 		resetDraftState(splitDocument.markdown);
 		clearSelection();
 	}
@@ -4954,6 +4986,7 @@
 		const fileName = handle?.name || file.name || 'Untitled.md';
 		const nextDocumentSessionKey = `local:${Date.now()}:${fileName}`;
 
+		clearLocalAutosaveTimer();
 		syncActiveDocumentTab();
 		localFileMode = true;
 		localFileHandle = handle;
@@ -4967,7 +5000,7 @@
 		documentSessionKey = nextDocumentSessionKey;
 		activeDocumentTabId = nextDocumentSessionKey;
 		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
-		review = localReviewFromEmbeddedBlock(fileName, splitDocument.comments);
+		annotations = localAnnotationsFromEmbeddedBlock(fileName, splitDocument.comments);
 		resetDraftState(splitDocument.markdown);
 		clearSelection();
 		syncActiveDocumentTab();
@@ -4975,8 +5008,102 @@
 		updateAnchorPositions();
 	}
 
-	async function saveLocalMarkdown() {
+	function hasWritableLocalSaveTarget() {
+		return localFileMode && ((desktopShell && Boolean(nativeFilePath)) || Boolean(localFileHandle?.createWritable));
+	}
+
+	function shouldAutosaveLocalDocument() {
+		return Boolean(documentData && hasWritableLocalSaveTarget() && !externalChange && saveMessage !== 'Save failed' && hasAutosavableLocalChanges());
+	}
+
+	function clearLocalAutosaveTimer() {
+		if (!localAutosaveTimer) return;
+
+		clearTimeout(localAutosaveTimer);
+		localAutosaveTimer = null;
+	}
+
+	function clearSaveProgressTimers() {
+		if (saveProgressFadeTimer) {
+			clearTimeout(saveProgressFadeTimer);
+			saveProgressFadeTimer = null;
+		}
+
+		if (saveProgressHideTimer) {
+			clearTimeout(saveProgressHideTimer);
+			saveProgressHideTimer = null;
+		}
+	}
+
+	function updateSaveProgressIndicator(nextSaveState: SaveState) {
+		if (nextSaveState === 'saving') {
+			clearSaveProgressTimers();
+			saveProgressVisible = true;
+			saveProgressFading = false;
+			saveProgressShownAt = Date.now();
+
+			return;
+		}
+
+		if (!saveProgressVisible || saveProgressFading || saveProgressFadeTimer) return;
+
+		const elapsed = Date.now() - saveProgressShownAt;
+		const fadeDelay = Math.max(0, saveProgressMinVisibleMs - elapsed);
+
+		saveProgressFadeTimer = setTimeout(() => {
+			saveProgressFadeTimer = null;
+			saveProgressFading = true;
+
+			saveProgressHideTimer = setTimeout(() => {
+				saveProgressHideTimer = null;
+				saveProgressVisible = false;
+				saveProgressFading = false;
+			}, saveProgressFadeMs);
+		}, fadeDelay);
+	}
+
+	function scheduleLocalAutosave() {
+		clearLocalAutosaveTimer();
+
+		if (!shouldAutosaveLocalDocument()) return;
+
+		localAutosaveTimer = setTimeout(() => {
+			localAutosaveTimer = null;
+			void runLocalAutosave();
+		}, localAutosaveDelayMs);
+	}
+
+	async function runLocalAutosave() {
+		if (!shouldAutosaveLocalDocument()) return;
+
+		if (localAutosaveInFlight || saveState === 'saving') {
+			scheduleLocalAutosave();
+
+			return;
+		}
+
+		localAutosaveInFlight = true;
+
+		try {
+			await saveLocalMarkdown({ promptForPath: false, autosave: true });
+		} finally {
+			localAutosaveInFlight = false;
+			if (shouldAutosaveLocalDocument()) scheduleLocalAutosave();
+		}
+	}
+
+	async function flushLocalAutosave() {
+		clearLocalAutosaveTimer();
+
+		if (!shouldAutosaveLocalDocument()) return;
+
+		await runLocalAutosave();
+	}
+
+	async function saveLocalMarkdown(options: SaveLocalMarkdownOptions = {}) {
 		if (!documentData) return;
+
+		if (!options.autosave) clearLocalAutosaveTimer();
 
 		if (desktopShell && nativeFilePath) {
 			await saveNativeMarkdownToPath(nativeFilePath);
@@ -4985,7 +5112,7 @@
 		}
 
 		if (!localFileMode || !localFileHandle?.createWritable) {
-			await saveLocalMarkdownAs();
+			if (options.promptForPath ?? true) await saveLocalMarkdownAs();
 
 			return;
 		}
@@ -5013,7 +5140,7 @@
 
 			await writable.write(snapshot.serializedMarkdown);
 			await writable.close();
-			markLocalFileSaved(snapshot.markdown, localFileHandle.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
+			markLocalFileSaved(snapshot.markdown, localFileHandle.name, 'Saved', snapshot.annotations, snapshot.serializedMarkdown, snapshot.revision, snapshot.documentSessionKey);
 		} catch(err) {
 			if (isAbortError(err)) return;
 
@@ -5027,12 +5154,13 @@
 		if (!documentData) return;
 		if (saveDialogOpen) return;
 
+		clearLocalAutosaveTimer();
 		saveDialogOpen = true;
 
 		try {
 			error = '';
 
-			const suggestedName = localFileName || documentData.file_path || 'document.md';
+			const suggestedName = localFileName || documentData.fileName || 'document.md';
 
 			const nativeSavePath = desktopShell
 				? tauriInvoke<string | null>('choose_markdown_save_path', { suggestedName })
@@ -5071,7 +5199,7 @@
 					await writable.close();
 					localFileMode = true;
 					localFileHandle = handle;
-					markLocalFileSaved(snapshot.markdown, handle.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
+					markLocalFileSaved(snapshot.markdown, handle.name, 'Saved', snapshot.annotations, snapshot.serializedMarkdown, snapshot.revision, snapshot.documentSessionKey);
 				} catch(err) {
 					if (isAbortError(err)) return;
 
@@ -5085,9 +5213,9 @@
 
 			const snapshot = persistenceSnapshot();
 
-			downloadMarkdown(snapshot.serializedMarkdown, localFileName || documentData.file_path || 'document.md');
+			downloadMarkdown(snapshot.serializedMarkdown, localFileName || documentData.fileName || 'document.md');
 			localFileMode = true;
-			markLocalFileSaved(snapshot.markdown, localFileName || documentData.file_path || 'document.md', 'Downloaded copy', snapshot.review, snapshot.serializedMarkdown);
+			markLocalFileSaved(snapshot.markdown, localFileName || documentData.fileName || 'document.md', 'Downloaded copy', snapshot.annotations, snapshot.serializedMarkdown, snapshot.revision, snapshot.documentSessionKey);
 		} finally {
 			saveDialogOpen = false;
 		}
@@ -5129,7 +5257,7 @@
 			localFileHandle = null;
 			nativeFilePath = document.path;
 			localFileName = document.name;
-			markLocalFileSaved(snapshot.markdown, document.name, 'Saved', snapshot.review, snapshot.serializedMarkdown);
+			markLocalFileSaved(snapshot.markdown, document.name, 'Saved', snapshot.annotations, snapshot.serializedMarkdown, snapshot.revision, snapshot.documentSessionKey);
 			addRecentDocument(document);
 			watchNativeMarkdownDocument(document.path);
 		} catch(err) {
@@ -5220,6 +5348,10 @@
 		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0 || commentBody.trim().length > 0;
 	}
 
+	function hasAutosavableLocalChanges(markdown = activeEditorMarkdown()) {
+		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0;
+	}
+
 	async function reloadExternalChange() {
 		if (!externalChange) return;
 
@@ -5240,32 +5372,50 @@
 		markdown: string,
 		fileName: string,
 		message = 'Saved',
-		savedReview = reviewForPersistence(),
-		serializedMarkdown = appendMarginCommentBlock(markdown, marginCommentBlockFromReview(savedReview))
+		savedAnnotations = annotationsForPersistence(),
+		serializedMarkdown = appendMarginCommentBlock(markdown, marginCommentBlockFromAnnotations(savedAnnotations)),
+		revision = localEditRevision,
+		savedDocumentSessionKey = documentSessionKey
 	) {
+		if (savedDocumentSessionKey !== documentSessionKey) return;
+
+		const currentMarkdown = activeEditorMarkdown();
+		const savedSnapshotStillCurrent = revision === localEditRevision && currentMarkdown === markdown;
+
 		localFileName = fileName;
-		review = savedReview;
-		localMetadataDirty = false;
 		lastPersistedSerializedMarkdown = serializedMarkdown;
 		externalChange = null;
-		saveState = 'saved';
-		saveMessage = message;
 
 		if (documentData) {
-			documentData = { ...documentData, file_path: fileName, markdown };
+			documentData = { ...documentData, fileName, markdown: currentMarkdown };
 		}
 
-		resetDraftState(markdown);
+		if (savedSnapshotStillCurrent) {
+			annotations = savedAnnotations;
+			localMetadataDirty = false;
+			saveState = 'saved';
+			saveMessage = message;
+			resetDraftState(markdown);
+		} else {
+			editorMarkdown = currentMarkdown;
+			baseMarkdown = markdown;
+			saveState = 'dirty';
+			saveMessage = 'Unsaved changes';
+			scheduleLocalAutosave();
+		}
+
 		syncActiveDocumentTab();
 	}
 
 	function markLocalDocumentDirty(message = 'Unsaved changes') {
 		if (!localFileMode) return;
 
+		localEditRevision += 1;
 		localMetadataDirty = true;
 		saveState = externalChange ? 'conflict' : 'dirty';
 		saveMessage = externalChange ? 'Changed on disk' : message;
 		syncActiveDocumentTab();
+		scheduleLocalAutosave();
 	}
 
 	function refreshLocalSaveState(markdown = activeEditorMarkdown()) {
@@ -5283,19 +5433,21 @@
 	}
 
 	function persistenceSnapshot(markdown = activeEditorMarkdown()) {
-		const snapshotReview = reviewForPersistence();
+		const snapshotAnnotations = annotationsForPersistence();
 
 		return {
 			markdown,
-			review: snapshotReview,
-			serializedMarkdown: appendMarginCommentBlock(markdown, marginCommentBlockFromReview(snapshotReview))
+			annotations: snapshotAnnotations,
+			serializedMarkdown: appendMarginCommentBlock(markdown, marginCommentBlockFromAnnotations(snapshotAnnotations)),
+			revision: localEditRevision,
+			documentSessionKey
 		};
 	}
 
-	function reviewForPersistence(): Review | null {
-		if (!review || pendingEditThreads.length === 0) return review;
+	function annotationsForPersistence(): LocalAnnotations | null {
+		if (!annotations || pendingEditThreads.length === 0) return annotations;
 
-		const existingSuggestionKeys = new Set(review.suggestions.map((suggestion) => suggestionKey(suggestion.anchor.start_line, suggestion.anchor.end_line, suggestion.original, suggestion.replacement)));
+		const existingSuggestionKeys = new Set(annotations.suggestions.map((suggestion) => suggestionKey(suggestion.anchor.start_line, suggestion.anchor.end_line, suggestion.original, suggestion.replacement)));
 
 		const materializedSuggestions = pendingEditThreads.filter((thread) => thread.kind === 'suggestion').filter((thread) => {
 			const key = suggestionKey(thread.line, thread.endLine, thread.quote, thread.body);
@@ -5307,11 +5459,11 @@
 			return true;
 		}).map(pendingThreadToSuggestion);
 
-		if (materializedSuggestions.length === 0) return review;
+		if (materializedSuggestions.length === 0) return annotations;
 
 		return {
-			...review,
-			suggestions: [...review.suggestions, ...materializedSuggestions]
+			...annotations,
+			suggestions: [...annotations.suggestions, ...materializedSuggestions]
 		};
 	}
 
@@ -5339,16 +5491,16 @@
 		};
 	}
 
-	function marginCommentBlockFromReview(snapshotReview: Review | null = review): MarginCommentBlock | null {
-		if (!snapshotReview) return null;
+	function marginCommentBlockFromAnnotations(snapshotAnnotations: LocalAnnotations | null = annotations): MarginCommentBlock | null {
+		if (!snapshotAnnotations) return null;
 
 		return {
 			schema: 'margin.markdown-comments',
 			version: 1,
-			review_id: snapshotReview.id,
-			reviewer: snapshotReview.reviewer,
-			comments: snapshotReview.comments,
-			suggestions: snapshotReview.suggestions,
+			annotations_id: snapshotAnnotations.id,
+			author: snapshotAnnotations.author,
+			comments: snapshotAnnotations.comments,
+			suggestions: snapshotAnnotations.suggestions,
 			updated_at: new Date().toISOString()
 		};
 	}
@@ -5378,12 +5530,12 @@
 		syncActiveDocumentTab();
 	}
 
-	function materializePendingEditSuggestions(message = 'Unsaved suggestions') {
-		if (!review || pendingEditThreads.length === 0) return false;
+	function materializePendingEditSuggestions(message = 'Unsaved annotations') {
+		if (!annotations || pendingEditThreads.length === 0) return false;
 
-		const savedReview = reviewForPersistence();
+		const savedAnnotations = annotationsForPersistence();
 
-		if (savedReview) review = savedReview;
+		if (savedAnnotations) annotations = savedAnnotations;
 
 		for (const thread of pendingEditThreads) {
 			syncedEditKeys.add(suggestionKey(thread.line, thread.endLine, thread.quote, thread.body));
@@ -5410,28 +5562,26 @@
 		return err instanceof DOMException && err.name === 'AbortError';
 	}
 
-	function emptyLocalReview(fileName: string): Review {
+	function emptyLocalAnnotations(fileName: string): LocalAnnotations {
 		return {
-			id: `local-review:${Date.now()}`,
-			repo: 'Standalone Markdown',
-			file_path: fileName,
-			source_commit: 'local',
-			reviewer,
+			id: `local-annotations:${Date.now()}`,
+			fileName,
+			author: localAuthor,
 			comments: [],
 			suggestions: [],
 			created_at: new Date().toISOString()
 		};
 	}
 
-	function localReviewFromEmbeddedBlock(fileName: string, comments: MarginCommentBlock | null): Review {
-		const fallback = emptyLocalReview(fileName);
+	function localAnnotationsFromEmbeddedBlock(fileName: string, comments: MarginCommentBlock | null): LocalAnnotations {
+		const fallback = emptyLocalAnnotations(fileName);
 
 		if (!comments) return fallback;
 
 		return {
 			...fallback,
-			id: comments.review_id,
-			reviewer: comments.reviewer || reviewer,
+			id: comments.annotations_id,
+			author: comments.author || localAuthor,
 			comments: comments.comments,
 			suggestions: comments.suggestions,
 			created_at: comments.updated_at
@@ -5501,15 +5651,15 @@
 	}
 
 	async function submitComment() {
-		if (!review || !selectedQuote || !commentBody) return;
+		if (!annotations || !selectedQuote || !commentBody) return;
 
-		review = {
-			...review,
+		annotations = {
+			...annotations,
 			comments: [
-				...review.comments,
+				...annotations.comments,
 				{
 					id: `local-comment-${Date.now()}`,
-					author: reviewer,
+					author: localAuthor,
 					body: commentBody,
 					resolved: false,
 					anchor: localAnchorForSelection(selectedQuote),
@@ -5518,14 +5668,14 @@
 			]
 		};
 
-		markLocalDocumentDirty('Unsaved comments');
+		markLocalDocumentDirty('Unsaved annotations');
 		await tick();
 		updateAnchorPositions();
 		settleEditorSelection();
 	}
 
 	async function acceptSuggestion(thread: ThreadView) {
-		if (!review || thread.kind !== 'suggestion') return;
+		if (!annotations || thread.kind !== 'suggestion') return;
 
 		activeThreadId = thread.id;
 		replaceInEditor(thread.quote, thread.body);
@@ -5534,8 +5684,8 @@
 			syncedEditKeys.add(suggestionKey(thread.line, thread.endLine, thread.quote, thread.body));
 			pendingEditThreads = pendingEditThreads.filter((candidate) => candidate.id !== thread.id);
 		} else {
-			review = updateLocalSuggestion(thread.id, { applied: true, resolved: false });
-			markLocalDocumentDirty('Unsaved comments');
+			annotations = updateLocalSuggestion(thread.id, { applied: true, resolved: false });
+			markLocalDocumentDirty('Unsaved annotations');
 		}
 
 		await tick();
@@ -5543,7 +5693,7 @@
 	}
 
 	async function rejectSuggestion(thread: ThreadView) {
-		if (!review || thread.kind !== 'suggestion') return;
+		if (!annotations || thread.kind !== 'suggestion') return;
 
 		activeThreadId = thread.id;
 		replaceInEditor(thread.body, thread.quote);
@@ -5551,8 +5701,8 @@
 		if (thread.pending) {
 			pendingEditThreads = pendingEditThreads.filter((candidate) => candidate.id !== thread.id);
 		} else {
-			review = updateLocalSuggestion(thread.id, { applied: false, resolved: false });
-			markLocalDocumentDirty('Unsaved comments');
+			annotations = updateLocalSuggestion(thread.id, { applied: false, resolved: false });
+			markLocalDocumentDirty('Unsaved annotations');
 		}
 
 		await tick();
@@ -5560,7 +5710,7 @@
 	}
 
 	async function resolveSuggestion(thread: ThreadView) {
-		if (!review || thread.kind !== 'suggestion') return;
+		if (!annotations || thread.kind !== 'suggestion') return;
 
 		activeThreadId = thread.id;
 
@@ -5568,8 +5718,8 @@
 			syncedEditKeys.add(suggestionKey(thread.line, thread.endLine, thread.quote, thread.body));
 			pendingEditThreads = pendingEditThreads.filter((candidate) => candidate.id !== thread.id);
 		} else {
-			review = updateLocalSuggestion(thread.id, { resolved: true });
-			markLocalDocumentDirty('Unsaved comments');
+			annotations = updateLocalSuggestion(thread.id, { resolved: true });
+			markLocalDocumentDirty('Unsaved annotations');
 		}
 
 		await tick();
@@ -5579,12 +5729,12 @@
 	function updateLocalSuggestion(
 		suggestionId: string,
 		patch: { applied?: boolean; resolved?: boolean }
-	): Review | null {
-		if (!review) return review;
+	): LocalAnnotations | null {
+		if (!annotations) return annotations;
 
 		return {
-			...review,
-			suggestions: review.suggestions.map((suggestion) => suggestion.id === suggestionId ? { ...suggestion, ...patch } : suggestion)
+			...annotations,
+			suggestions: annotations.suggestions.map((suggestion) => suggestion.id === suggestionId ? { ...suggestion, ...patch } : suggestion)
 		};
 	}
 
@@ -5601,7 +5751,7 @@
 		});
 
 		editorMarkdown = mainEditor.state.doc.toString();
-		pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: reviewer, syncedKeys: syncedEditKeys });
+		pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: localAuthor, syncedKeys: syncedEditKeys });
 	}
 
 	function localAnchorForSelection(quote: string): MarginAnchor {
@@ -5678,14 +5828,14 @@
 	}
 
 	async function resolveComment(thread: ThreadView) {
-		if (!review || thread.kind !== 'comment') return;
+		if (!annotations || thread.kind !== 'comment') return;
 
-		review = {
-			...review,
-			comments: review.comments.map((comment) => comment.id === thread.id ? { ...comment, resolved: true } : comment)
+		annotations = {
+			...annotations,
+			comments: annotations.comments.map((comment) => comment.id === thread.id ? { ...comment, resolved: true } : comment)
 		};
 
-		markLocalDocumentDirty('Unsaved comments');
+		markLocalDocumentDirty('Unsaved annotations');
 		await tick();
 		updateAnchorPositions();
 	}
@@ -5797,9 +5947,15 @@
 		<div class="brand-cluster" data-tauri-drag-region>
 			<div class="brand-mark">M</div>
 
-			<div data-tauri-drag-region>
-				<p class="eyebrow">{documentData?.repo ?? 'Loading repo'}</p>
-				<h1>{documentData?.file_path ?? 'Opening document'}</h1>
+			<div class="brand-title" data-tauri-drag-region>
+				<p
+					class="eyebrow"
+					class:eyebrow-placeholder={!titlebarEyebrowLabel}
+					aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
+				>
+					{titlebarEyebrowLabel}
+				</p>
+				<h1>{documentTitleLabel}</h1>
 			</div>
 		</div>
 
@@ -5838,7 +5994,7 @@
 				class="topbar-icon-button"
 				aria-label="Save document"
 				title="Save document"
-				onclick={saveLocalMarkdown}
+				onclick={() => saveLocalMarkdown()}
 			>
 				<SaveIcon aria-hidden="true" />
 			</Button>
@@ -5903,16 +6059,6 @@
 					</svg>
 				</ToggleGroup.Item>
 			</ToggleGroup.Root>
-
-			<span>Live Preview</span>
-			<span>Standalone editor</span>
-			<span class:dirty-status={saveState === 'dirty' || saveState === 'conflict'}>{saveMessage || 'Local file'}</span>
-			<span>{countLabel(review?.comments.length ?? 0, 'comment')}</span>
-			<span>{countLabel(review?.suggestions.length ?? 0, 'saved suggestion')}</span>
-
-			{#if pendingEditThreads.length > 0}
-				<span>{countLabel(pendingEditThreads.length, 'unsaved edit suggestion')}</span>
-			{/if}
 	</div>
 
 	{#if error}
@@ -5938,7 +6084,7 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					onclick={saveLocalMarkdownAs}
+					onclick={() => saveLocalMarkdownAs()}
 				>
 					Save As
 				</Button>
@@ -5946,7 +6092,7 @@
 		</section>
 	{/if}
 
-	<div class="review-canvas">
+	<div class="editor-layout">
 		<section class="paper-column">
 			<article
 				class="document-surface live-preview-surface"
@@ -6005,28 +6151,16 @@
 					</svg>
 				{/if}
 
-					<section class="review-summary">
-						<span>Margin notes</span>
-						<strong>{countLabel(threads.length, 'open note')}</strong>
-					</section>
-
-				{#if threads.length === 0 && !selectedQuote}
-					<section class="empty-thread">
-						<strong>No comments yet</strong>
-						<p>Select text, then use Add Comment from the context menu or Insert menu.</p>
-					</section>
-				{/if}
-
 				{#each marginItems as item}
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"
-							aria-label="New review note"
+							aria-label="New note"
 							style={`top: ${item.top}px;`}
 							use:measureHeight={item.id}
 						>
 							<div class="composer-header">
-								<div class="avatar">AF</div>
+								<div class="avatar">{authorInitials(localAuthor)}</div>
 
 								<div>
 									<strong>Add comment</strong>
@@ -6085,7 +6219,7 @@
 							use:measureHeight={item.id}
 						>
 							<div class="thread-header">
-								<div class="avatar">{item.thread.author.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div>
+								<div class="avatar">{authorInitials(item.thread.author)}</div>
 
 								<div>
 									<strong>{item.thread.author}</strong>
@@ -6177,6 +6311,17 @@
 			</div>
 		</aside>
 	</div>
+
+	{#if saveProgressVisible}
+		<div
+			class="save-progress-indicator"
+			class:fading={saveProgressFading}
+			role="status"
+			aria-live="polite"
+		>
+			<span>Saving</span><span class="save-progress-dots" aria-hidden="true"></span>
+		</div>
+	{/if}
 
 		<Dialog.Root bind:open={settingsDialogOpen}>
 			<Dialog.Content

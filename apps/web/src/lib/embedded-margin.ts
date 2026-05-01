@@ -3,8 +3,8 @@ import type { MarginComment, MarginSuggestion } from './types';
 export type MarginCommentBlock = {
   schema: 'margin.markdown-comments';
   version: 1;
-  review_id: string;
-  reviewer: string;
+  annotations_id: string;
+  author: string;
   comments: MarginComment[];
   suggestions: MarginSuggestion[];
   updated_at: string;
@@ -48,14 +48,15 @@ function normalizeMarginCommentBlock(value: unknown): MarginCommentBlock | null 
   if (!value || typeof value !== 'object') return null;
 
   const candidate = value as Partial<MarginCommentBlock>;
+  const legacyCandidate = value as { review_id?: unknown; reviewer?: unknown };
   const comments = Array.isArray(candidate.comments) ? candidate.comments.filter(isMarginComment) : [];
   const suggestions = Array.isArray(candidate.suggestions) ? candidate.suggestions.filter(isMarginSuggestion) : [];
 
   return {
     schema: 'margin.markdown-comments',
     version: 1,
-    review_id: stringOr(candidate.review_id, `local-review:${Date.now()}`),
-    reviewer: stringOr(candidate.reviewer, 'Local reviewer'),
+    annotations_id: stringOr(candidate.annotations_id, stringOr(legacyCandidate.review_id, `local-annotations:${Date.now()}`)),
+    author: stringOr(candidate.author, stringOr(legacyCandidate.reviewer, 'Me')),
     comments,
     suggestions,
     updated_at: stringOr(candidate.updated_at, new Date().toISOString())

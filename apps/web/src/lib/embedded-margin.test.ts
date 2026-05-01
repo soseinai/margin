@@ -4,12 +4,12 @@ import { appendMarginCommentBlock, splitMarginCommentBlock, type MarginCommentBl
 const block: MarginCommentBlock = {
   schema: 'margin.markdown-comments',
   version: 1,
-  review_id: 'local-review:test',
-  reviewer: 'Aisha Fenton',
+  annotations_id: 'local-annotations:test',
+  author: 'Me',
   comments: [
     {
       id: 'comment-1',
-      author: 'Aisha Fenton',
+      author: 'Me',
       body: 'Tighten this sentence.',
       resolved: false,
       created_at: '2026-04-26T00:00:00.000Z',
@@ -27,7 +27,7 @@ const block: MarginCommentBlock = {
   suggestions: [
     {
       id: 'suggestion-1',
-      author: 'Aisha Fenton',
+      author: 'Me',
       original: 'Original sentence',
       replacement: 'Sharper sentence',
       applied: true,
@@ -95,5 +95,22 @@ describe('embedded Margin comments', () => {
 
     expect(split.markdown).toBe('# Brief');
     expect(split.comments).toBeNull();
+  });
+
+  it('reads legacy review metadata fields from older files', () => {
+    const markdown = `# Brief\n\n<!-- margin:comments\n${JSON.stringify({
+      schema: 'margin.markdown-comments',
+      version: 1,
+      review_id: 'local-review:old',
+      reviewer: 'Legacy Author',
+      comments: [],
+      suggestions: [],
+      updated_at: '2026-04-26T00:00:00.000Z'
+    }, null, 2)}\n-->\n`;
+
+    const split = splitMarginCommentBlock(markdown);
+
+    expect(split.comments?.annotations_id).toBe('local-review:old');
+    expect(split.comments?.author).toBe('Legacy Author');
   });
 });

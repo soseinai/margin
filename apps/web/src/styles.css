@@ -674,16 +674,14 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .doc-topbar {
-  min-height: 114px;
-  padding: 58px 32px 8px;
-}
-
-.desktop-shell .doc-topbar h1 {
-  display: none;
+  height: 92px;
+  min-height: 92px;
+  overflow: hidden;
+  padding: 46px 32px 6px;
 }
 
 .desktop-shell .doc-topbar .eyebrow {
-  margin: 0;
+  margin: 0 0 4px;
 }
 
 .desktop-shell .brand-mark {
@@ -703,6 +701,10 @@ textarea:not([data-slot]):focus {
 
 .brand-cluster {
   gap: 11px;
+  min-width: 0;
+}
+
+.brand-title {
   min-width: 0;
 }
 
@@ -750,12 +752,24 @@ textarea:not([data-slot]):focus {
 
 .eyebrow {
   color: var(--text-muted);
-  font-family: var(--font-ui);
+  font-family: var(--font-plex-mono);
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.14em;
+  height: 13px;
+  letter-spacing: 0.04em;
+  line-height: 13px;
   margin: 0 0 4px;
-  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eyebrow-placeholder {
+  visibility: hidden;
+}
+
+.doc-app:not(.desktop-shell) .eyebrow-placeholder {
+  display: none;
 }
 
 .doc-topbar h1 {
@@ -773,35 +787,11 @@ textarea:not([data-slot]):focus {
   align-items: center;
   background: var(--sheet-bg);
   border-bottom: 0;
-  display: flex;
+  display: none;
   gap: 0;
   min-height: 26px;
   overflow-x: auto;
   padding: 0 32px 12px 98px;
-}
-
-.doc-toolbar span {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  color: var(--fg-4);
-  flex: 0 0 auto;
-  font-family: var(--font-plex-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  padding: 0;
-}
-
-.doc-toolbar span + span::before {
-  color: var(--fg-4);
-  content: "/";
-  margin: 0 10px;
-  opacity: 0.55;
-}
-
-.doc-toolbar span.dirty-status {
-  background: transparent;
-  color: var(--suggestion-label);
 }
 
 .error {
@@ -811,6 +801,54 @@ textarea:not([data-slot]):focus {
   color: var(--error-text);
   margin: 0;
   padding: 10px 32px;
+}
+
+.save-progress-indicator {
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  color: var(--fg-3);
+  display: inline-flex;
+  font-family: var(--font-plex-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  position: fixed;
+  right: calc(18px + env(safe-area-inset-right));
+  transition:
+    opacity 500ms var(--ease-out),
+    transform 500ms var(--ease-out);
+  z-index: 60;
+}
+
+.save-progress-indicator.fading {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.save-progress-dots::after {
+  animation: saving-dots 900ms steps(4, end) infinite;
+  content: "";
+  display: inline-block;
+  text-align: left;
+  width: 3ch;
+}
+
+@keyframes saving-dots {
+  0% {
+    content: "";
+  }
+
+  25% {
+    content: ".";
+  }
+
+  50% {
+    content: "..";
+  }
+
+  75%,
+  100% {
+    content: "...";
+  }
 }
 
 .external-change-alert {
@@ -1039,18 +1077,23 @@ textarea:not([data-slot]):focus {
   border-color: transparent;
 }
 
-.review-canvas {
+.editor-layout {
   align-items: start;
   display: flex;
   gap: 32px;
   justify-content: center;
-  padding: 28px 32px 104px;
+  padding: 14px 32px 104px;
+}
+
+.desktop-shell .editor-layout {
+  gap: 12px;
+  padding-top: 26px;
 }
 
 .paper-column {
   display: grid;
   gap: 16px;
-  flex: 0 1 760px;
+  flex: 0 1 847px;
   min-width: 0;
 }
 
@@ -1060,8 +1103,12 @@ textarea:not([data-slot]):focus {
   border-radius: 0;
   line-height: 1.6;
   min-height: calc(100vh - 150px);
-  padding: 64px 72px;
+  padding: 34px 72px 64px;
   width: 100%;
+}
+
+.desktop-shell .document-surface {
+  padding-top: 24px;
 }
 
 .document-surface h1,
@@ -1098,7 +1145,11 @@ textarea:not([data-slot]):focus {
 
 .live-preview-surface {
   cursor: text;
-  padding: 66px 74px;
+  padding: 34px 74px 66px;
+}
+
+.desktop-shell .live-preview-surface {
+  padding-top: 24px;
 }
 
 .live-preview-editor {
@@ -2064,9 +2115,7 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 }
 
 .inline-composer,
-.thread-card,
-.empty-thread,
-.review-summary {
+.thread-card {
   background: transparent;
   border: 0;
   border-top: 1px solid var(--rule);
@@ -2262,53 +2311,6 @@ blockquote {
   }
 }
 
-.review-summary {
-  display: grid;
-  gap: 2px;
-  padding: 12px 0 0;
-  position: absolute;
-  top: 0;
-  width: 100%;
-  z-index: 2;
-}
-
-.review-summary span {
-  color: var(--fg-3);
-  font-family: var(--font-plex-mono);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.08em;
-  text-transform: capitalize;
-}
-
-.review-summary strong {
-  color: var(--fg);
-  font-size: 14px;
-  font-weight: 400;
-}
-
-.empty-thread {
-  color: var(--text-muted);
-  padding: 16px 0 0;
-  position: absolute;
-  top: 72px;
-  width: 100%;
-}
-
-.empty-thread strong {
-  color: var(--fg);
-  display: block;
-  font-size: 14px;
-  font-weight: 400;
-  margin-bottom: 6px;
-}
-
-.empty-thread p {
-  font-size: 13px;
-  line-height: 1.45;
-  margin: 0;
-}
-
 .thread-card {
   cursor: pointer;
   display: grid;
@@ -2484,12 +2486,6 @@ blockquote {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
-}
-
-.review-summary {
-  border-top-color: color-mix(in srgb, var(--rule) 56%, transparent);
-  opacity: 0.74;
-  padding-top: 10px;
 }
 
 .connector-layer path {
@@ -2725,7 +2721,7 @@ blockquote {
     width: 24px;
   }
 
-  .review-canvas {
+  .editor-layout {
     display: grid;
     gap: 22px;
     grid-template-columns: minmax(0, 1fr);
@@ -2749,20 +2745,10 @@ blockquote {
     display: none;
   }
 
-  .review-summary,
-  .empty-thread,
   .inline-composer,
   .thread-card {
     position: static;
     width: 100%;
-  }
-
-  .review-summary {
-    order: -2;
-  }
-
-  .empty-thread {
-    order: -1;
   }
 
   .inline-composer {
@@ -2811,6 +2797,7 @@ blockquote {
 
   .doc-toolbar {
     align-items: center;
+    display: flex;
     gap: 10px;
     min-height: 38px;
     overflow: hidden;
@@ -2818,35 +2805,12 @@ blockquote {
     position: static;
   }
 
-  .doc-toolbar > span {
-    font-size: 10px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .save-progress-indicator {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    right: calc(12px + env(safe-area-inset-right));
   }
 
-  .doc-toolbar > span + span::before {
-    content: none;
-    margin: 0;
-  }
-
-  .doc-toolbar > span:nth-of-type(1),
-  .doc-toolbar > span:nth-of-type(2),
-  .doc-toolbar > span:nth-of-type(5) {
-    display: none;
-  }
-
-  .doc-toolbar > span.dirty-status {
-    flex: 1 1 auto;
-  }
-
-  .doc-toolbar > span:nth-of-type(4),
-  .doc-toolbar > span:nth-of-type(6) {
-    flex: 0 0 auto;
-  }
-
-  .review-canvas {
+  .editor-layout {
     padding: 0 22px calc(48px + env(safe-area-inset-bottom));
   }
 
