@@ -43,6 +43,7 @@
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
+	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import SaveIcon from '@lucide/svelte/icons/save';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -76,6 +77,8 @@
 	let selectedCommentAnchor: CommentSelectionAnchor | null = null;
 	let selectionCommentAnchor: CommentSelectionAnchor | null = null;
 	let commentBody = '';
+	let editingCommentId = '';
+	let editingCommentBody = '';
 	let editMode: EditingMode = 'edit';
 	let appSettings: AppSettings = { theme: 'auto', localUserName: defaultLocalUserName() };
 	let settingsDraftTheme: ThemeSetting = 'auto';
@@ -93,6 +96,7 @@
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
 	let commentTextarea: HTMLElement | null = null;
+	let editingCommentTextarea: HTMLElement | null = null;
 	let commentComposerAttention = false;
 	let mainEditor: EditorView | null = null;
 	let selectedLineTop = 0;
@@ -1481,6 +1485,7 @@
 		selectedCommentAnchor = null;
 		selectionCommentAnchor = null;
 		commentBody = '';
+		clearCommentEdit();
 		clearCommentComposerAttention();
 		syncedEditKeys.clear();
 
@@ -4254,6 +4259,72 @@
 		mainEditor?.dispatch({ selection: { anchor: mainEditor.state.selection.main.head } });
 	}
 
+	function startEditingComment(thread: ThreadView) {
+		if (thread.kind !== 'comment') return;
+
+		clearSelection();
+		activeThreadId = thread.id;
+		editingCommentId = thread.id;
+		editingCommentBody = thread.body;
+		focusCommentEditTextarea();
+	}
+
+	function focusCommentEditTextarea() {
+		void tick().then(() => {
+			if (!editingCommentTextarea) return;
+
+			editingCommentTextarea.removeEventListener('keydown', handleCommentEditKeydown);
+			editingCommentTextarea.addEventListener('keydown', handleCommentEditKeydown);
+			editingCommentTextarea.removeEventListener('click', stopCommentEditEvent);
+			editingCommentTextarea.addEventListener('click', stopCommentEditEvent);
+			editingCommentTextarea.removeEventListener('mousedown', stopCommentEditEvent);
+			editingCommentTextarea.addEventListener('mousedown', stopCommentEditEvent);
+			editingCommentTextarea.focus();
+
+			if (editingCommentTextarea instanceof HTMLTextAreaElement) {
+				const cursor = editingCommentTextarea.value.length;
+
+				editingCommentTextarea.setSelectionRange(cursor, cursor);
+			}
+		});
+	}
+
+	function stopCommentEditEvent(event: Event) {
+		event.stopPropagation();
+	}
+
+	function handleCommentEditKeydown(event: KeyboardEvent) {
+		if (event.target !== editingCommentTextarea) return;
+
+		event.stopPropagation();
+
+		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault();
+			void saveEditedComment(editingCommentId);
+
+			return;
+		}
+
+		if (event.key !== 'Escape') return;
+
+		event.preventDefault();
+		cancelCommentEdit();
+	}
+
+	function cancelCommentEdit() {
+		clearCommentEdit();
+		requestAnimationFrame(updateAnchorPositions);
+	}
+
+	function clearCommentEdit() {
+		editingCommentTextarea?.removeEventListener('keydown', handleCommentEditKeydown);
+		editingCommentTextarea?.removeEventListener('click', stopCommentEditEvent);
+		editingCommentTextarea?.removeEventListener('mousedown', stopCommentEditEvent);
+		editingCommentTextarea = null;
+		editingCommentId = '';
+		editingCommentBody = '';
+	}
+
 	function settleEditorSelection() {
 		clearSelection();
 		mainEditor?.contentDOM.blur();
@@ -6011,6 +6082,33 @@
 		settleEditorSelection();
 	}
 
+	async function saveEditedComment(commentId: string) {
+		const nextBody = editingCommentBody;
+
+		if (!annotations || !commentId || !nextBody.trim()) return;
+
+		const existingComment = annotations.comments.find((comment) => comment.id === commentId);
+
+		if (!existingComment) {
+			clearCommentEdit();
+			return;
+		}
+
+		if (existingComment.body !== nextBody) {
+			annotations = {
+				...annotations,
+				comments: annotations.comments.map((comment) => comment.id === commentId ? { ...comment, body: nextBody } : comment)
+			};
+
+			markLocalDocumentDirty('Unsaved annotations');
+		}
+
+		activeThreadId = commentId;
+		clearCommentEdit();
+		await tick();
+		updateAnchorPositions();
+	}
+
 	async function acceptSuggestion(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'suggestion') return;
 
@@ -6166,6 +6264,8 @@
 
 	async function resolveComment(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'comment') return;
+
+		if (editingCommentId === thread.id) clearCommentEdit();
 
 		annotations = {
 			...annotations,
@@ -6540,74 +6640,144 @@
 							class:rejected={item.thread.status === 'rejected'}
 							class:resolved={item.thread.status === 'resolved'}
 							class:focused={activeThreadId === item.thread.id}
+							class:editing-comment={item.thread.kind === 'comment' && editingCommentId === item.thread.id}
 							role="button"
-							aria-label={`Go to ${item.thread.kind}`}
-							tabindex="0"
+							aria-label={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? 'Edit comment' : `Go to ${item.thread.kind}`}
+							tabindex={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? -1 : 0}
 							style={`top: ${item.top}px;`}
-							on:click={() => goToThread(item.thread)}
-							on:keydown={(event) => event.key === 'Enter' && goToThread(item.thread)}
+							on:click={() => {
+								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
+
+								goToThread(item.thread);
+							}}
+							on:keydown={(event) => {
+								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
+								if (event.key === 'Enter') goToThread(item.thread);
+							}}
 							on:mouseenter={() => activeThreadId = item.thread.id}
 							on:mouseleave={() => activeThreadId = ''}
 							use:measureHeight={item.id}
 						>
-							<div class="thread-header">
-								<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
-
-								<div>
-									<strong>{item.thread.author}</strong>
-								</div>
-
-								{#if item.thread.kind === 'suggestion'}
-									<Badge
-										variant="outline"
-										class="status-pill"
-									>{suggestionStatusLabel(item.thread)}</Badge>
-								{:else}
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										class="thread-resolve-button"
-										aria-label="Resolve comment"
-										title="Resolve comment"
-										onclick={(event) => {
-											event.stopPropagation();
-											resolveComment(item.thread);
-										}}
-									>
-										<CheckIcon aria-hidden="true" />
-									</Button>
-								{/if}
-							</div>
-
-							{#if item.thread.kind === 'suggestion'}
-								<div
-									class="suggestion-diff"
-									aria-label="Suggested change"
+							{#if item.thread.kind === 'comment' && editingCommentId === item.thread.id}
+								<section
+									class="inline-composer comment-edit-form"
+									aria-label="Edit comment"
 								>
-									{#if diffQuote(item.thread)}
-										<div class="diff-group removed">
-											<span class="diff-label">Remove</span>
+									<div class="composer-author">
+										<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
+										<strong>{item.thread.author}</strong>
+									</div>
 
-											{#each diffLines(diffQuote(item.thread)) as line}
-												<pre><span>-</span><code>{line}</code></pre>
-											{/each}
+										<Textarea
+											bind:ref={editingCommentTextarea}
+											bind:value={editingCommentBody}
+											aria-label="Edit comment"
+											autocapitalize="sentences"
+											autocomplete="off"
+											autocorrect="off"
+											placeholder="Edit comment"
+											spellcheck={true}
+										/>
+
+										<div class="composer-actions">
+											<Button
+												variant="outline"
+												size="sm"
+												class="ghost-button"
+												onclick={(event) => {
+													event.stopPropagation();
+													cancelCommentEdit();
+												}}
+											>Cancel</Button>
+
+											<Button
+												size="sm"
+												class="primary"
+												aria-label="Save comment"
+												disabled={!editingCommentBody.trim() || editingCommentBody === item.thread.body}
+												onclick={(event) => {
+													event.stopPropagation();
+													saveEditedComment(item.thread.id);
+												}}
+											>Save</Button>
 										</div>
-									{/if}
+									</section>
+								{:else}
+									<div class="thread-header">
+										<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
 
-									{#if diffBody(item.thread)}
-										<div class="diff-group added">
-											<span class="diff-label">Add</span>
-
-											{#each diffLines(diffBody(item.thread)) as line}
-												<pre><span>+</span><code>{line}</code></pre>
-											{/each}
+										<div>
+											<strong>{item.thread.author}</strong>
 										</div>
+
+										{#if item.thread.kind === 'suggestion'}
+											<Badge
+												variant="outline"
+												class="status-pill"
+											>{suggestionStatusLabel(item.thread)}</Badge>
+										{:else}
+											<div class="thread-header-actions">
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													class="thread-icon-button thread-edit-button"
+													aria-label="Edit comment"
+													title="Edit comment"
+													onclick={(event) => {
+														event.stopPropagation();
+														startEditingComment(item.thread);
+													}}
+												>
+													<PencilIcon aria-hidden="true" />
+												</Button>
+
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													class="thread-icon-button thread-resolve-button"
+													aria-label="Resolve comment"
+													title="Resolve comment"
+													onclick={(event) => {
+														event.stopPropagation();
+														resolveComment(item.thread);
+													}}
+												>
+													<CheckIcon aria-hidden="true" />
+												</Button>
+											</div>
+										{/if}
+									</div>
+
+									{#if item.thread.kind === 'suggestion'}
+										<div
+											class="suggestion-diff"
+											aria-label="Suggested change"
+										>
+											{#if diffQuote(item.thread)}
+												<div class="diff-group removed">
+													<span class="diff-label">Remove</span>
+
+													{#each diffLines(diffQuote(item.thread)) as line}
+														<pre><span>-</span><code>{line}</code></pre>
+													{/each}
+												</div>
+											{/if}
+
+											{#if diffBody(item.thread)}
+												<div class="diff-group added">
+													<span class="diff-label">Add</span>
+
+													{#each diffLines(diffBody(item.thread)) as line}
+														<pre><span>+</span><code>{line}</code></pre>
+													{/each}
+												</div>
+											{/if}
+										</div>
+									{:else}
+										<blockquote>{item.thread.quote}</blockquote>
+										<p>{item.thread.body}</p>
 									{/if}
-								</div>
-							{:else}
-								<blockquote>{item.thread.quote}</blockquote>
-								<p>{item.thread.body}</p>
-							{/if}
+								{/if}
 
 							{#if item.thread.kind === 'suggestion'}
 								<div class="thread-actions">
