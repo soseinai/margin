@@ -73,6 +73,23 @@
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
 	import { authorInitials, avatarStyle, defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
+	import {
+		compactLocalPath,
+		directoryPath,
+		escapeMarkdownImageAlt,
+		fileNameFromPath,
+		imageAltText,
+		isAbsoluteLocalPath,
+		isImagePathLike,
+		isImageSourceLike,
+		isMarkdownPathLike,
+		joinLocalPath,
+		markdownImageDestination,
+		markdownImageReference,
+		normalizePathSeparators,
+		normalizeRecentDocuments,
+		type RecentDocument
+	} from './lib/local-documents';
 	import { orderedListMarkersForLines } from './lib/markdown-lists';
 
 	import {
@@ -190,7 +207,6 @@
 	const gutterReservedTop = 86;
 	const recentDocumentsStorageKey = 'margin:recent-documents:v1';
 	const settingsStorageKey = 'margin:settings:v1';
-	const maxRecentDocuments = 10;
 	const localAutosaveDelayMs = 900;
 	const saveProgressMinVisibleMs = 1000;
 	const saveProgressFadeMs = 500;
@@ -314,7 +330,6 @@
 	 };
 
 	type NativeMarkdownDocument = { path: string; name: string; markdown: string };
-	type RecentDocument = { path: string; title: string; openedAt: number };
 	type ExternalDocumentChange = NativeMarkdownDocument & { detectedAt: number };
 	type NativeMarkdownDocumentChange = { path: string };
 
@@ -1412,7 +1427,15 @@
 		: [];
 
 	$: threads = [...persistedThreads, ...pendingEditThreads].sort((a, b) => a.line - b.line);
-	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
+	$: visibleDocumentTabs = (
+		editorMarkdown,
+		baseMarkdown,
+		pendingEditThreads,
+		localMetadataDirty,
+		saveState,
+		externalChange,
+		documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab)
+	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
 	$: titlebarEyebrowPlaceholder = localFileMode
@@ -5390,7 +5413,7 @@
 		const position = editorPositionFromCoordinates(view, coordinates);
 		const doc = view.state.doc.toString();
 		const markdown = images
-			.map((image) => markdownImageReference(image.source, image.alt))
+			.map((image) => markdownImageReference(image.source, image.alt, nativeFilePath))
 			.join('\n\n');
 		const prefix = insertionPrefix(doc, position);
 		const suffix = insertionSuffix(doc, position);
@@ -5459,51 +5482,6 @@
 
 	function clearEditorDropCursor(view: EditorView | null = mainEditor) {
 		view?.dispatch({ effects: setMarginDropCursorEffect.of(null) });
-	}
-
-	function markdownImageReference(source: string, alt: string) {
-		const destination = isAbsoluteLocalPath(source)
-			? markdownImageDestinationForPath(source)
-			: source;
-
-		return `![${escapeMarkdownImageAlt(alt)}](${markdownImageDestination(destination)})`;
-	}
-
-	function markdownImageDestinationForPath(path: string) {
-		const normalized = normalizePathSeparators(path);
-		const documentDirectory = nativeFilePath ? directoryPath(nativeFilePath) : '';
-		const relative = documentDirectory ? relativeLocalPath(documentDirectory, normalized) : '';
-
-		return relative || normalized;
-	}
-
-	function markdownImageDestination(destination: string) {
-		const value = destination.trim();
-
-		if (/[\s()<>]/.test(value)) {
-			return `<${value.replace(/</g, '%3C').replace(/>/g, '%3E')}>`;
-		}
-
-		return value;
-	}
-
-	function escapeMarkdownImageAlt(value: string) {
-		return value.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
-	}
-
-	function imageAltText(source: string) {
-		const name = fileNameFromPath(source.split(/[?#]/)[0] || source);
-		const withoutExtension = name.replace(/\.[^.]+$/, '');
-
-		return decodePathComponent(withoutExtension).replace(/[-_]+/g, ' ').trim() || 'Image';
-	}
-
-	function isImageSourceLike(source: string) {
-		return (/^(?:blob:|data:image\/)/i).test(source) || isImagePathLike(source) || source.startsWith('file://');
-	}
-
-	function isImagePathLike(path: string) {
-		return (/\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)(?:[?#].*)?$/i).test(path);
 	}
 
 	function tauriInvoke<T>(command: string, args?: Record<string, unknown>) {
@@ -5858,36 +5836,6 @@
 		}
 	}
 
-	function normalizeRecentDocuments(documents: unknown) {
-		if (!Array.isArray(documents)) return [];
-
-		const seenPaths = new Set<string>();
-		const normalized: RecentDocument[] = [];
-
-		for (const entry of documents) {
-			if (!entry || typeof entry !== 'object') continue;
-
-			const document = entry as Partial<RecentDocument>;
-			const path = typeof document.path === 'string' ? document.path.trim() : '';
-
-			if (!path || seenPaths.has(path)) continue;
-
-			const title = typeof document.title === 'string' && document.title.trim()
-				? document.title.trim()
-				: fileNameFromPath(path);
-			const openedAt = typeof document.openedAt === 'number' && Number.isFinite(document.openedAt)
-				? document.openedAt
-				: 0;
-
-			seenPaths.add(path);
-			normalized.push({ path, title, openedAt });
-
-			if (normalized.length >= maxRecentDocuments) break;
-		}
-
-		return normalized;
-	}
-
 	function persistRecentDocuments(nextRecentDocuments: RecentDocument[]) {
 		recentDocuments = normalizeRecentDocuments(nextRecentDocuments);
 		writeBrowserRecentDocuments(recentDocuments);
@@ -6045,108 +5993,6 @@
 		if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
 		return { x, y };
-	}
-
-	function isMarkdownPathLike(path: string) {
-		return (/\.(md|markdown|txt)$/i).test(path);
-	}
-
-	function fileNameFromPath(path: string) {
-		return path.split(/[\\/]/).filter(Boolean).at(-1) || 'Untitled.md';
-	}
-
-	function normalizePathSeparators(path: string) {
-		return decodePathComponent(path).replace(/\\/g, '/');
-	}
-
-	function decodePathComponent(path: string) {
-		try {
-			return decodeURIComponent(path);
-		} catch {
-			return path;
-		}
-	}
-
-	function isAbsoluteLocalPath(path: string) {
-		const normalized = normalizePathSeparators(path);
-
-		return normalized.startsWith('/') || (/^[A-Za-z]:\//).test(normalized);
-	}
-
-	function directoryPath(path: string) {
-		const normalized = normalizePathSeparators(path);
-		const index = normalized.lastIndexOf('/');
-
-		if (index < 0) return '';
-		if (index === 0) return '/';
-
-		return normalized.slice(0, index);
-	}
-
-	function compactLocalPath(path: string) {
-		const normalized = normalizePathSeparators(path);
-
-		return normalized.replace(/^\/Users\/[^/]+(?=\/|$)/, '~') || 'Local file';
-	}
-
-	function joinLocalPath(base: string, path: string) {
-		const decodedPath = normalizePathSeparators(path);
-
-		if (isAbsoluteLocalPath(decodedPath)) return decodedPath;
-
-		const baseParts = splitLocalPath(base);
-		const parts = [...baseParts.parts];
-
-		for (const part of decodedPath.split('/')) {
-			if (!part || part === '.') continue;
-			if (part === '..') {
-				parts.pop();
-				continue;
-			}
-
-			parts.push(part);
-		}
-
-		return buildLocalPath(baseParts.root, parts);
-	}
-
-	function relativeLocalPath(fromDirectory: string, toPath: string) {
-		const from = splitLocalPath(fromDirectory);
-		const to = splitLocalPath(toPath);
-
-		if (from.root !== to.root) return '';
-
-		let shared = 0;
-
-		while (from.parts[shared] && from.parts[shared] === to.parts[shared]) {
-			shared += 1;
-		}
-
-		const up = from.parts.slice(shared).map(() => '..');
-		const down = to.parts.slice(shared);
-
-		return [...up, ...down].join('/');
-	}
-
-	function splitLocalPath(path: string) {
-		const normalized = normalizePathSeparators(path);
-		const drive = /^([A-Za-z]:)(?:\/|$)/.exec(normalized);
-		const root = drive ? `${drive[1]}/` : normalized.startsWith('/') ? '/' : '';
-		const rest = root
-			? normalized.slice(root.length)
-			: normalized;
-
-		return {
-			root,
-			parts: rest.split('/').filter(Boolean)
-		};
-	}
-
-	function buildLocalPath(root: string, parts: string[]) {
-		if (!root) return parts.join('/');
-		if (root === '/') return `/${parts.join('/')}`;
-
-		return `${root}${parts.join('/')}`;
 	}
 
 	function createNewDocument() {
