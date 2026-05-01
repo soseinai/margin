@@ -674,7 +674,18 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .doc-topbar {
-  display: none;
+  min-height: 80px;
+  padding: 48px 32px 4px;
+}
+
+.desktop-shell .doc-topbar .eyebrow {
+  margin: 0 0 4px;
+}
+
+.desktop-shell .brand-mark {
+  height: 28px;
+  opacity: 0.72;
+  width: 28px;
 }
 
 .brand-cluster,
