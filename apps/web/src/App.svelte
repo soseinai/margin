@@ -32,6 +32,7 @@
 	import {
 		Decoration,
 		EditorView,
+		ViewPlugin,
 		WidgetType,
 		keymap,
 		type DecorationSet,
@@ -152,6 +153,7 @@
 	let desktopShell = false;
 	let mobileShell = false;
 	let nativeMenuBridgeReady = false;
+	let nativeDragHasEditorImages = false;
 	let saveDialogOpen = false;
 	let documentTabs: DocumentTab[] = [];
 	let visibleDocumentTabs: DocumentTab[] = [];
@@ -1173,6 +1175,123 @@
 	const setActiveThreadEffect = StateEffect.define<string>();
 	const setCommentAnchorEffect = StateEffect.define<CommentSelectionAnchor | null>();
 	const refreshLivePreviewEffect = StateEffect.define<void>();
+	const setMarginDropCursorEffect = StateEffect.define<number | null>();
+
+	type DropCursorMeasurement = {
+		left: number;
+		top: number;
+		height: number;
+	};
+
+	const marginDropCursor = ViewPlugin.fromClass(
+		class {
+			cursor: HTMLDivElement | null = null;
+			dropPos: number | null = null;
+			view: EditorView;
+
+			measureRequest = {
+				read: () => this.readCursorPosition(),
+				write: (position: DropCursorMeasurement | null) => this.drawCursor(position)
+			};
+
+			constructor(view: EditorView) {
+				this.view = view;
+			}
+
+			update(update: ViewUpdate) {
+				for (const transaction of update.transactions) {
+					for (const effect of transaction.effects) {
+						if (effect.is(setMarginDropCursorEffect)) {
+							this.setDropPos(effect.value);
+
+							return;
+						}
+					}
+				}
+
+				if (this.dropPos != null && (update.docChanged || update.geometryChanged)) {
+					this.view.requestMeasure(this.measureRequest);
+				}
+			}
+
+			destroy() {
+				this.cursor?.remove();
+			}
+
+			setDropPos(position: number | null) {
+				if (this.dropPos === position) return;
+
+				this.dropPos = position;
+
+				if (position == null) {
+					this.cursor?.remove();
+					this.cursor = null;
+
+					return;
+				}
+
+				if (!this.cursor) {
+					this.cursor = this.view.scrollDOM.appendChild(document.createElement('div'));
+					this.cursor.className = 'cm-dropCursor margin-drop-cursor';
+				}
+
+				this.view.requestMeasure(this.measureRequest);
+			}
+
+			readCursorPosition(): DropCursorMeasurement | null {
+				if (this.dropPos == null) return null;
+
+				const cursorRect = this.view.coordsAtPos(this.dropPos);
+				if (!cursorRect) return null;
+
+				const scrollerRect = this.view.scrollDOM.getBoundingClientRect();
+
+				return {
+					left: cursorRect.left - scrollerRect.left + this.view.scrollDOM.scrollLeft * this.view.scaleX,
+					top: cursorRect.top - scrollerRect.top + this.view.scrollDOM.scrollTop * this.view.scaleY,
+					height: cursorRect.bottom - cursorRect.top
+				};
+			}
+
+			drawCursor(position: DropCursorMeasurement | null) {
+				if (!this.cursor) return;
+
+				if (!position) {
+					this.cursor.style.left = '-100000px';
+
+					return;
+				}
+
+				this.cursor.style.left = `${position.left / this.view.scaleX}px`;
+				this.cursor.style.top = `${position.top / this.view.scaleY}px`;
+				this.cursor.style.height = `${position.height / this.view.scaleY}px`;
+			}
+		},
+		{
+			eventObservers: {
+				dragover(event) {
+					this.setDropPos(this.view.posAtCoords({ x: event.clientX, y: event.clientY }, false));
+				},
+
+				dragleave(event) {
+					if (
+						event.target === this.view.contentDOM
+						|| !this.view.contentDOM.contains(event.relatedTarget as Node | null)
+					) {
+						this.setDropPos(null);
+					}
+				},
+
+				dragend() {
+					this.setDropPos(null);
+				},
+
+				drop() {
+					this.setDropPos(null);
+				}
+			}
+		}
+	);
 
 	const livePreviewField = StateField.define<LivePreviewState>({
 		create(state) {
@@ -1586,6 +1705,7 @@
 		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
 		const activeHeadingControlLines = activeHeadingControlLineNumbers(state, headingModel);
 		const activeListControlLines = activeListControlLineNumbers(state, listModel);
+		const selectionLineNumber = state.doc.lineAt(state.selection.main.head).number;
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const line = state.doc.line(lineNumber);
@@ -1617,6 +1737,21 @@
 			if (activeBlock) {
 				addActiveListBaseIndentHider(ranges, line, activeBlock);
 				if (activeBlock.kind !== 'list') addSourceIndentGuides(ranges, line, activeBlock);
+			}
+
+			if (
+				text.trim() === ''
+				&& line.number !== selectionLineNumber
+				&& (
+					blockImageLineAt(state, line.number - 1)
+					|| blockImageLineAt(state, line.number + 1)
+				)
+			) {
+				ranges.push(Decoration.line({
+					class: 'cm-live-image-adjacent-blank-line'
+				}).range(line.from));
+
+				continue;
 			}
 
 			if (frontmatterBlock?.frontmatter) {
@@ -1776,7 +1911,8 @@
 					}).range(line.from));
 				} else {
 					ranges.push(Decoration.replace({
-						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true)
+						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
+						block: true
 					}).range(line.from, line.to));
 				}
 
@@ -2488,6 +2624,12 @@
 		if (!match || match[0] !== trimmed) return null;
 
 		return markdownImageFromMatch(match);
+	}
+
+	function blockImageLineAt(state: EditorState, lineNumber: number) {
+		if (lineNumber < 1 || lineNumber > state.doc.lines) return false;
+
+		return Boolean(markdownImageOnly(state.doc.line(lineNumber).text));
 	}
 
 	function markdownImagePattern() {
@@ -3735,6 +3877,7 @@
 				EditorState.tabSize.of(4),
 				indentUnit.of('    '),
 				markdown({ codeLanguages: markdownCodeLanguage }),
+				marginDropCursor,
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
 				livePreviewField,
@@ -4781,7 +4924,7 @@
 		const prefix = insertionPrefix(doc, position);
 		const suffix = insertionSuffix(doc, position);
 		const insert = `${prefix}${markdown}${suffix}`;
-		const anchor = position + prefix.length + markdown.length;
+		const anchor = droppedImageRenderAnchor(position, doc.slice(position), insert, suffix);
 
 		selectedQuote = '';
 		selectionQuote = '';
@@ -4798,22 +4941,53 @@
 		view.focus();
 	}
 
+	function droppedImageRenderAnchor(
+		position: number,
+		existingAfterInsertion: string,
+		insert: string,
+		suffix: string
+	) {
+		const insertedEnd = position + insert.length;
+
+		if (suffix) return insertedEnd;
+		if (existingAfterInsertion.startsWith('\n')) return insertedEnd + 1;
+
+		return insertedEnd;
+	}
+
 	function editorPositionFromCoordinates(
 		view: EditorView,
-		coordinates: { x: number; y: number } | null
+		coordinates: { x: number; y: number } | null,
+		precise = true
 	) {
 		if (!coordinates) return view.state.selection.main.head;
 
-		const position = view.posAtCoords(coordinates);
+		const position = precise
+			? view.posAtCoords(coordinates)
+			: view.posAtCoords(coordinates, false);
 
 		if (position !== null) return position;
 
 		const scale = window.devicePixelRatio || 1;
 		const scaledPosition = scale === 1
 			? null
-			: view.posAtCoords({ x: coordinates.x / scale, y: coordinates.y / scale });
+			: precise
+				? view.posAtCoords({ x: coordinates.x / scale, y: coordinates.y / scale })
+				: view.posAtCoords({ x: coordinates.x / scale, y: coordinates.y / scale }, false);
 
 		return scaledPosition ?? view.state.selection.main.head;
+	}
+
+	function setEditorDropCursor(view: EditorView, coordinates: { x: number; y: number } | null) {
+		view.dispatch({
+			effects: setMarginDropCursorEffect.of(
+				coordinates ? editorPositionFromCoordinates(view, coordinates, false) : null
+			)
+		});
+	}
+
+	function clearEditorDropCursor(view: EditorView | null = mainEditor) {
+		view?.dispatch({ effects: setMarginDropCursorEffect.of(null) });
 	}
 
 	function markdownImageReference(source: string, alt: string) {
@@ -5284,19 +5458,38 @@
 	}
 
 	async function handleNativeDragDrop(payload: TauriDragDropPayload) {
-		if (payload.type === 'enter' || payload.type === 'over') {
+		if (payload.type === 'enter') {
 			dragActive = true;
+			nativeDragHasEditorImages = payload.paths.some(isImagePathLike);
+
+			if (nativeDragHasEditorImages && mainEditor) {
+				setEditorDropCursor(mainEditor, dragCoordinatesFromNativePosition(payload.position));
+			}
+
+			return;
+		}
+
+		if (payload.type === 'over') {
+			dragActive = true;
+
+			if (nativeDragHasEditorImages && mainEditor) {
+				setEditorDropCursor(mainEditor, dragCoordinatesFromNativePosition(payload.position));
+			}
 
 			return;
 		}
 
 		if (payload.type === 'leave') {
 			dragActive = false;
+			nativeDragHasEditorImages = false;
+			clearEditorDropCursor();
 
 			return;
 		}
 
 		dragActive = false;
+		nativeDragHasEditorImages = false;
+		clearEditorDropCursor();
 
 		const imagePaths = payload.paths.filter(isImagePathLike);
 		const markdownPaths = payload.paths.filter(isMarkdownPathLike);
