@@ -404,7 +404,7 @@ textarea:not([data-slot]):focus {
   gap: 0;
   height: 44px;
   left: 0;
-  padding: 10px 32px 6px 100px;
+  padding: 6px 32px 14px 100px;
   position: fixed;
   right: 0;
   top: 0;
