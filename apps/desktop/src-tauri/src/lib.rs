@@ -341,7 +341,7 @@ fn set_recent_documents_menu_entries(
     recent_menu: &Submenu<Wry>,
     entries: &[RecentDocumentEntry],
 ) -> Result<(), String> {
-    clear_submenu(&recent_menu)?;
+    clear_submenu(recent_menu)?;
 
     let nonce = recent_menu_nonce();
 
@@ -638,9 +638,7 @@ fn recent_menu_nonce() -> u128 {
 fn recent_document_menu_index(menu_id: &str) -> Option<usize> {
     let suffix = menu_id.strip_prefix(RECENT_MENU_ITEM_PREFIX)?;
 
-    let mut parts = suffix.rsplitn(2, '_');
-    let index = parts.next()?;
-    let nonce = parts.next()?;
+    let (nonce, index) = suffix.rsplit_once('_')?;
 
     if nonce.is_empty() || !nonce.chars().all(|character| character.is_ascii_digit()) {
         return None;

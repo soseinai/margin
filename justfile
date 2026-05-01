@@ -49,11 +49,19 @@ run: build-desktop
     open target/release/bundle/macos/Margin.app
 
 # Run all standard checks.
-check: check-rust check-web
+check: format-rust-check check-rust lint-rust check-web
+
+# Check Rust formatting.
+format-rust-check:
+    cargo fmt --all -- --check
 
 # Typecheck/compile the Rust desktop workspace.
 check-rust:
     cargo check --workspace
+
+# Lint the Rust desktop workspace.
+lint-rust:
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Typecheck the Svelte app.
 check-web:
