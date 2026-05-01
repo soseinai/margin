@@ -404,7 +404,7 @@ textarea:not([data-slot]):focus {
   gap: 0;
   height: 44px;
   left: 0;
-  padding: 10px 32px 6px 88px;
+  padding: 10px 32px 6px 100px;
   position: fixed;
   right: 0;
   top: 0;
@@ -425,6 +425,7 @@ textarea:not([data-slot]):focus {
   max-width: 240px;
   min-width: 0;
   opacity: 0.82;
+  padding-left: 18px;
   position: relative;
   transition:
     background var(--dur-base) var(--ease-out),
@@ -433,19 +434,19 @@ textarea:not([data-slot]):focus {
 }
 
 .document-tab-shell.active {
-  background: color-mix(in srgb, var(--paper-sunk) 18%, transparent);
+  background: color-mix(in srgb, var(--paper-sunk) 58%, transparent);
   color: var(--fg);
   opacity: 1;
 }
 
 .document-tab-shell.active::after {
-  background: color-mix(in srgb, var(--ink) 42%, transparent);
-  bottom: -4px;
+  background: color-mix(in srgb, var(--ink) 58%, transparent);
+  bottom: 0;
   content: "";
   height: 1px;
-  left: 6px;
+  left: 0;
   position: absolute;
-  right: 6px;
+  right: 0;
 }
 
 .document-tab-shell:not(.active) {
@@ -457,13 +458,22 @@ textarea:not([data-slot]):focus {
   border-left: 1px solid color-mix(in srgb, var(--fg-4) 22%, transparent);
   border-radius: 0;
   margin-left: 6px;
-  padding-left: 12px;
+  padding-left: 18px;
+}
+
+.document-tab-shell.active + .document-tab-shell {
+  margin-left: 0;
+  padding-left: 18px;
 }
 
 .document-tab-shell:hover {
   background: color-mix(in srgb, var(--paper-sunk) 24%, transparent);
   color: var(--fg);
   opacity: 1;
+}
+
+.document-tab-shell.active:hover {
+  background: color-mix(in srgb, var(--paper-sunk) 58%, transparent);
 }
 
 .document-tab {
@@ -481,7 +491,7 @@ textarea:not([data-slot]):focus {
   justify-content: flex-start;
   min-height: 0;
   min-width: 0;
-  padding: 0 6px;
+  padding: 0 6px 0 0;
   text-align: left;
 }
 
