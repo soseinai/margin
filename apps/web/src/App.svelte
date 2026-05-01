@@ -1156,6 +1156,7 @@
 	$: visibleDocumentTabs = documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
+	$: titlebarEyebrowLabel = documentLocationLabel || (!nativeFilePath && !localFileHandle && saveState !== 'saved' ? 'Unsaved draft' : '');
 	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
@@ -5949,10 +5950,10 @@
 			<div class="brand-title" data-tauri-drag-region>
 				<p
 					class="eyebrow"
-					class:eyebrow-placeholder={!documentLocationLabel}
-					aria-hidden={documentLocationLabel ? undefined : 'true'}
+					class:eyebrow-placeholder={!titlebarEyebrowLabel}
+					aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
 				>
-					{documentLocationLabel}
+					{titlebarEyebrowLabel}
 				</p>
 				<h1>{documentTitleLabel}</h1>
 			</div>
