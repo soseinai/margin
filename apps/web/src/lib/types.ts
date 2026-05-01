@@ -1,8 +1,6 @@
-export type DocumentResponse = {
+export type LocalDocument = {
   id: string;
-  repo: string;
-  file_path: string;
-  source_commit: string;
+  fileName: string;
   markdown: string;
 };
 
@@ -36,12 +34,10 @@ export type MarginSuggestion = {
   created_at: string;
 };
 
-export type Review = {
+export type LocalAnnotations = {
   id: string;
-  repo: string;
-  file_path: string;
-  source_commit: string;
-  reviewer: string;
+  fileName: string;
+  author: string;
   comments: MarginComment[];
   suggestions: MarginSuggestion[];
   created_at: string;

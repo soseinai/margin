@@ -69,7 +69,7 @@ export function draftMarkdownSuggestions(
   const suggestions: DraftSuggestion[] = [];
   const seenKeys = new Set<string>();
   const syncedKeys = options.syncedKeys ?? new Set<string>();
-  const author = options.author ?? 'Reviewer';
+  const author = options.author ?? 'Me';
 
   changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
     const hunk = hunkFromTransactionRange(
