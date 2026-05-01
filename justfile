@@ -105,7 +105,7 @@ build-web: setup
     npm run build:web
 
 # Build the Tauri desktop app.
-build-desktop: icons
+build-desktop: setup icons
     npm run build:desktop
 
 # Package the desktop app as an unsigned macOS .app bundle.

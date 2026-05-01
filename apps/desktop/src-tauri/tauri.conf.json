@@ -88,6 +88,12 @@
           "margin"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3NTk2MUZGN0I5NzA0QzkKUldUSkJKZDcvMkZabHcrNXlvcEJFeFUxOHZ3TTI0ZnBsbDQxUzJ0cDFNNEs0SHV5QzVZMHpBTzYK",
+      "endpoints": [
+        "https://github.com/soseinai/margin/releases/latest/download/latest.json"
+      ]
     }
   }
 }
