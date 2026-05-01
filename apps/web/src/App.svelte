@@ -86,6 +86,7 @@
 	let error = '';
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
+	let commentTextarea: HTMLElement | null = null;
 	let mainEditor: EditorView | null = null;
 	let selectedLineTop = 0;
 	let selectionLineTop = 0;
@@ -3749,8 +3750,40 @@
 		commentBody = '';
 
 		requestAnimationFrame(updateAnchorPositions);
+		focusCommentTextarea();
 
 		return true;
+	}
+
+	function focusCommentTextarea() {
+		void tick().then(() => {
+			if (!commentTextarea) return;
+
+			// Keep composer shortcuts on the real textarea: section-level keyboard handlers trigger
+			// Svelte a11y warnings, and relying on Textarea event forwarding proved unreliable.
+			// Remove before adding so repeated composer opens keep exactly one listener attached.
+			commentTextarea.removeEventListener('keydown', handleCommentComposerKeydown);
+			commentTextarea.addEventListener('keydown', handleCommentComposerKeydown);
+			commentTextarea.focus();
+		});
+	}
+
+	function handleCommentComposerKeydown(event: KeyboardEvent) {
+		if (event.target !== commentTextarea) return;
+
+		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault();
+			event.stopPropagation();
+			void submitComment();
+
+			return;
+		}
+
+		if (event.key !== 'Escape' || commentBody.length > 0) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		clearSelection();
 	}
 
 	function openCommentContextMenu(event: MouseEvent, view: EditorView) {
@@ -6305,12 +6338,14 @@
 							<path
 								class="connector-shadow"
 								class:connector-suggestion={item.connectorKind === 'suggestion'}
+								class:connector-composer={item.type === 'composer'}
 								class:connector-active={activeThreadId === item.id}
 								d={connectorPath(item.anchorTop, item.top)}
 							></path>
 
 							<path
 								class:connector-suggestion={item.connectorKind === 'suggestion'}
+								class:connector-composer={item.type === 'composer'}
 								class:connector-active={activeThreadId === item.id}
 								d={connectorPath(item.anchorTop, item.top)}
 							></path>
@@ -6318,6 +6353,7 @@
 							<circle
 								class="connector-source"
 								class:connector-suggestion={item.connectorKind === 'suggestion'}
+								class:connector-composer={item.type === 'composer'}
 								class:connector-active={activeThreadId === item.id}
 								cx="0"
 								cy={Math.max(12, item.anchorTop)}
@@ -6332,34 +6368,23 @@
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"
-							aria-label="New note"
+							aria-label="New comment"
 							style={`top: ${item.top}px;`}
 							use:measureHeight={item.id}
 						>
-							<div class="composer-header">
+							<div class="composer-author">
 								<div class="avatar">{authorInitials(localAuthor)}</div>
-
-								<div>
-									<strong>Add comment</strong>
-									<span>Anchored to selected text</span>
-								</div>
-
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									class="icon-button"
-									aria-label="Close composer"
-									onclick={clearSelection}
-								>
-									<XIcon aria-hidden="true" />
-								</Button>
+								<strong>{localAuthor}</strong>
 							</div>
 
-							<blockquote>{selectedQuote}</blockquote>
-
 							<Textarea
+								bind:ref={commentTextarea}
 								bind:value={commentBody}
-								placeholder="Comment on this selection"
+								autocapitalize="sentences"
+								autocomplete="off"
+								autocorrect="off"
+								placeholder="Add a comment"
+								spellcheck={true}
 							/>
 
 							<div class="composer-actions">
