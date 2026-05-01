@@ -1189,12 +1189,11 @@
 		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
 		desktopShell = desktopPreview || (tauriShell && !mobileShell);
 		loadAppSettings();
-		recentDocuments = readRecentDocuments();
-		syncRecentDocumentsMenu();
 
 		const nativeListenersReady = setupNativeDesktopListeners();
+		const recentDocumentsReady = initializeRecentDocuments();
 
-		bootstrapStandaloneDocument(nativeListenersReady);
+		bootstrapStandaloneDocument(nativeListenersReady, recentDocumentsReady);
 		window.addEventListener('resize', updateAnchorPositions);
 		window.addEventListener('keydown', handleGlobalShortcut);
 		window.addEventListener('beforeunload', handleBeforeUnload);
@@ -1231,8 +1230,12 @@
 		return (/iPhone|iPad|iPod/i).test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 	}
 
-	async function bootstrapStandaloneDocument(nativeListenersReady: Promise<void>) {
+	async function bootstrapStandaloneDocument(
+		nativeListenersReady: Promise<void>,
+		recentDocumentsReady: Promise<void>
+	) {
 		await nativeListenersReady;
+		await recentDocumentsReady;
 		await flushPendingNativeOpenUrls();
 
 		if (!documentData) createUntitledMarkdownDocument();
@@ -4561,32 +4564,87 @@
 		return (/^\/[A-Za-z]:\//).test(path) ? path.slice(1) : path;
 	}
 
-	function readRecentDocuments() {
+	async function initializeRecentDocuments() {
+		recentDocuments = await loadRecentDocuments();
+		await syncRecentDocumentsMenu();
+	}
+
+	async function loadRecentDocuments() {
+		const browserRecentDocuments = readBrowserRecentDocuments();
+
+		if (!desktopShell) return browserRecentDocuments;
+
+		const request = tauriInvoke<RecentDocument[]>('read_recent_documents');
+
+		if (!request) return browserRecentDocuments;
+
+		try {
+			const nativeRecentDocuments = normalizeRecentDocuments(await request);
+
+			return nativeRecentDocuments.length > 0 ? nativeRecentDocuments : browserRecentDocuments;
+		} catch(err) {
+			console.warn('Unable to load recent documents', err);
+
+			return browserRecentDocuments;
+		}
+	}
+
+	function readBrowserRecentDocuments() {
 		try {
 			const raw = window.localStorage.getItem(recentDocumentsStorageKey);
 
 			if (!raw) return [];
 
-			const parsed = JSON.parse(raw) as RecentDocument[];
+			const parsed = JSON.parse(raw);
 
-			if (!Array.isArray(parsed)) return [];
-
-			return parsed.filter((entry) => typeof entry?.path === 'string' && typeof entry?.title === 'string').slice(0, maxRecentDocuments);
+			return normalizeRecentDocuments(parsed);
 		} catch {
 			return [];
 		}
 	}
 
-	function persistRecentDocuments(nextRecentDocuments: RecentDocument[]) {
-		recentDocuments = nextRecentDocuments.slice(0, maxRecentDocuments);
+	function normalizeRecentDocuments(documents: unknown) {
+		if (!Array.isArray(documents)) return [];
 
+		const seenPaths = new Set<string>();
+		const normalized: RecentDocument[] = [];
+
+		for (const entry of documents) {
+			if (!entry || typeof entry !== 'object') continue;
+
+			const document = entry as Partial<RecentDocument>;
+			const path = typeof document.path === 'string' ? document.path.trim() : '';
+
+			if (!path || seenPaths.has(path)) continue;
+
+			const title = typeof document.title === 'string' && document.title.trim()
+				? document.title.trim()
+				: fileNameFromPath(path);
+			const openedAt = typeof document.openedAt === 'number' && Number.isFinite(document.openedAt)
+				? document.openedAt
+				: 0;
+
+			seenPaths.add(path);
+			normalized.push({ path, title, openedAt });
+
+			if (normalized.length >= maxRecentDocuments) break;
+		}
+
+		return normalized;
+	}
+
+	function persistRecentDocuments(nextRecentDocuments: RecentDocument[]) {
+		recentDocuments = normalizeRecentDocuments(nextRecentDocuments);
+		writeBrowserRecentDocuments(recentDocuments);
+		void syncRecentDocumentsMenu();
+	}
+
+	function writeBrowserRecentDocuments(documents: RecentDocument[]) {
 		try {
-			window.localStorage.setItem(recentDocumentsStorageKey, JSON.stringify(recentDocuments));
+			window.localStorage.setItem(recentDocumentsStorageKey, JSON.stringify(documents));
 		} catch {
 			// Recent documents are a convenience; failures here should not block editing.
 		}
-
-		syncRecentDocumentsMenu();
 	}
 
 	function addRecentDocument(document: NativeMarkdownDocument) {
@@ -4611,14 +4669,19 @@
 	async function syncRecentDocumentsMenu() {
 		if (!desktopShell) return;
 
-		const request = tauriInvoke<void>('set_recent_documents_menu', {
-			entries: recentDocuments.map(({ path, title }) => ({ path, title }))
+		const request = tauriInvoke<RecentDocument[]>('write_recent_documents', {
+			entries: recentDocuments.map(({ path, title, openedAt }) => ({ path, title, openedAt }))
 		});
 
 		if (!request) return;
 
 		try {
-			await request;
+			const savedRecentDocuments = normalizeRecentDocuments(await request);
+
+			if (savedRecentDocuments.length > 0 || recentDocuments.length === 0) {
+				recentDocuments = savedRecentDocuments;
+				writeBrowserRecentDocuments(recentDocuments);
+			}
 		} catch(err) {
 			console.warn('Unable to update recent documents menu', err);
 		}

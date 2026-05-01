@@ -1,18 +1,21 @@
 #[cfg(not(target_os = "ios"))]
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
+use std::env;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(not(target_os = "ios"))]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
 #[cfg(not(target_os = "ios"))]
 use tauri::{Runtime, Url};
 
@@ -21,7 +24,9 @@ const RECENT_MENU_ID: &str = "file_open_recent";
 #[cfg(not(target_os = "ios"))]
 const RECENT_MENU_ITEM_PREFIX: &str = "file_recent_";
 #[cfg(not(target_os = "ios"))]
-const RECENT_MENU_LIMIT: usize = 10;
+const CLEAR_RECENT_MENU_ITEM_PREFIX: &str = "file_clear_recent_";
+const RECENT_DOCUMENT_LIMIT: usize = 10;
+const RECENT_DOCUMENTS_FILE_NAME: &str = "recent-documents.json";
 const SETTINGS_FILE_NAME: &str = "settings.toml";
 const DEFAULT_THEME: &str = "auto";
 
@@ -40,12 +45,13 @@ struct NativeMarkdownDocumentChange {
     path: String,
 }
 
-#[cfg(not(target_os = "ios"))]
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct RecentDocumentMenuEntry {
+struct RecentDocumentEntry {
     title: String,
     path: String,
+    #[serde(default)]
+    opened_at: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -72,6 +78,12 @@ struct NativeOpenState {
 #[derive(Default)]
 struct WatchedDocumentState {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+}
+
+#[cfg(not(target_os = "ios"))]
+#[derive(Default)]
+struct RecentDocumentsMenuState {
+    menu: Mutex<Option<Submenu<Wry>>>,
 }
 
 #[tauri::command]
@@ -268,16 +280,16 @@ fn save_markdown_document(
 }
 
 #[tauri::command]
-fn read_settings() -> Result<AppSettings, String> {
-    read_settings_file()
+fn read_settings(app: AppHandle) -> Result<AppSettings, String> {
+    read_settings_file(&app)
 }
 
 #[tauri::command]
-fn write_settings(settings: AppSettings) -> Result<AppSettings, String> {
+fn write_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
     let settings = AppSettings {
         theme: normalized_theme(&settings.theme).to_string(),
     };
-    let path = settings_path()?;
+    let path = settings_path(&app)?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -290,26 +302,53 @@ fn write_settings(settings: AppSettings) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+#[tauri::command]
+fn read_recent_documents(app: AppHandle) -> Result<Vec<RecentDocumentEntry>, String> {
+    read_recent_documents_file(&app)
+}
+
 #[cfg(not(target_os = "ios"))]
 #[tauri::command]
-fn set_recent_documents_menu(
+fn write_recent_documents(
     app: AppHandle,
-    entries: Vec<RecentDocumentMenuEntry>,
-) -> Result<(), String> {
-    let app_menu = app
-        .menu()
-        .ok_or_else(|| "Margin menu is not available".to_string())?;
-    let recent_menu = app_menu
-        .get(RECENT_MENU_ID)
-        .and_then(|item| item.as_submenu().cloned())
-        .ok_or_else(|| "Recent documents menu is not available".to_string())?;
+    menu_state: State<RecentDocumentsMenuState>,
+    entries: Vec<RecentDocumentEntry>,
+) -> Result<Vec<RecentDocumentEntry>, String> {
+    let entries = normalized_recent_documents(entries);
 
+    write_recent_documents_file(&app, &entries)?;
+    update_recent_documents_menu(&app, &menu_state, &entries)?;
+
+    Ok(entries)
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn write_recent_documents(
+    app: AppHandle,
+    entries: Vec<RecentDocumentEntry>,
+) -> Result<Vec<RecentDocumentEntry>, String> {
+    let entries = normalized_recent_documents(entries);
+
+    write_recent_documents_file(&app, &entries)?;
+
+    Ok(entries)
+}
+
+#[cfg(not(target_os = "ios"))]
+fn set_recent_documents_menu_entries(
+    app: &AppHandle,
+    recent_menu: &Submenu<Wry>,
+    entries: &[RecentDocumentEntry],
+) -> Result<(), String> {
     clear_submenu(&recent_menu)?;
+
+    let nonce = recent_menu_nonce();
 
     if entries.is_empty() {
         let empty = MenuItem::with_id(
-            &app,
-            "file_recent_empty",
+            app,
+            format!("file_recent_empty_{nonce}"),
             "No Recent Documents",
             false,
             None::<&str>,
@@ -319,11 +358,10 @@ fn set_recent_documents_menu(
         return Ok(());
     }
 
-    for (index, entry) in entries.iter().take(RECENT_MENU_LIMIT).enumerate() {
-        let _ = &entry.path;
+    for (index, entry) in entries.iter().take(RECENT_DOCUMENT_LIMIT).enumerate() {
         let item = MenuItem::with_id(
-            &app,
-            format!("{RECENT_MENU_ITEM_PREFIX}{index}"),
+            app,
+            format!("{RECENT_MENU_ITEM_PREFIX}{nonce}_{index}"),
             recent_menu_label(&entry.title),
             true,
             None::<&str>,
@@ -332,9 +370,15 @@ fn set_recent_documents_menu(
         recent_menu.append(&item).map_err(|err| err.to_string())?;
     }
 
-    let separator = PredefinedMenuItem::separator(&app).map_err(|err| err.to_string())?;
-    let clear = MenuItem::with_id(&app, "file_clear_recent", "Clear Menu", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
+    let separator = PredefinedMenuItem::separator(app).map_err(|err| err.to_string())?;
+    let clear = MenuItem::with_id(
+        app,
+        format!("{CLEAR_RECENT_MENU_ITEM_PREFIX}{nonce}"),
+        "Clear Menu",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
     recent_menu
         .append_items(&[&separator, &clear])
         .map_err(|err| err.to_string())?;
@@ -342,13 +386,20 @@ fn set_recent_documents_menu(
     Ok(())
 }
 
-#[cfg(target_os = "ios")]
-#[tauri::command]
-fn set_recent_documents_menu(
-    _app: AppHandle,
-    _entries: Vec<serde_json::Value>,
+#[cfg(not(target_os = "ios"))]
+fn update_recent_documents_menu(
+    app: &AppHandle,
+    menu_state: &State<RecentDocumentsMenuState>,
+    entries: &[RecentDocumentEntry],
 ) -> Result<(), String> {
-    Ok(())
+    let recent_menu = menu_state
+        .menu
+        .lock()
+        .expect("recent documents menu state poisoned")
+        .clone()
+        .ok_or_else(|| "Recent documents menu is not available".to_string())?;
+
+    set_recent_documents_menu_entries(app, &recent_menu, entries)
 }
 
 #[cfg(target_os = "ios")]
@@ -356,8 +407,8 @@ fn ios_file_picker_message() -> String {
     "Native document picking is not available in the iOS preview yet.".to_string()
 }
 
-fn read_settings_file() -> Result<AppSettings, String> {
-    let path = settings_path()?;
+fn read_settings_file(app: &AppHandle) -> Result<AppSettings, String> {
+    let path = settings_path(app)?;
     if !path.exists() {
         return Ok(AppSettings::default());
     }
@@ -367,11 +418,48 @@ fn read_settings_file() -> Result<AppSettings, String> {
     Ok(parse_settings_toml(&contents))
 }
 
-fn settings_path() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME")
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|err| format!("Unable to locate app config directory: {err}"))?
+        .join(SETTINGS_FILE_NAME))
+}
+
+fn recent_documents_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_state_dir(app)?.join(RECENT_DOCUMENTS_FILE_NAME))
+}
+
+fn app_state_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    {
+        return linux_app_state_dir(app);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        app.path()
+            .app_data_dir()
+            .map_err(|err| format!("Unable to locate app data directory: {err}"))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_app_state_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("XDG_STATE_HOME").map(PathBuf::from) {
+        if path.is_absolute() {
+            return Ok(path.join(&app.config().identifier));
+        }
+    }
+
+    env::var_os("HOME")
         .map(PathBuf::from)
-        .ok_or_else(|| "Unable to locate home directory for settings".to_string())?;
-    Ok(home.join(".config").join("margin").join(SETTINGS_FILE_NAME))
+        .map(|home| {
+            home.join(".local")
+                .join("state")
+                .join(&app.config().identifier)
+        })
+        .ok_or_else(|| "Unable to locate home directory for app state".to_string())
 }
 
 fn parse_settings_toml(contents: &str) -> AppSettings {
@@ -403,6 +491,69 @@ fn normalized_theme(theme: &str) -> &'static str {
         "dark" => "dark",
         _ => DEFAULT_THEME,
     }
+}
+
+fn read_recent_documents_file(app: &AppHandle) -> Result<Vec<RecentDocumentEntry>, String> {
+    let path = recent_documents_path(app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|err| format!("Unable to read {}: {err}", display_name(&path)))?;
+    let entries = serde_json::from_str::<Vec<RecentDocumentEntry>>(&contents)
+        .map_err(|err| format!("Unable to parse {}: {err}", display_name(&path)))?;
+
+    Ok(normalized_recent_documents(entries))
+}
+
+fn write_recent_documents_file(
+    app: &AppHandle,
+    entries: &[RecentDocumentEntry],
+) -> Result<(), String> {
+    let path = recent_documents_path(app)?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Unable to create app data directory: {err}"))?;
+    }
+
+    let contents = serde_json::to_string_pretty(entries)
+        .map_err(|err| format!("Unable to encode recent documents: {err}"))?;
+
+    fs::write(&path, contents)
+        .map_err(|err| format!("Unable to write {}: {err}", display_name(&path)))
+}
+
+fn normalized_recent_documents(entries: Vec<RecentDocumentEntry>) -> Vec<RecentDocumentEntry> {
+    let mut seen_paths = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for entry in entries {
+        let path = entry.path.trim();
+
+        if path.is_empty() || !seen_paths.insert(path.to_string()) {
+            continue;
+        }
+
+        let title = if entry.title.trim().is_empty() {
+            display_name(Path::new(path))
+        } else {
+            entry.title.trim().to_string()
+        };
+
+        normalized.push(RecentDocumentEntry {
+            title,
+            path: path.to_string(),
+            opened_at: entry.opened_at,
+        });
+
+        if normalized.len() >= RECENT_DOCUMENT_LIMIT {
+            break;
+        }
+    }
+
+    normalized
 }
 
 fn read_markdown_document_from_path(path: &Path) -> Result<NativeMarkdownDocument, String> {
@@ -473,6 +624,29 @@ fn recent_menu_label(title: &str) -> String {
     let mut label = title.chars().take(MAX_CHARS - 1).collect::<String>();
     label.push_str("...");
     label
+}
+
+#[cfg(not(target_os = "ios"))]
+fn recent_menu_nonce() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "ios"))]
+fn recent_document_menu_index(menu_id: &str) -> Option<usize> {
+    let suffix = menu_id.strip_prefix(RECENT_MENU_ITEM_PREFIX)?;
+
+    let mut parts = suffix.rsplitn(2, '_');
+    let index = parts.next()?;
+    let nonce = parts.next()?;
+
+    if nonce.is_empty() || !nonce.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+
+    index.parse().ok()
 }
 
 fn dispatch_native_open_urls(app: &AppHandle, urls: Vec<String>) {
@@ -582,7 +756,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init());
 
     #[cfg(not(target_os = "ios"))]
-    let builder = builder.manage(WatchedDocumentState::default());
+    let builder = builder
+        .manage(WatchedDocumentState::default())
+        .manage(RecentDocumentsMenuState::default());
 
     #[cfg(not(target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -771,6 +947,26 @@ pub fn run() {
             }
 
             app.set_menu(menu)?;
+
+            let app_handle = app.handle().clone();
+            let recent_menu_state = app.state::<RecentDocumentsMenuState>();
+
+            *recent_menu_state
+                .menu
+                .lock()
+                .expect("recent documents menu state poisoned") = Some(open_recent.clone());
+
+            match read_recent_documents_file(&app_handle) {
+                Ok(entries) if !entries.is_empty() => {
+                    if let Err(err) =
+                        set_recent_documents_menu_entries(&app_handle, &open_recent, &entries)
+                    {
+                        eprintln!("Unable to restore recent documents menu: {err}");
+                    }
+                }
+                Err(err) => eprintln!("Unable to read recent documents: {err}"),
+                _ => {}
+            }
         }
 
         #[cfg(target_os = "ios")]
@@ -790,13 +986,9 @@ pub fn run() {
             let _ = app.emit("margin://new-document", ());
         } else if menu_id.as_ref() == "file_open" {
             let _ = app.emit("margin://open-document", ());
-        } else if let Some(index) = menu_id
-            .as_ref()
-            .strip_prefix(RECENT_MENU_ITEM_PREFIX)
-            .and_then(|value| value.parse::<usize>().ok())
-        {
+        } else if let Some(index) = recent_document_menu_index(menu_id.as_ref()) {
             let _ = app.emit("margin://open-recent-document", index);
-        } else if menu_id.as_ref() == "file_clear_recent" {
+        } else if menu_id.as_ref().starts_with(CLEAR_RECENT_MENU_ITEM_PREFIX) {
             let _ = app.emit("margin://clear-recent-documents", ());
         } else if menu_id.as_ref() == "file_save" {
             let _ = app.emit("margin://save-document", ());
@@ -832,7 +1024,8 @@ pub fn run() {
             save_markdown_document,
             read_settings,
             write_settings,
-            set_recent_documents_menu
+            read_recent_documents,
+            write_recent_documents
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Margin desktop app")
