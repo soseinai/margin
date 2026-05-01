@@ -1322,9 +1322,24 @@ textarea:not([data-slot]):focus {
   padding: 0;
 }
 
+.live-preview-editor .margin-drop-cursor {
+  border-left: 2px solid var(--ink);
+  margin-left: -1px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+}
+
 .live-preview-editor .cm-line {
   font-family: var(--font-body);
   padding: 2px 0;
+}
+
+.live-preview-editor .cm-live-image-adjacent-blank-line {
+  height: 0;
+  line-height: 0;
+  overflow: hidden;
+  padding: 0;
 }
 
 .live-preview-editor .cm-gutters {
@@ -1723,7 +1738,8 @@ button.task-checkbox-widget.checked::after {
 .markdown-image-widget.block {
   display: grid;
   gap: 7px;
-  margin: 10px 0 24px;
+  margin: 0;
+  padding: 10px 0;
   width: fit-content;
 }
 
@@ -1783,6 +1799,16 @@ button.markdown-image-resize-handle {
     color var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out);
   width: 36px;
+}
+
+.markdown-image-widget.block button.markdown-image-resize-handle {
+  bottom: 10px;
+  right: 0;
+}
+
+.markdown-image-widget.block .markdown-image-resize-grip {
+  bottom: 0;
+  right: 0;
 }
 
 button.markdown-image-resize-handle:hover:not(:disabled),
@@ -1850,11 +1876,13 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
   cursor: text;
   font-family: var(--font-plex-mono);
   font-size: 12.5px;
+  height: max(84px, calc(var(--markdown-image-placeholder-height, 180px) + 20px));
   line-height: 1.45;
-  margin: 10px 0 24px;
-  min-height: max(84px, var(--markdown-image-placeholder-height, 180px));
+  margin: 0;
+  min-height: max(84px, calc(var(--markdown-image-placeholder-height, 180px) + 20px));
+  overflow: auto;
   overflow-wrap: anywhere;
-  padding: 12px;
+  padding: 10px 12px;
   white-space: normal;
   width: min(100%, max(280px, var(--markdown-image-placeholder-width, 100%)));
 }
