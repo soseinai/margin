@@ -82,6 +82,26 @@ describe('live preview edit/display metrics', () => {
     expect(hiddenRule).toContain('display: none');
   });
 
+  it('shows heading collapse controls on hover or while editing a heading section and hides folded section lines', () => {
+    const toggleRule = cssRule('button.markdown-heading-collapse-toggle');
+    const headingRule = cssRule('.live-preview-editor .cm-live-heading');
+    const secondLevelRule = cssRule('.live-preview-editor .cm-live-heading-2');
+    const collapsedChevronRule = cssRule('button.markdown-heading-collapse-toggle.is-collapsed svg');
+    const visibleRule = cssRule('.live-preview-editor .cm-live-heading-foldable:hover button.markdown-heading-collapse-toggle,\n.live-preview-editor .cm-live-heading-controls-visible button.markdown-heading-collapse-toggle,\nbutton.markdown-heading-collapse-toggle:focus-visible');
+    const hiddenRule = cssRule('.live-preview-editor .cm-collapsed-heading-hidden-line');
+
+    expect(headingRule).toContain('--heading-toggle-top: 0.62em');
+    expect(headingRule).toContain('position: relative');
+    expect(secondLevelRule).toContain('--heading-toggle-top: calc(30px + 0.62em)');
+    expect(toggleRule).toContain('opacity: 0');
+    expect(toggleRule).toContain('height: 24px');
+    expect(toggleRule).toContain('left: -30px');
+    expect(toggleRule).toContain('top: var(--heading-toggle-top)');
+    expect(collapsedChevronRule).toContain('transform: rotate(-90deg)');
+    expect(visibleRule).toContain('opacity: 1');
+    expect(hiddenRule).toContain('display: none');
+  });
+
   it('styles visible Markdown syntax without taking over line metrics', () => {
     const sourceSyntax = cssRule('.live-preview-editor .cm-markdown-source-syntax');
     const headingSyntax = cssRule('.live-preview-editor .cm-markdown-heading-syntax');

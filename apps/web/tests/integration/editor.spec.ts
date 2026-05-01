@@ -22,6 +22,12 @@ test('edits a new Markdown document in the browser editor', async ({ page }) => 
   await expect(editor).toContainText('Integration Brief');
   await expect(editor).toContainText('Draft paragraph from a browser integration test.');
 
+  await page.getByLabel('Collapse heading section').first().click();
+  await expect(page.locator('.cm-collapsed-heading-hidden-line')).toHaveCount(2);
+
+  await page.getByLabel('Expand heading section').first().click();
+  await expect(page.locator('.cm-collapsed-heading-hidden-line')).toHaveCount(0);
+
   const downloadPromise = page.waitForEvent('download');
   await page.getByLabel('Save document').click();
   const download = await downloadPromise;

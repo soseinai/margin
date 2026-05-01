@@ -1367,8 +1367,10 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-live-heading {
+  --heading-toggle-top: 0.62em;
   color: var(--fg);
   line-height: 1.24;
+  position: relative;
   text-decoration: none;
 }
 
@@ -1384,12 +1386,14 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-live-heading-2 {
+  --heading-toggle-top: calc(30px + 0.62em);
   font-size: 22px;
   font-weight: 400;
   padding: 30px 0 12px;
 }
 
 .live-preview-editor .cm-live-heading-3 {
+  --heading-toggle-top: calc(22px + 0.62em);
   font-size: 18px;
   font-weight: 400;
   padding: 22px 0 8px;
@@ -1398,9 +1402,69 @@ textarea:not([data-slot]):focus {
 .live-preview-editor .cm-live-heading-4,
 .live-preview-editor .cm-live-heading-5,
 .live-preview-editor .cm-live-heading-6 {
+  --heading-toggle-top: calc(16px + 0.62em);
   font-size: 16px;
   font-weight: 400;
   padding: 16px 0 6px;
+}
+
+button.markdown-heading-collapse-toggle {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  left: -30px;
+  min-height: 24px;
+  min-width: 24px;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: var(--heading-toggle-top);
+  transform: translateY(-50%);
+  transition: opacity 120ms ease, color 120ms ease;
+  width: 24px;
+}
+
+button.markdown-heading-collapse-toggle::before {
+  content: none;
+}
+
+button.markdown-heading-collapse-toggle svg {
+  display: block;
+  fill: none;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transform-origin: center;
+  transition: transform 120ms ease;
+  width: 16px;
+}
+
+button.markdown-heading-collapse-toggle.is-collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.live-preview-editor .cm-live-heading-foldable:hover button.markdown-heading-collapse-toggle,
+.live-preview-editor .cm-live-heading-controls-visible button.markdown-heading-collapse-toggle,
+button.markdown-heading-collapse-toggle:focus-visible {
+  opacity: 1;
+}
+
+button.markdown-heading-collapse-toggle:hover,
+button.markdown-heading-collapse-toggle:focus-visible {
+  background: transparent;
+  color: var(--text-strong);
+}
+
+.live-preview-editor .cm-collapsed-heading-hidden-line {
+  display: none;
 }
 
 .live-preview-editor .cm-live-list-line {
