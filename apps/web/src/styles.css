@@ -1069,7 +1069,7 @@ textarea:not([data-slot]):focus {
 .paper-column {
   display: grid;
   gap: 16px;
-  flex: 0 1 887px;
+  flex: 0 1 847px;
   min-width: 0;
 }
 
