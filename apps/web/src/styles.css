@@ -328,14 +328,15 @@ textarea:not([data-slot]):focus {
 }
 
 .primary {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  border-color: transparent;
+  color: var(--paper-raised);
 }
 
-.primary:hover:not(:disabled) {
-  background: var(--ink-pure);
-  border-color: var(--ink-pure);
+.primary:hover:not(:disabled),
+.primary:focus-visible {
+  background: color-mix(in srgb, var(--ink) 84%, transparent);
+  border-color: transparent;
 }
 
 .ghost-button {
@@ -1190,18 +1191,6 @@ textarea:not([data-slot]):focus {
   font-size: 12px;
   min-height: 28px;
   padding: 0 10px;
-}
-
-.settings-actions .primary {
-  background: color-mix(in srgb, var(--ink) 92%, transparent);
-  border-color: transparent;
-  color: var(--paper-raised);
-}
-
-.settings-actions .primary:hover:not(:disabled),
-.settings-actions .primary:focus-visible {
-  background: var(--ink);
-  border-color: transparent;
 }
 
 .editor-layout {
@@ -2380,17 +2369,6 @@ blockquote {
   height: 32px;
   min-height: 32px;
   padding-inline: 14px;
-}
-
-.composer-actions .primary {
-  background: color-mix(in srgb, var(--ink) 92%, transparent);
-  border-color: color-mix(in srgb, var(--ink) 92%, transparent);
-}
-
-.composer-actions .primary:hover:not(:disabled),
-.composer-actions .primary:focus-visible {
-  background: var(--ink);
-  border-color: var(--ink);
 }
 
 .margin-rail {
