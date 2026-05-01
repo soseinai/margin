@@ -674,8 +674,10 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .doc-topbar {
-  min-height: 80px;
-  padding: 48px 32px 4px;
+  height: 92px;
+  min-height: 92px;
+  overflow: hidden;
+  padding: 46px 32px 6px;
 }
 
 .desktop-shell .doc-topbar .eyebrow {
@@ -699,6 +701,10 @@ textarea:not([data-slot]):focus {
 
 .brand-cluster {
   gap: 11px;
+  min-width: 0;
+}
+
+.brand-title {
   min-width: 0;
 }
 
@@ -749,8 +755,21 @@ textarea:not([data-slot]):focus {
   font-family: var(--font-plex-mono);
   font-size: 11px;
   font-weight: 500;
+  height: 13px;
   letter-spacing: 0.04em;
+  line-height: 13px;
   margin: 0 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eyebrow-placeholder {
+  visibility: hidden;
+}
+
+.doc-app:not(.desktop-shell) .eyebrow-placeholder {
+  display: none;
 }
 
 .doc-topbar h1 {

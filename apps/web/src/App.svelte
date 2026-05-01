@@ -5946,10 +5946,14 @@
 		<div class="brand-cluster" data-tauri-drag-region>
 			<div class="brand-mark">M</div>
 
-			<div data-tauri-drag-region>
-				{#if documentLocationLabel}
-					<p class="eyebrow">{documentLocationLabel}</p>
-				{/if}
+			<div class="brand-title" data-tauri-drag-region>
+				<p
+					class="eyebrow"
+					class:eyebrow-placeholder={!documentLocationLabel}
+					aria-hidden={documentLocationLabel ? undefined : 'true'}
+				>
+					{documentLocationLabel}
+				</p>
 				<h1>{documentTitleLabel}</h1>
 			</div>
 		</div>
