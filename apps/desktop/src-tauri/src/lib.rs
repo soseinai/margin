@@ -18,6 +18,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 #[cfg(not(target_os = "ios"))]
 use tauri::{Runtime, Url};
+#[cfg(not(target_os = "ios"))]
+use tauri_plugin_updater::{Updater, UpdaterExt};
 
 #[cfg(not(target_os = "ios"))]
 const RECENT_MENU_ID: &str = "file_open_recent";
@@ -29,6 +31,11 @@ const RECENT_DOCUMENT_LIMIT: usize = 10;
 const RECENT_DOCUMENTS_FILE_NAME: &str = "recent-documents.json";
 const SETTINGS_FILE_NAME: &str = "settings.toml";
 const DEFAULT_THEME: &str = "auto";
+#[cfg(not(target_os = "ios"))]
+const UPDATER_ENDPOINT: &str =
+    "https://github.com/soseinai/margin/releases/latest/download/latest.json";
+#[cfg(not(target_os = "ios"))]
+const UPDATER_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3NTk2MUZGN0I5NzA0QzkKUldUSkJKZDcvMkZabHcrNXlvcEJFeFUxOHZ3TTI0ZnBsbDQxUzJ0cDFNNEs0SHV5QzVZMHpBTzYK";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +65,14 @@ struct RecentDocumentEntry {
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
     theme: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateMetadata {
+    current_version: String,
+    version: String,
+    notes: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -302,6 +317,53 @@ fn write_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, 
     Ok(settings)
 }
 
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+async fn check_for_app_update(app: AppHandle) -> Result<Option<AppUpdateMetadata>, String> {
+    let updater = app_updater(&app).map_err(|err| format!("Unable to check for updates: {err}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|err| format!("Unable to check for updates: {err}"))?;
+
+    Ok(update.map(|update| AppUpdateMetadata {
+        current_version: update.current_version,
+        version: update.version,
+        notes: update.body,
+    }))
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn check_for_app_update() -> Result<Option<AppUpdateMetadata>, String> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+async fn install_app_update(app: AppHandle) -> Result<(), String> {
+    let updater = app_updater(&app).map_err(|err| format!("Unable to install update: {err}"))?;
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|err| format!("Unable to install update: {err}"))?
+    else {
+        return Err("No update is available.".to_string());
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|err| format!("Unable to install update: {err}"))?;
+    app.restart();
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn install_app_update() -> Result<(), String> {
+    Err("App updates are not available on iOS.".to_string())
+}
+
 #[tauri::command]
 fn read_recent_documents(app: AppHandle) -> Result<Vec<RecentDocumentEntry>, String> {
     read_recent_documents_file(&app)
@@ -400,6 +462,14 @@ fn update_recent_documents_menu(
         .ok_or_else(|| "Recent documents menu is not available".to_string())?;
 
     set_recent_documents_menu_entries(app, &recent_menu, entries)
+}
+
+#[cfg(not(target_os = "ios"))]
+fn app_updater(app: &AppHandle) -> Result<Updater, tauri_plugin_updater::Error> {
+    app.updater_builder()
+        .pubkey(UPDATER_PUBLIC_KEY)
+        .endpoints(vec![UPDATER_ENDPOINT.parse()?])?
+        .build()
 }
 
 #[cfg(target_os = "ios")]
@@ -765,6 +835,13 @@ pub fn run() {
         dispatch_native_open_urls(app, launch_urls_from_args(args));
     }));
 
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder.plugin(
+        tauri_plugin_updater::Builder::new()
+            .pubkey(UPDATER_PUBLIC_KEY)
+            .build(),
+    );
+
     let builder = builder.setup(|app| {
         #[cfg(not(target_os = "ios"))]
         {
@@ -776,6 +853,13 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+,"),
             )?;
+            let check_updates_item = MenuItem::with_id(
+                app,
+                "app_check_updates",
+                "Check for Updates...",
+                true,
+                None::<&str>,
+            )?;
             let settings_separator = PredefinedMenuItem::separator(app)?;
             let mut settings_item_added = false;
 
@@ -785,7 +869,7 @@ pub fn run() {
                 .first()
                 .and_then(|item| item.as_submenu().cloned())
             {
-                app_menu.insert_items(&[&settings_item], 1)?;
+                app_menu.insert_items(&[&settings_item, &check_updates_item], 1)?;
                 settings_item_added = true;
             }
 
@@ -852,7 +936,10 @@ pub fn run() {
                 ])?;
 
                 if !settings_item_added {
-                    file_menu.insert_items(&[&settings_item, &settings_separator], 0)?;
+                    file_menu.insert_items(
+                        &[&settings_item, &check_updates_item, &settings_separator],
+                        0,
+                    )?;
                 }
             }
 
@@ -982,6 +1069,8 @@ pub fn run() {
         let menu_id = event.id();
         if menu_id.as_ref() == "app_settings" {
             let _ = app.emit("margin://open-settings", ());
+        } else if menu_id.as_ref() == "app_check_updates" {
+            let _ = app.emit("margin://check-for-updates", ());
         } else if menu_id.as_ref() == "file_new" {
             let _ = app.emit("margin://new-document", ());
         } else if menu_id.as_ref() == "file_open" {
@@ -1024,6 +1113,8 @@ pub fn run() {
             save_markdown_document,
             read_settings,
             write_settings,
+            check_for_app_update,
+            install_app_update,
             read_recent_documents,
             write_recent_documents
         ])

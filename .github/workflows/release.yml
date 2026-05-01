@@ -5,7 +5,8 @@ name: Release
 # certificate, the release DMG is ad-hoc signed and not notarized.
 #
 # 1. workflow_dispatch bumps version files, commits to main, and pushes vX.Y.Z.
-# 2. push tags ["v*"] builds the DMG and attaches it to a GitHub release.
+# 2. push tags ["v*"] builds the DMG, updater archive, and latest.json,
+#    then attaches them to a GitHub release.
 
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release v{0} · 1/2 (bump + tag)', inputs.version) || format('Release {0} · 2/2 (build DMG)', github.ref_name) }}
 
@@ -159,12 +160,28 @@ jobs:
       - name: Build DMG
         env:
           MARGIN_MACOS_SIGNING: adhoc
-        run: just package-mac-dmg
+          MARGIN_CREATE_UPDATER_ARTIFACTS: "true"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            echo "Missing TAURI_SIGNING_PRIVATE_KEY. Generate a Tauri updater key and add the private key as a repository secret."
+            exit 1
+          fi
+
+          just package-mac-dmg
+
+      - name: Create updater manifest
+        run: node scripts/write-tauri-updater-manifest.mjs
 
       - uses: actions/upload-artifact@v4
         with:
-          name: margin-dmg
-          path: target/release/bundle/dmg/Margin_*.dmg
+          name: margin-release-assets
+          path: |
+            target/release/bundle/dmg/Margin_*.dmg
+            target/release/bundle/updater/Margin_*.app.tar.gz
+            target/release/bundle/updater/Margin_*.app.tar.gz.sig
+            target/release/bundle/updater/latest.json
           if-no-files-found: error
 
   release:
@@ -182,7 +199,11 @@ jobs:
           generate_release_notes: true
           prerelease: true
           body: |
-            This release contains a macOS DMG for Margin.
+            This release contains a macOS DMG and Tauri updater metadata for Margin.
 
             The DMG is currently ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. macOS may require manual approval in Privacy & Security, or quarantine removal, before opening the app.
-          files: Margin_*.dmg
+          files: |
+            Margin_*.dmg
+            Margin_*.app.tar.gz
+            Margin_*.app.tar.gz.sig
+            latest.json

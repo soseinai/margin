@@ -60,7 +60,19 @@ Package a local unsigned macOS app bundle:
 just package-mac-app
 ```
 
-That produces `target/release/bundle/macos/Margin.app`. To create a shareable unsigned disk image instead, run `just package-mac-dmg`; it stages the app with an Applications symlink and creates `target/release/bundle/dmg/Margin_0.1.0_aarch64.dmg`. Signing and notarization are intentionally left for a release pipeline.
+That produces `target/release/bundle/macos/Margin.app`. To create a shareable unsigned disk image instead, run `just package-mac-dmg`; it stages the app with an Applications symlink and creates `target/release/bundle/dmg/Margin_<version>_<arch>.dmg`. Signing and notarization are intentionally left for a release pipeline.
+
+### Updates
+
+Margin uses Tauri's updater against GitHub Releases. The app checks `https://github.com/soseinai/margin/releases/latest/download/latest.json`, and the release workflow publishes that file with the signed `.app.tar.gz` updater archive.
+
+Updater releases require a one-time Tauri signing key. Generate it with:
+
+```sh
+npm --workspace @margin/desktop run tauri -- signer generate --ci --write-keys ~/.tauri/margin-updater.key
+```
+
+The public key is embedded in the desktop app. Add the private key content to the repository secret `TAURI_SIGNING_PRIVATE_KEY`; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` too if the key was generated with a password.
 
 ## Product Shape
 
