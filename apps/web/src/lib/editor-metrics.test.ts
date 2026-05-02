@@ -60,11 +60,11 @@ describe('live preview edit/display metrics', () => {
     expect(subtreeRule).toContain('padding-left: calc(var(--active-list-base-indent) + 12px)');
   });
 
-  it('shows list collapse controls on hover or while editing a list tree and hides collapsed subtree lines', () => {
+  it('shows list collapse controls on hover or focus and hides collapsed subtree lines', () => {
     const toggleRule = cssRule('button.markdown-list-collapse-toggle');
     const chevronRule = cssRule('button.markdown-list-collapse-toggle svg');
     const collapsedChevronRule = cssRule('button.markdown-list-collapse-toggle.is-collapsed svg');
-    const visibleRule = cssRule('.live-preview-editor .cm-live-list-parent:hover button.markdown-list-collapse-toggle,\n.live-preview-editor .cm-live-list-controls-visible button.markdown-list-collapse-toggle,\nbutton.markdown-list-collapse-toggle:focus-visible');
+    const visibleRule = cssRule('.live-preview-editor .cm-live-list-parent:hover button.markdown-list-collapse-toggle,\nbutton.markdown-list-collapse-toggle:focus-visible');
     const hiddenRule = cssRule('.live-preview-editor .cm-collapsed-list-hidden-line');
 
     expect(toggleRule).toContain('opacity: 0');
@@ -82,12 +82,12 @@ describe('live preview edit/display metrics', () => {
     expect(hiddenRule).toContain('display: none');
   });
 
-  it('shows heading collapse controls on hover or while editing a heading section and hides folded section lines', () => {
+  it('shows heading collapse controls on hover or focus and hides folded section lines', () => {
     const toggleRule = cssRule('button.markdown-heading-collapse-toggle');
     const headingRule = cssRule('.live-preview-editor .cm-live-heading');
     const secondLevelRule = cssRule('.live-preview-editor .cm-live-heading-2');
     const collapsedChevronRule = cssRule('button.markdown-heading-collapse-toggle.is-collapsed svg');
-    const visibleRule = cssRule('.live-preview-editor .cm-live-heading-foldable:hover button.markdown-heading-collapse-toggle,\n.live-preview-editor .cm-live-heading-controls-visible button.markdown-heading-collapse-toggle,\nbutton.markdown-heading-collapse-toggle:focus-visible');
+    const visibleRule = cssRule('.live-preview-editor .cm-live-heading-foldable:hover button.markdown-heading-collapse-toggle,\nbutton.markdown-heading-collapse-toggle:focus-visible');
     const hiddenRule = cssRule('.live-preview-editor .cm-collapsed-heading-hidden-line');
 
     expect(headingRule).toContain('--heading-toggle-top: 0.62em');

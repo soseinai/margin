@@ -1,7 +1,6 @@
 # Frontend Testing Strategy
 
 Margin's frontend risk is concentrated in the editor workflow: Markdown editing, live preview decorations, comments, suggestions, local file persistence, tabs, and the native shell bridge. The test suite should protect those workflows without making every change depend on a full desktop app run.
-
 ## Current State
 
 - `apps/web/src/lib/*.test.ts` runs with Vitest and covers extracted helpers for embedded comment blocks, draft suggestions, ordered list markers, and fragile editor CSS metrics.
@@ -112,3 +111,54 @@ The web app should not need a real Tauri shell for most tests. Treat native func
 - E2E: leave empty for now unless the change intentionally automates real desktop shell, native filesystem, or future cloud backend behavior.
 - File persistence change: test the serialized Markdown body and embedded comment/suggestion block round trip.
 - Future cloud storage change: test provider contracts separately from local embedded comment blocks. In cloud mode, cloud state remains the source of truth; embedded Markdown metadata is only a local/export compatibility format.
+
+<!-- margin:comments
+{
+  "schema": "margin.markdown-comments",
+  "version": 1,
+  "annotations_id": "local-annotations:1777740670506",
+  "author": "aishfenton",
+  "comments": [
+    {
+      "id": "local-comment-1777740724801",
+      "author": "aishfenton",
+      "body": "ABC",
+      "resolved": false,
+      "anchor": {
+        "start_line": 11,
+        "end_line": 11,
+        "quote": "Verification Gates",
+        "prefix": "atting/lint checks, the Svelte typecheck, and web unit/property tests before the web build.\n\n## ",
+        "suffix": "\n\nThese commands are not all tests, but they should run for every frontend PR:\n\n```sh\ncargo fmt ",
+        "heading_path": [
+          "Frontend Testing Strategy",
+          "Current State"
+        ],
+        "content_hash": "local-jd4lt6"
+      },
+      "created_at": "2026-05-02T16:52:04.801Z"
+    },
+    {
+      "id": "local-comment-1777740730150",
+      "author": "aishfenton",
+      "body": "ASVABVA",
+      "resolved": false,
+      "anchor": {
+        "start_line": 24,
+        "end_line": 24,
+        "quote": "buildability gate, not a test; it",
+        "prefix": "egration failures that Vite can miss. `vitest` is the fast test gate. The production build is a ",
+        "suffix": "catches bundling, asset, dynamic import, and browser-entry issues.\n\nThere is no dedicated fronte",
+        "heading_path": [
+          "Frontend Testing Strategy",
+          "Verification Gates"
+        ],
+        "content_hash": "local-1ydecke"
+      },
+      "created_at": "2026-05-02T16:52:10.151Z"
+    }
+  ],
+  "suggestions": [],
+  "updated_at": "2026-05-02T16:52:38.986Z"
+}
+-->

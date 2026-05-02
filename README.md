@@ -74,7 +74,7 @@ npm run test:web:e2e
 just dev-desktop
 ```
 
-The desktop app is a Tauri wrapper around the same Svelte SPA. It supports native new/open/save, recent documents, drag-and-drop Markdown files, Finder Open With, and the `margin://` URL scheme.
+The desktop app is a Tauri wrapper around the same Svelte SPA. It supports native new/open/save, recent documents, folder browsing with Markdown files opened into tabs, drag-and-drop Markdown files, Finder Open With, and the `margin://` URL scheme. The installed `margin` command accepts either a Markdown file path or a directory path.
 
 Package a local unsigned macOS app bundle:
 

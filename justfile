@@ -44,9 +44,24 @@ open-ios:
 build-ios target="aarch64-sim":
     npm run ios:build -- --target "{{target}}"
 
-# Build the desktop app bundle and launch it locally.
-run: build-desktop
-    open target/release/bundle/macos/Margin.app
+# Build the desktop app bundle and launch it locally. Optionally open a file or folder path.
+run path="": build-desktop
+    #!/usr/bin/env bash
+    set -euo pipefail
+    app="target/release/bundle/macos/Margin.app"
+    arg="{{path}}"
+    if [[ -n "$arg" ]]; then
+      case "$arg" in
+        margin://*|file://*|/*)
+          open "$app" --args "$arg"
+          ;;
+        *)
+          open "$app" --args "$PWD/$arg"
+          ;;
+      esac
+    else
+      open "$app"
+    fi
 
 # Run all standard checks.
 check: format-rust-check check-rust lint-rust check-web
