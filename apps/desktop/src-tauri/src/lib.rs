@@ -1,3 +1,7 @@
+use ignore::{
+    gitignore::{Gitignore, GitignoreBuilder},
+    Match,
+};
 #[cfg(not(target_os = "ios"))]
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -8,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -31,6 +35,8 @@ const RECENT_DOCUMENTS_FILE_NAME: &str = "recent-documents.json";
 const SETTINGS_FILE_NAME: &str = "settings.toml";
 const DEFAULT_THEME: &str = "auto";
 const DEFAULT_LOCAL_USER_NAME: &str = "Me";
+const DIRECTORY_TREE_MAX_DEPTH: usize = 12;
+const DIRECTORY_TREE_MAX_ENTRIES: usize = 5_000;
 #[cfg(not(target_os = "ios"))]
 const UPDATER_ENDPOINT: &str =
     "https://github.com/soseinai/margin/releases/latest/download/latest.json";
@@ -47,6 +53,99 @@ struct NativeMarkdownDocument {
     path: String,
     name: String,
     markdown: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeOpenPathPayload {
+    kind: NativeOpenPathKind,
+    document: Option<NativeMarkdownDocument>,
+    directory: Option<NativeDirectoryTree>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum NativeOpenPathKind {
+    Document,
+    Directory,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeDirectoryTree {
+    path: String,
+    name: String,
+    entries: Vec<NativeDirectoryEntry>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct NativeDirectoryEntry {
+    path: String,
+    name: String,
+    kind: NativeDirectoryEntryKind,
+    children: Vec<NativeDirectoryEntry>,
+}
+
+#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum NativeDirectoryEntryKind {
+    Directory,
+    Markdown,
+    File,
+}
+
+#[derive(Clone, Default)]
+struct DirectoryIgnoreRules {
+    matchers: Vec<Arc<Gitignore>>,
+}
+
+impl DirectoryIgnoreRules {
+    fn for_directory(path: &Path) -> Self {
+        Self::default().with_directory(path)
+    }
+
+    fn with_directory(&self, path: &Path) -> Self {
+        let gitignore_path = path.join(".gitignore");
+
+        if !gitignore_path.is_file() {
+            return self.clone();
+        }
+
+        let mut builder = GitignoreBuilder::new(path);
+
+        if let Some(err) = builder.add(&gitignore_path) {
+            eprintln!("Unable to parse {}: {err}", gitignore_path.display());
+            return self.clone();
+        }
+
+        match builder.build() {
+            Ok(gitignore) => {
+                let mut matchers = self.matchers.clone();
+                matchers.push(Arc::new(gitignore));
+
+                Self { matchers }
+            }
+            Err(err) => {
+                eprintln!("Unable to build ignore rules for {}: {err}", path.display());
+                self.clone()
+            }
+        }
+    }
+
+    fn is_ignored(&self, path: &Path, is_directory: bool) -> bool {
+        let mut ignored = false;
+
+        for matcher in &self.matchers {
+            match matcher.matched(path, is_directory) {
+                Match::Ignore(_) => ignored = true,
+                Match::Whitelist(_) => ignored = false,
+                Match::None => {}
+            }
+        }
+
+        ignored
+    }
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -141,6 +240,45 @@ fn choose_markdown_document() -> Result<Option<NativeMarkdownDocument>, String> 
 #[tauri::command]
 fn open_markdown_document(path: String) -> Result<NativeMarkdownDocument, String> {
     read_markdown_document_from_path(&PathBuf::from(path))
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+fn choose_directory() -> Result<Option<NativeDirectoryTree>, String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| read_directory_tree_from_path(&path))
+        .transpose()
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn choose_directory() -> Result<Option<NativeDirectoryTree>, String> {
+    Err(ios_file_picker_message())
+}
+
+#[tauri::command]
+fn read_directory_tree(path: String) -> Result<NativeDirectoryTree, String> {
+    read_directory_tree_from_path(&PathBuf::from(path))
+}
+
+#[tauri::command]
+fn open_native_path(path: String) -> Result<NativeOpenPathPayload, String> {
+    let path = PathBuf::from(path);
+
+    if path.is_dir() {
+        return read_directory_tree_from_path(&path).map(|directory| NativeOpenPathPayload {
+            kind: NativeOpenPathKind::Directory,
+            document: None,
+            directory: Some(directory),
+        });
+    }
+
+    read_markdown_document_from_path(&path).map(|document| NativeOpenPathPayload {
+        kind: NativeOpenPathKind::Document,
+        document: Some(document),
+        directory: None,
+    })
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -819,6 +957,20 @@ mod tests {
     }
 
     #[test]
+    fn launch_url_from_arg_accepts_directories() {
+        let directory =
+            env::temp_dir().join(format!("margin-open-folder-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("test directory can be created");
+
+        let url = launch_url_from_arg(directory.to_string_lossy().to_string());
+
+        fs::remove_dir_all(&directory).expect("test directory can be removed");
+        assert!(url
+            .as_deref()
+            .is_some_and(|value| value.starts_with("file://")));
+    }
+
+    #[test]
     fn shell_quotes_app_bundle_paths() {
         assert_eq!(
             shell_single_quoted(Path::new("/Applications/Margin's App.app")),
@@ -1306,6 +1458,221 @@ fn read_markdown_document_from_path(path: &Path) -> Result<NativeMarkdownDocumen
     Ok(markdown_document_payload(path, markdown))
 }
 
+fn read_directory_tree_from_path(path: &Path) -> Result<NativeDirectoryTree, String> {
+    let path = path
+        .canonicalize()
+        .map_err(|err| format!("Unable to open {}: {err}", path.display()))?;
+
+    if !path.is_dir() {
+        return Err("Margin can open a folder or Markdown document.".to_string());
+    }
+
+    let ignore_rules = DirectoryIgnoreRules::for_directory(&path);
+    let mut remaining_entries = DIRECTORY_TREE_MAX_ENTRIES;
+    let entries = read_directory_entries(&path, 0, &mut remaining_entries, &ignore_rules)?;
+
+    Ok(NativeDirectoryTree {
+        name: directory_display_name(&path),
+        path: path.to_string_lossy().to_string(),
+        entries,
+    })
+}
+
+fn read_directory_entries(
+    path: &Path,
+    depth: usize,
+    remaining_entries: &mut usize,
+    ignore_rules: &DirectoryIgnoreRules,
+) -> Result<Vec<NativeDirectoryEntry>, String> {
+    if depth >= DIRECTORY_TREE_MAX_DEPTH || *remaining_entries == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+
+    for entry in
+        fs::read_dir(path).map_err(|err| format!("Unable to read {}: {err}", path.display()))?
+    {
+        if *remaining_entries == 0 {
+            break;
+        }
+
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                eprintln!(
+                    "Unable to inspect a directory entry in {}: {err}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(err) => {
+                eprintln!("Unable to inspect {}: {err}", entry.path().display());
+                continue;
+            }
+        };
+
+        let entry_path = entry.path();
+        let is_directory = file_type.is_dir();
+
+        if ignore_rules.is_ignored(&entry_path, is_directory) {
+            continue;
+        }
+
+        let name = display_name(&entry_path);
+        let kind = if is_directory {
+            NativeDirectoryEntryKind::Directory
+        } else if is_markdown_path(&entry_path) {
+            NativeDirectoryEntryKind::Markdown
+        } else {
+            NativeDirectoryEntryKind::File
+        };
+        let canonical_path = entry_path.canonicalize().unwrap_or(entry_path);
+
+        *remaining_entries -= 1;
+
+        entries.push(NativeDirectoryEntry {
+            path: canonical_path.to_string_lossy().to_string(),
+            name,
+            kind,
+            children: Vec::new(),
+        });
+    }
+
+    sort_directory_entries(&mut entries);
+
+    if depth + 1 < DIRECTORY_TREE_MAX_DEPTH {
+        for entry in entries.iter_mut() {
+            if *remaining_entries == 0 {
+                break;
+            }
+
+            if entry.kind != NativeDirectoryEntryKind::Directory {
+                continue;
+            }
+
+            let entry_path = Path::new(&entry.path);
+            let child_ignore_rules = ignore_rules.with_directory(entry_path);
+
+            entry.children = read_directory_entries(
+                entry_path,
+                depth + 1,
+                remaining_entries,
+                &child_ignore_rules,
+            )
+            .unwrap_or_else(|err| {
+                eprintln!("{err}");
+                Vec::new()
+            });
+        }
+    }
+
+    Ok(entries)
+}
+
+fn sort_directory_entries(entries: &mut [NativeDirectoryEntry]) {
+    entries.sort_by(|left, right| {
+        directory_entry_rank(left.kind)
+            .cmp(&directory_entry_rank(right.kind))
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+}
+
+fn directory_entry_rank(kind: NativeDirectoryEntryKind) -> u8 {
+    match kind {
+        NativeDirectoryEntryKind::Directory => 0,
+        NativeDirectoryEntryKind::Markdown => 1,
+        NativeDirectoryEntryKind::File => 2,
+    }
+}
+
+#[cfg(test)]
+mod directory_tree_tests {
+    use super::*;
+
+    #[test]
+    fn directory_tree_excludes_gitignored_entries() {
+        let test_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time is after unix epoch")
+            .as_nanos();
+        let root = env::temp_dir().join(format!(
+            "margin-directory-tree-gitignore-{}-{test_id}",
+            std::process::id()
+        ));
+
+        if root.exists() {
+            fs::remove_dir_all(&root).expect("stale test directory can be removed");
+        }
+
+        fs::create_dir_all(root.join("ignored-dir")).expect("ignored directory can be created");
+        fs::create_dir_all(root.join("nested")).expect("nested directory can be created");
+        fs::write(
+            root.join(".gitignore"),
+            "ignored.md\nignored-dir/\n*.tmp\n!keep.tmp\nnested/ignored-from-root.md\n",
+        )
+        .expect("root gitignore can be written");
+        fs::write(root.join("visible.md"), "# Visible").expect("visible file can be written");
+        fs::write(root.join("ignored.md"), "# Ignored").expect("ignored file can be written");
+        fs::write(root.join("scratch.tmp"), "ignored").expect("ignored tmp can be written");
+        fs::write(root.join("keep.tmp"), "visible").expect("unignored tmp can be written");
+        fs::write(root.join("ignored-dir").join("visible.md"), "# Hidden")
+            .expect("file in ignored directory can be written");
+        fs::write(
+            root.join("nested").join(".gitignore"),
+            "nested-ignored.md\n!nested-keep.tmp\n",
+        )
+        .expect("nested gitignore can be written");
+        fs::write(root.join("nested").join("nested-visible.md"), "# Nested")
+            .expect("nested visible file can be written");
+        fs::write(
+            root.join("nested").join("nested-ignored.md"),
+            "# Nested hidden",
+        )
+        .expect("nested ignored file can be written");
+        fs::write(
+            root.join("nested").join("ignored-from-root.md"),
+            "# Root hidden",
+        )
+        .expect("root ignored nested file can be written");
+        fs::write(root.join("nested").join("nested-keep.tmp"), "visible")
+            .expect("nested unignored tmp can be written");
+
+        let tree = read_directory_tree_from_path(&root).expect("directory tree can be read");
+        let root_names = entry_names(&tree.entries);
+
+        assert!(root_names.contains(&"nested".to_string()));
+        assert!(root_names.contains(&"visible.md".to_string()));
+        assert!(root_names.contains(&"keep.tmp".to_string()));
+        assert!(!root_names.contains(&"ignored.md".to_string()));
+        assert!(!root_names.contains(&"ignored-dir".to_string()));
+        assert!(!root_names.contains(&"scratch.tmp".to_string()));
+
+        let nested = tree
+            .entries
+            .iter()
+            .find(|entry| entry.name == "nested")
+            .expect("nested directory is visible");
+        let nested_names = entry_names(&nested.children);
+
+        assert!(nested_names.contains(&"nested-visible.md".to_string()));
+        assert!(nested_names.contains(&"nested-keep.tmp".to_string()));
+        assert!(!nested_names.contains(&"nested-ignored.md".to_string()));
+        assert!(!nested_names.contains(&"ignored-from-root.md".to_string()));
+
+        fs::remove_dir_all(&root).expect("test directory can be removed");
+    }
+
+    fn entry_names(entries: &[NativeDirectoryEntry]) -> Vec<String> {
+        entries.iter().map(|entry| entry.name.clone()).collect()
+    }
+}
+
 #[cfg(not(target_os = "ios"))]
 fn should_emit_document_change(event: &Event, watched_path: &Path) -> bool {
     let relevant_kind = matches!(
@@ -1346,6 +1713,13 @@ fn display_name(path: &Path) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or("Untitled.md")
         .to_string()
+}
+
+fn directory_display_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -1431,7 +1805,7 @@ fn launch_url_from_arg(arg: String) -> Option<String> {
     }
 
     let path = PathBuf::from(&arg);
-    if !path.exists() || !is_markdown_path(&path) {
+    if !path.exists() || (!path.is_dir() && !is_markdown_path(&path)) {
         return None;
     }
 
@@ -1558,6 +1932,13 @@ pub fn run() {
             let new_file = MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?;
             let open_file =
                 MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
+            let open_folder = MenuItem::with_id(
+                app,
+                "file_open_folder",
+                "Open Folder...",
+                true,
+                Some("CmdOrCtrl+Shift+O"),
+            )?;
             let recent_empty = MenuItem::with_id(
                 app,
                 "file_recent_empty",
@@ -1610,6 +1991,7 @@ pub fn run() {
                 file_menu.append_items(&[
                     &new_file,
                     &open_file,
+                    &open_folder,
                     &open_recent,
                     &file_open_separator,
                     &save_file,
@@ -1723,6 +2105,25 @@ pub fn run() {
 
             menu.insert(&insert_menu, insert_menu_position())?;
 
+            let toggle_file_tree = MenuItem::with_id(
+                app,
+                "view_toggle_file_tree",
+                "Toggle File Tree",
+                true,
+                Some("CmdOrCtrl+B"),
+            )?;
+            if let Some(view_menu) = menu.items()?.into_iter().find_map(|item| {
+                item.as_submenu()
+                    .cloned()
+                    .filter(|submenu| submenu.text().map(|text| text == "View").unwrap_or(false))
+            }) {
+                view_menu.append(&toggle_file_tree)?;
+            } else {
+                let view_menu =
+                    Submenu::with_id_and_items(app, "view", "View", true, &[&toggle_file_tree])?;
+                menu.append(&view_menu)?;
+            }
+
             if let Some(window_menu) = menu.items()?.into_iter().find_map(|item| {
                 item.as_submenu()
                     .cloned()
@@ -1806,6 +2207,8 @@ pub fn run() {
             let _ = app.emit("margin://new-document", ());
         } else if menu_id.as_ref() == "file_open" {
             let _ = app.emit("margin://open-document", ());
+        } else if menu_id.as_ref() == "file_open_folder" {
+            let _ = app.emit("margin://open-folder", ());
         } else if let Some(index) = recent_document_menu_index(menu_id.as_ref()) {
             let _ = app.emit("margin://open-recent-document", index);
         } else if menu_id.as_ref().starts_with(CLEAR_RECENT_MENU_ITEM_PREFIX) {
@@ -1834,6 +2237,8 @@ pub fn run() {
             let _ = app.emit("margin://find-next", ());
         } else if menu_id.as_ref() == "edit_find_previous" {
             let _ = app.emit("margin://find-previous", ());
+        } else if menu_id.as_ref() == "view_toggle_file_tree" {
+            let _ = app.emit("margin://toggle-file-tree", ());
         } else if matches!(menu_id.as_ref(), "insert_comment" | "context_add_comment") {
             let _ = app.emit("margin://add-comment", ());
         } else if let Some(kind) = insert_payload(menu_id.as_ref()) {
@@ -1846,6 +2251,9 @@ pub fn run() {
             take_pending_open_urls,
             choose_markdown_document,
             open_markdown_document,
+            choose_directory,
+            read_directory_tree,
+            open_native_path,
             watch_markdown_document,
             choose_markdown_save_path,
             show_comment_context_menu,

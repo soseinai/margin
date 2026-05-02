@@ -57,6 +57,8 @@
 	import katex from 'katex';
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
+	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
+	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
@@ -74,6 +76,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
+	import FileTreeEntry from './lib/components/FileTreeEntry.svelte';
 	import { authorInitials, avatarStyle, defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
 	import {
 		compactLocalPath,
@@ -183,6 +186,7 @@
 	let unlistenNativeNewMenu: (() => void) | null = null;
 	let unlistenNativeOpenUrls: (() => void) | null = null;
 	let unlistenNativeOpenMenu: (() => void) | null = null;
+	let unlistenNativeOpenFolderMenu: (() => void) | null = null;
 	let unlistenNativeOpenRecentMenu: (() => void) | null = null;
 	let unlistenNativeClearRecentMenu: (() => void) | null = null;
 	let unlistenNativeSaveMenu: (() => void) | null = null;
@@ -197,6 +201,7 @@
 	let unlistenNativeOpenFindReplaceMenu: (() => void) | null = null;
 	let unlistenNativeFindNextMenu: (() => void) | null = null;
 	let unlistenNativeFindPreviousMenu: (() => void) | null = null;
+	let unlistenNativeToggleFileTreeMenu: (() => void) | null = null;
 	let unlistenNativeDocumentChanged: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
 	let tauriShell = false;
@@ -213,6 +218,12 @@
 	let printDocumentHtml = '';
 	let printAppendixCandidateThreads: ThreadView[] = [];
 	let printableThreads: ThreadView[] = [];
+	let fileTreeRoot: NativeDirectoryTree | null = null;
+	let fileTreePanelOpen = false;
+	let fileTreePanelWidth = 300;
+	let fileTreeResizeActive = false;
+	let fileTreeLoading = false;
+	let fileTreeError = '';
 	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
@@ -225,6 +236,8 @@
 	const saveProgressMinVisibleMs = 1000;
 	const saveProgressFadeMs = 500;
 	const markdownBlockWidgetNavigationRadius = 6;
+	const fileTreePanelMinWidth = 220;
+	const fileTreePanelMaxWidth = 520;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	const marginHighlightStyle = HighlightStyle.define([
@@ -343,9 +356,25 @@
 	type MarkdownWritableFile = {
 		write: (contents: string) => Promise<void>;
 		close: () => Promise<void>
-	 };
+	};
 
 	type NativeMarkdownDocument = { path: string; name: string; markdown: string };
+	type NativeOpenPathPayload = {
+		kind: 'document' | 'directory';
+		document?: NativeMarkdownDocument | null;
+		directory?: NativeDirectoryTree | null
+	 };
+	type NativeDirectoryTree = {
+		path: string;
+		name: string;
+		entries: NativeDirectoryEntry[]
+	 };
+	type NativeDirectoryEntry = {
+		path: string;
+		name: string;
+		kind: 'directory' | 'markdown' | 'file';
+		children: NativeDirectoryEntry[]
+	 };
 	type ExternalDocumentChange = NativeMarkdownDocument & { detectedAt: number };
 	type NativeMarkdownDocumentChange = { path: string };
 
@@ -1585,6 +1614,7 @@
 			unlistenNativeNewMenu?.();
 			unlistenNativeOpenUrls?.();
 			unlistenNativeOpenMenu?.();
+			unlistenNativeOpenFolderMenu?.();
 			unlistenNativeOpenRecentMenu?.();
 			unlistenNativeClearRecentMenu?.();
 			unlistenNativeSaveMenu?.();
@@ -1599,6 +1629,7 @@
 			unlistenNativeOpenFindReplaceMenu?.();
 			unlistenNativeFindNextMenu?.();
 			unlistenNativeFindPreviousMenu?.();
+			unlistenNativeToggleFileTreeMenu?.();
 			unlistenNativeDocumentChanged?.();
 			unlistenNativeDragDrop?.();
 			nativeMenuBridgeReady = false;
@@ -4140,6 +4171,17 @@
 					},
 
 					{
+						key: 'Mod-Shift-o',
+						run() {
+							if (!shouldHandleWebNativeShortcut()) return false;
+
+							openLocalFolder();
+
+							return true;
+						}
+					},
+
+					{
 						key: 'Mod-w',
 						run() {
 							if (!shouldHandleWebNativeShortcut()) return false;
@@ -5399,6 +5441,10 @@
 				openLocalMarkdown();
 			});
 
+			unlistenNativeOpenFolderMenu = await listen('margin://open-folder', () => {
+				openLocalFolder();
+			});
+
 			unlistenNativeOpenRecentMenu = await listen<number>('margin://open-recent-document', (event) => {
 				openRecentDocument(event.payload);
 			});
@@ -5454,6 +5500,10 @@
 
 			unlistenNativeFindPreviousMenu = await listen('margin://find-previous', () => {
 				findPreviousInEditor();
+			});
+
+			unlistenNativeToggleFileTreeMenu = await listen('margin://toggle-file-tree', () => {
+				toggleFileTreePanel();
 			});
 
 			unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
@@ -5934,8 +5984,8 @@
 		try {
 			parsedUrl = new URL(nativeUrl);
 		} catch {
-			if (isMarkdownPathLike(nativeUrl)) {
-				await openNativeMarkdownPath(nativeUrl);
+			if (isMarkdownPathLike(nativeUrl) || isAbsoluteLocalPath(nativeUrl)) {
+				await openNativePath(nativeUrl);
 
 				return;
 			}
@@ -5946,7 +5996,7 @@
 		}
 
 		if (parsedUrl.protocol === 'file:') {
-			await openNativeMarkdownPath(filePathFromFileUrl(parsedUrl));
+			await openNativePath(filePathFromFileUrl(parsedUrl));
 
 			return;
 		}
@@ -5964,7 +6014,7 @@
 		const path = url.searchParams.get('path') || url.searchParams.get('file');
 
 		if (path) {
-			await openNativeMarkdownPath(path);
+			await openNativePath(path);
 
 			return;
 		}
@@ -5976,7 +6026,7 @@
 			const pathFromRoute = url.hostname ? url.pathname : `/${pathSegments.slice(1).join('/')}`;
 
 			if (pathFromRoute && pathFromRoute !== '/') {
-				await openNativeMarkdownPath(decodeURIComponent(pathFromRoute));
+				await openNativePath(decodeURIComponent(pathFromRoute));
 
 				return;
 			}
@@ -6092,6 +6142,43 @@
 		await openNativeMarkdownPath(recentDocument.path, { removeRecentOnFailure: true });
 	}
 
+	async function openNativePath(path: string) {
+		const request = tauriInvoke<NativeOpenPathPayload>('open_native_path', { path });
+
+		if (!request) {
+			if (isMarkdownPathLike(path)) await openNativeMarkdownPath(path);
+
+			return;
+		}
+
+		try {
+			const payload = await request;
+
+			if (payload.kind === 'directory' && payload.directory) {
+				loadNativeDirectoryTree(payload.directory);
+
+				return;
+			}
+
+			if (payload.kind === 'document' && payload.document) {
+				await loadNativeMarkdownDocument(payload.document);
+
+				return;
+			}
+
+			error = `Margin could not open ${path}`;
+		} catch(err) {
+			error = err instanceof Error ? err.message : 'Unable to open path';
+		}
+	}
+
+	function loadNativeDirectoryTree(directory: NativeDirectoryTree) {
+		fileTreeRoot = directory;
+		fileTreePanelOpen = true;
+		fileTreeError = '';
+		error = '';
+	}
+
 	async function openNativeMarkdownPath(
 		path: string,
 		options: { removeRecentOnFailure?: boolean } = {}
@@ -6147,6 +6234,7 @@
 
 		const imagePaths = payload.paths.filter(isImagePathLike);
 		const markdownPaths = payload.paths.filter(isMarkdownPathLike);
+		const otherPaths = payload.paths.filter((path) => !isImagePathLike(path) && !isMarkdownPathLike(path));
 
 		if (imagePaths.length > 0) {
 			if (!mainEditor) {
@@ -6164,7 +6252,7 @@
 			return;
 		}
 
-		if (markdownPaths.length === 0) {
+		if (markdownPaths.length === 0 && otherPaths.length === 0) {
 			error = 'Drop Markdown, text, or image files.';
 
 			return;
@@ -6174,6 +6262,10 @@
 
 		for (const path of markdownPaths) {
 			await openNativeMarkdownPath(path);
+		}
+
+		for (const path of otherPaths) {
+			await openNativePath(path);
 		}
 	}
 
@@ -6187,6 +6279,67 @@
 		if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
 		return { x, y };
+	}
+
+	function fileTreeRootLabel() {
+		if (!fileTreeRoot) return 'No folder open';
+
+		return compactLocalPath(fileTreeRoot.path);
+	}
+
+	function fileTreeEntryCount(entries: NativeDirectoryEntry[]): number {
+		return entries.reduce((count, entry) => count + 1 + fileTreeEntryCount(entry.children), 0);
+	}
+
+	async function openFileTreeEntry(entry: NativeDirectoryEntry) {
+		if (entry.kind !== 'markdown') return;
+
+		await openNativeMarkdownPath(entry.path);
+	}
+
+	function toggleFileTreePanel() {
+		fileTreePanelOpen = !fileTreePanelOpen;
+	}
+
+	function startFileTreeResize(event: PointerEvent) {
+		if (!fileTreePanelOpen) return;
+
+		event.preventDefault();
+		fileTreeResizeActive = true;
+
+		const startX = event.clientX;
+		const startWidth = fileTreePanelWidth;
+
+		const resize = (moveEvent: PointerEvent) => {
+			const nextWidth = startWidth + moveEvent.clientX - startX;
+
+			fileTreePanelWidth = clampNumber(nextWidth, fileTreePanelMinWidth, fileTreePanelMaxWidth);
+		};
+
+		const stopResize = () => {
+			fileTreeResizeActive = false;
+			window.removeEventListener('pointermove', resize);
+			window.removeEventListener('pointerup', stopResize);
+			window.removeEventListener('pointercancel', stopResize);
+		};
+
+		window.addEventListener('pointermove', resize);
+		window.addEventListener('pointerup', stopResize);
+		window.addEventListener('pointercancel', stopResize);
+	}
+
+	function handleFileTreeResizeKeydown(event: KeyboardEvent) {
+		if (!fileTreePanelOpen) return;
+
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			fileTreePanelWidth = clampNumber(fileTreePanelWidth - 20, fileTreePanelMinWidth, fileTreePanelMaxWidth);
+		}
+
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			fileTreePanelWidth = clampNumber(fileTreePanelWidth + 20, fileTreePanelMinWidth, fileTreePanelMaxWidth);
+		}
 	}
 
 	function createNewDocument() {
@@ -6287,6 +6440,34 @@
 
 		fileInput.value = '';
 		fileInput.click();
+	}
+
+	async function openLocalFolder() {
+		error = '';
+		fileTreeError = '';
+
+		if (!desktopShell) {
+			fileTreePanelOpen = true;
+			fileTreeError = 'Folder opening is available in the desktop app.';
+
+			return;
+		}
+
+		const nativeOpen = tauriInvoke<NativeDirectoryTree | null>('choose_directory');
+
+		if (!nativeOpen) return;
+
+		fileTreeLoading = true;
+
+		try {
+			const directory = await nativeOpen;
+
+			if (directory) loadNativeDirectoryTree(directory);
+		} catch(err) {
+			fileTreeError = err instanceof Error ? err.message : 'Unable to open folder';
+		} finally {
+			fileTreeLoading = false;
+		}
 	}
 
 	async function handleLocalFileSelected(event: Event) {
@@ -7031,6 +7212,11 @@
 
 		if (!mod || event.altKey) return;
 
+		if (!event.shiftKey && key === 'b') {
+			event.preventDefault();
+			toggleFileTreePanel();
+		}
+
 		if (!event.shiftKey && key === 's') {
 			event.preventDefault();
 			saveLocalMarkdown();
@@ -7049,6 +7235,11 @@
 		if (!event.shiftKey && key === 'o') {
 			event.preventDefault();
 			openLocalMarkdown();
+		}
+
+		if (event.shiftKey && key === 'o') {
+			event.preventDefault();
+			openLocalFolder();
 		}
 
 		if (!event.shiftKey && key === 'w') {
@@ -7359,6 +7550,7 @@
 	class:desktop-shell={desktopShell}
 	class:mobile-shell={mobileShell}
 	class:drag-active={dragActive}
+	class:file-tree-resizing={fileTreeResizeActive}
 >
 	<div class="window-tabbar" aria-label="Open documents">
 		{#each visibleDocumentTabs as tab (tab.id)}
@@ -7448,100 +7640,101 @@
 		</ToggleGroup.Root>
 	</div>
 
-	<header class="doc-topbar">
-		<input
-			class="local-file-input"
-			bind:this={fileInput}
-			type="file"
-			accept=".md,.markdown,text/markdown,text/plain"
-			on:change={handleLocalFileSelected}
-		/>
+	<div class="doc-titlebar-shell">
+		<header class="doc-topbar">
+			<input
+				class="local-file-input"
+				bind:this={fileInput}
+				type="file"
+				accept=".md,.markdown,text/markdown,text/plain"
+				on:change={handleLocalFileSelected}
+			/>
 
-		<div class="brand-cluster" data-tauri-drag-region>
-			<div class="brand-mark">M</div>
+			<div class="brand-cluster" data-tauri-drag-region>
+				<div class="brand-mark">M</div>
 
-			<div class="brand-title" data-tauri-drag-region>
-				<p
-					class="eyebrow"
-					class:eyebrow-placeholder={!titlebarEyebrowLabel}
-					class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
-					aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
-				>
-					{titlebarEyebrowLabel}
-				</p>
-				<h1>{documentTitleLabel}</h1>
+				<div class="brand-title" data-tauri-drag-region>
+					<p
+						class="eyebrow"
+						class:eyebrow-placeholder={!titlebarEyebrowLabel}
+						class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
+						aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
+					>
+						{titlebarEyebrowLabel}
+					</p>
+					<h1>{documentTitleLabel}</h1>
+				</div>
 			</div>
-		</div>
+
+			<div
+				class="window-drag-spacer"
+				data-tauri-drag-region
+				aria-hidden="true"
+			></div>
+
+			<div class="topbar-actions" aria-label="Document actions">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="New document"
+					title="New document"
+					onclick={createNewDocument}
+				>
+					<FilePlusIcon aria-hidden="true" />
+				</Button>
+
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="Open document"
+					title="Open document"
+					onclick={openLocalMarkdown}
+				>
+					<FolderOpenIcon aria-hidden="true" />
+				</Button>
+
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="Save document"
+					title="Save document"
+					onclick={() => saveLocalMarkdown()}
+				>
+					<SaveIcon aria-hidden="true" />
+				</Button>
+
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="Print document"
+					title="Print document"
+					onclick={requestPrintDocument}
+				>
+					<PrinterIcon aria-hidden="true" />
+				</Button>
+
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="Settings"
+					title="Settings"
+					onclick={openSettingsDialog}
+				>
+					<SettingsIcon aria-hidden="true" />
+				</Button>
+			</div>
+		</header>
 
 		<div
-			class="window-drag-spacer"
+			class="doc-toolbar"
+			aria-label="Document tools"
 			data-tauri-drag-region
-			aria-hidden="true"
-		></div>
-
-		<div class="topbar-actions" aria-label="Document actions">
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="New document"
-				title="New document"
-				onclick={createNewDocument}
-			>
-				<FilePlusIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Open document"
-				title="Open document"
-				onclick={openLocalMarkdown}
-			>
-				<FolderOpenIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Save document"
-				title="Save document"
-				onclick={() => saveLocalMarkdown()}
-			>
-				<SaveIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Print document"
-				title="Print document"
-				onclick={requestPrintDocument}
-			>
-				<PrinterIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Settings"
-				title="Settings"
-				onclick={openSettingsDialog}
-			>
-				<SettingsIcon aria-hidden="true" />
-			</Button>
-		</div>
-	</header>
-
-	<div
-		class="doc-toolbar"
-		aria-label="Document tools"
-		data-tauri-drag-region
-	>
+		>
 			<ToggleGroup.Root
 				class="mobile-mode-toggle"
 				aria-label="Editing mode"
@@ -7584,6 +7777,7 @@
 					</svg>
 				</ToggleGroup.Item>
 			</ToggleGroup.Root>
+		</div>
 	</div>
 
 	{#if error}
@@ -7617,27 +7811,48 @@
 		</section>
 	{/if}
 
-	<div class="editor-layout">
-		<section class="paper-column">
-			<article
-				class="document-surface live-preview-surface"
-				bind:this={documentSurface}
-				aria-label="Markdown live preview editor"
-			>
-				{#if documentData}
-					<div
-						class="live-preview-editor"
-						use:codeMirrorLiveEditor={{
-							value: documentData.markdown,
-							threads,
-							documentKey: documentSessionKey
-						}}
-					></div>
-				{/if}
-			</article>
-		</section>
+	<div
+		class="workspace-layout"
+		class:file-tree-visible={fileTreePanelOpen}
+		style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
+	>
+		{#if !fileTreePanelOpen}
+			<nav class="activity-rail workspace-activity-rail" aria-label="Workspace views">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="activity-icon-button"
+					aria-label="Show file tree"
+					aria-pressed="false"
+					title="Show file tree"
+					onclick={toggleFileTreePanel}
+				>
+					<FolderTreeIcon aria-hidden="true" />
+				</Button>
+			</nav>
+		{/if}
 
-		<aside class="margin-rail" aria-label="Document comments">
+		<div class="editor-layout">
+			<section class="paper-column">
+				<article
+					class="document-surface live-preview-surface"
+					bind:this={documentSurface}
+					aria-label="Markdown live preview editor"
+				>
+					{#if documentData}
+						<div
+							class="live-preview-editor"
+							use:codeMirrorLiveEditor={{
+								value: documentData.markdown,
+								threads,
+								documentKey: documentSessionKey
+							}}
+						></div>
+					{/if}
+				</article>
+			</section>
+
+			<aside class="margin-rail" aria-label="Document comments">
 			<div
 				class="comment-stage"
 				style={`min-height: ${stageHeight}px;`}
@@ -7903,7 +8118,75 @@
 					{/if}
 				{/each}
 			</div>
-		</aside>
+			</aside>
+		</div>
+
+		{#if fileTreePanelOpen}
+			<aside
+				class="file-tree-panel"
+				aria-label="Open folder"
+			>
+				<button
+					class="file-tree-resizer"
+					type="button"
+					aria-label="Resize file tree"
+					on:pointerdown={startFileTreeResize}
+					on:keydown={handleFileTreeResizeKeydown}
+				></button>
+
+				<div class="file-tree-content">
+					<header class="file-tree-header">
+						<div class="file-tree-heading">
+							<p class="file-tree-eyebrow">Folder</p>
+							<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
+						</div>
+
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							class="activity-icon-button file-tree-close-button active"
+							aria-label="Hide file tree"
+							aria-pressed="true"
+							title="Hide file tree"
+							onclick={toggleFileTreePanel}
+						>
+							<PanelLeftCloseIcon aria-hidden="true" />
+						</Button>
+					</header>
+
+					<div class="file-tree-scroll">
+						{#if fileTreeRoot}
+							<p class="file-tree-root-path" title={fileTreeRoot.path}>{fileTreeRootLabel()}</p>
+							<p class="file-tree-count">{fileTreeEntryCount(fileTreeRoot.entries)} items</p>
+
+							{#if fileTreeRoot.entries.length > 0}
+								<ul class="file-tree-list root">
+									{#each fileTreeRoot.entries as entry (entry.path)}
+										<li>
+											<FileTreeEntry
+												{entry}
+												activePath={nativeFilePath}
+												onOpen={openFileTreeEntry}
+											/>
+										</li>
+									{/each}
+								</ul>
+							{:else}
+								<p class="file-tree-empty">This folder is empty.</p>
+							{/if}
+						{:else if fileTreeLoading}
+							<p class="file-tree-empty">Opening folder...</p>
+						{:else}
+							<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
+						{/if}
+
+						{#if fileTreeError}
+							<p class="file-tree-error">{fileTreeError}</p>
+						{/if}
+					</div>
+				</div>
+			</aside>
+		{/if}
 	</div>
 
 	<section class="print-document" aria-hidden="true">

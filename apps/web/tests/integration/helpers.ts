@@ -6,6 +6,19 @@ export type NativeDocument = {
   markdown: string;
 };
 
+type NativeDirectoryEntry = {
+  path: string;
+  name: string;
+  kind: 'directory' | 'markdown' | 'file';
+  children: NativeDirectoryEntry[];
+};
+
+type NativeDirectoryTree = {
+  path: string;
+  name: string;
+  entries: NativeDirectoryEntry[];
+};
+
 export type TauriCall = {
   command: string;
   args?: Record<string, unknown>;
@@ -20,7 +33,9 @@ type FilePickerFile = {
 type TauriMockOptions = {
   pendingOpenUrls?: string[];
   documents?: NativeDocument[];
+  directories?: NativeDirectoryTree[];
   chosenDocumentPath?: string | null;
+  chosenDirectoryPath?: string | null;
   chosenSavePath?: string | null;
   settings?: { theme: string; localUserName: string };
   recentDocuments?: Array<{ path: string; title: string; openedAt: number }>;
@@ -330,11 +345,13 @@ export async function setFilePickerMarkdown(page: Page, name: string, markdown: 
 export async function installTauriMock(page: Page, options: TauriMockOptions = {}) {
   await page.addInitScript((mockOptions: TauriMockOptions) => {
     const documents = new Map((mockOptions.documents ?? []).map((document) => [document.path, document]));
+    const directories = new Map((mockOptions.directories ?? []).map((directory) => [directory.path, directory]));
     const listeners = new Map<string, Array<(event: { payload: unknown }) => void>>();
     const calls: TauriCall[] = [];
     let dragDropHandler: ((event: { payload: unknown }) => void) | null = null;
     let pendingOpenUrls = [...(mockOptions.pendingOpenUrls ?? [])];
     let chosenDocumentPath = mockOptions.chosenDocumentPath ?? null;
+    let chosenDirectoryPath = mockOptions.chosenDirectoryPath ?? null;
     let chosenSavePath = mockOptions.chosenSavePath ?? null;
     let settings = mockOptions.settings ?? { theme: 'auto', localUserName: 'Me' };
     let recentDocuments = mockOptions.recentDocuments ?? [];
@@ -355,6 +372,9 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
         },
         setChosenDocumentPath(path: string | null) {
           chosenDocumentPath = path;
+        },
+        setChosenDirectoryPath(path: string | null) {
+          chosenDirectoryPath = path;
         },
         setChosenSavePath(path: string | null) {
           chosenSavePath = path;
@@ -412,6 +432,42 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
               const document = documents.get(path);
               if (!document) throw new Error(`Unable to open ${path}`);
               return document;
+            }
+
+            if (command === 'open_native_path') {
+              const path = args?.path as string;
+              const directory = directories.get(path);
+
+              if (directory) {
+                return {
+                  kind: 'directory',
+                  document: null,
+                  directory
+                };
+              }
+
+              const document = documents.get(path);
+
+              if (document) {
+                return {
+                  kind: 'document',
+                  document,
+                  directory: null
+                };
+              }
+
+              throw new Error(`Unable to open ${path}`);
+            }
+
+            if (command === 'choose_directory') {
+              return chosenDirectoryPath ? directories.get(chosenDirectoryPath) ?? null : null;
+            }
+
+            if (command === 'read_directory_tree') {
+              const path = args?.path as string;
+              const directory = directories.get(path);
+              if (!directory) throw new Error(`Unable to open ${path}`);
+              return directory;
             }
 
             if (command === 'choose_markdown_save_path') return chosenSavePath;
