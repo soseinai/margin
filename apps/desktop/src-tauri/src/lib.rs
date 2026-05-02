@@ -2105,6 +2105,25 @@ pub fn run() {
 
             menu.insert(&insert_menu, insert_menu_position())?;
 
+            let toggle_file_tree = MenuItem::with_id(
+                app,
+                "view_toggle_file_tree",
+                "Toggle File Tree",
+                true,
+                Some("CmdOrCtrl+B"),
+            )?;
+            if let Some(view_menu) = menu.items()?.into_iter().find_map(|item| {
+                item.as_submenu()
+                    .cloned()
+                    .filter(|submenu| submenu.text().map(|text| text == "View").unwrap_or(false))
+            }) {
+                view_menu.append(&toggle_file_tree)?;
+            } else {
+                let view_menu =
+                    Submenu::with_id_and_items(app, "view", "View", true, &[&toggle_file_tree])?;
+                menu.append(&view_menu)?;
+            }
+
             if let Some(window_menu) = menu.items()?.into_iter().find_map(|item| {
                 item.as_submenu()
                     .cloned()
@@ -2218,6 +2237,8 @@ pub fn run() {
             let _ = app.emit("margin://find-next", ());
         } else if menu_id.as_ref() == "edit_find_previous" {
             let _ = app.emit("margin://find-previous", ());
+        } else if menu_id.as_ref() == "view_toggle_file_tree" {
+            let _ = app.emit("margin://toggle-file-tree", ());
         } else if matches!(menu_id.as_ref(), "insert_comment" | "context_add_comment") {
             let _ = app.emit("margin://add-comment", ());
         } else if let Some(kind) = insert_payload(menu_id.as_ref()) {

@@ -201,6 +201,7 @@
 	let unlistenNativeOpenFindReplaceMenu: (() => void) | null = null;
 	let unlistenNativeFindNextMenu: (() => void) | null = null;
 	let unlistenNativeFindPreviousMenu: (() => void) | null = null;
+	let unlistenNativeToggleFileTreeMenu: (() => void) | null = null;
 	let unlistenNativeDocumentChanged: (() => void) | null = null;
 	let unlistenNativeDragDrop: (() => void) | null = null;
 	let tauriShell = false;
@@ -1628,6 +1629,7 @@
 			unlistenNativeOpenFindReplaceMenu?.();
 			unlistenNativeFindNextMenu?.();
 			unlistenNativeFindPreviousMenu?.();
+			unlistenNativeToggleFileTreeMenu?.();
 			unlistenNativeDocumentChanged?.();
 			unlistenNativeDragDrop?.();
 			nativeMenuBridgeReady = false;
@@ -5500,6 +5502,10 @@
 				findPreviousInEditor();
 			});
 
+			unlistenNativeToggleFileTreeMenu = await listen('margin://toggle-file-tree', () => {
+				toggleFileTreePanel();
+			});
+
 			unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
 				if (isInsertBlockKind(event.payload)) {
 					insertMarkdownBlock(event.payload);
@@ -7205,6 +7211,11 @@
 		}
 
 		if (!mod || event.altKey) return;
+
+		if (!event.shiftKey && key === 'b') {
+			event.preventDefault();
+			toggleFileTreePanel();
+		}
 
 		if (!event.shiftKey && key === 's') {
 			event.preventDefault();

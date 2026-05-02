@@ -1562,7 +1562,7 @@ textarea:not([data-slot]):focus {
   display: grid;
   font-size: 12.5px;
   gap: 7px;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr);
   line-height: 1.2;
   min-height: 24px;
   min-width: 0;
@@ -1586,7 +1586,7 @@ textarea:not([data-slot]):focus {
   font-size: 12.5px;
   font-weight: 400;
   gap: 7px;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr);
   justify-content: normal;
   line-height: 1.2;
   min-height: 24px;
@@ -1596,11 +1596,6 @@ textarea:not([data-slot]):focus {
   transform: none;
   white-space: normal;
   width: 100%;
-}
-
-.file-tree-row.file {
-  grid-template-columns: 12px minmax(0, 1fr);
-  opacity: 0.48;
 }
 
 .file-tree-panel button.file-tree-row.document:not([data-slot]):hover,
@@ -1621,12 +1616,15 @@ textarea:not([data-slot]):focus {
 }
 
 .file-tree-twist,
-.file-tree-dot {
+.file-tree-file-icon,
+.file-tree-md-icon {
   color: var(--fg-4);
-  display: inline-block;
-  height: 12px;
+  display: inline-flex;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
   position: relative;
-  width: 12px;
+  width: 14px;
 }
 
 .file-tree-twist::before {
@@ -1645,22 +1643,41 @@ textarea:not([data-slot]):focus {
   transform: rotate(0deg);
 }
 
-.file-tree-dot::before {
-  background: currentColor;
-  border-radius: 50%;
-  content: "";
-  height: 4px;
-  left: 4px;
-  opacity: 0.7;
-  position: absolute;
-  top: 4px;
-  width: 4px;
+.file-tree-file-icon svg {
+  height: 14px;
+  stroke-width: 1.8;
+  width: 14px;
 }
 
-.file-tree-dot.markdown::before {
-  border-radius: 1px;
-  height: 8px;
-  top: 2px;
+.file-tree-file-icon.image,
+.file-tree-file-icon.text {
+  opacity: 0.88;
+}
+
+.file-tree-md-icon {
+  color: var(--fg);
+  font-family: var(--font-plex-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 1;
+}
+
+.file-tree-file-icon.archive,
+.file-tree-file-icon.config,
+.file-tree-file-icon.data,
+.file-tree-file-icon.default,
+.file-tree-file-icon.lock,
+.file-tree-file-icon.spreadsheet {
+  opacity: 0.72;
+}
+
+.file-tree-row.file {
+  opacity: 0.66;
+}
+
+.file-tree-row.file:hover {
+  opacity: 0.86;
 }
 
 .file-tree-entry-name {
@@ -1668,13 +1685,6 @@ textarea:not([data-slot]):focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.file-tree-entry-kind {
-  color: var(--fg-4);
-  font-family: var(--font-plex-mono);
-  font-size: 9.5px;
-  line-height: 1;
 }
 
 .file-tree-empty,
