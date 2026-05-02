@@ -61,6 +61,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import PrinterIcon from '@lucide/svelte/icons/printer';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import SaveIcon from '@lucide/svelte/icons/save';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -103,6 +104,7 @@
 		splitMarginCommentBlock,
 		type MarginCommentBlock
 	} from './lib/embedded-margin';
+	import { renderPrintMarkdown } from './lib/print-markdown';
 
 	import type { LocalDocument, MarginAnchor, MarginSuggestion, LocalAnnotations } from './lib/types';
 
@@ -124,6 +126,8 @@
 	let settingsDraftLocalUserName = defaultLocalUserName();
 	let localAuthor = defaultLocalUserName();
 	let settingsDialogOpen = false;
+	let printOptionsDialogOpen = false;
+	let includeMarginNotesAppendix = true;
 	let settingsSaving = false;
 	let settingsError = '';
 	let availableAppUpdate: AppUpdateMetadata | null = null;
@@ -183,6 +187,7 @@
 	let unlistenNativeClearRecentMenu: (() => void) | null = null;
 	let unlistenNativeSaveMenu: (() => void) | null = null;
 	let unlistenNativeSaveAsMenu: (() => void) | null = null;
+	let unlistenNativePrintMenu: (() => void) | null = null;
 	let unlistenNativeCloseTabMenu: (() => void) | null = null;
 	let unlistenNativePreviousTabMenu: (() => void) | null = null;
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
@@ -205,6 +210,9 @@
 	let activeDocumentTabId = '';
 	let recentDocuments: RecentDocument[] = [];
 	let dragActive = false;
+	let printDocumentHtml = '';
+	let printAppendixCandidateThreads: ThreadView[] = [];
+	let printableThreads: ThreadView[] = [];
 	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
@@ -283,6 +291,7 @@
 	type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
+	type PrintDocumentOptions = { includeMarginNotesAppendix?: boolean };
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type FindPanelMode = 'compact' | 'expanded';
 	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
@@ -1512,6 +1521,7 @@
 	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
+	$: printAppendixCandidateThreads = threads.filter((thread) => !thread.resolved && thread.body.trim().length > 0);
 	$: titlebarEyebrowPlaceholder = localFileMode
 		&& !nativeFilePath
 		&& !localFileHandle
@@ -1579,6 +1589,7 @@
 			unlistenNativeClearRecentMenu?.();
 			unlistenNativeSaveMenu?.();
 			unlistenNativeSaveAsMenu?.();
+			unlistenNativePrintMenu?.();
 			unlistenNativeCloseTabMenu?.();
 			unlistenNativePreviousTabMenu?.();
 			unlistenNativeNextTabMenu?.();
@@ -4098,6 +4109,15 @@
 					},
 
 					{
+						key: 'Mod-p',
+						run() {
+							requestPrintDocument();
+
+							return true;
+						}
+					},
+
+					{
 						key: 'Mod-n',
 						run() {
 							if (!shouldHandleWebNativeShortcut()) return false;
@@ -5395,6 +5415,10 @@
 				saveLocalMarkdownAs();
 			});
 
+			unlistenNativePrintMenu = await listen('margin://print-document', () => {
+				requestPrintDocument();
+			});
+
 			unlistenNativeCloseTabMenu = await listen('margin://close-tab', () => {
 				closeActiveDocumentTab();
 			});
@@ -5672,6 +5696,7 @@
 
 	function openSearchDialog(mode: FindPanelMode, view: EditorView | null = mainEditor) {
 		if (!view) return;
+		printOptionsDialogOpen = false;
 		if (settingsDialogOpen) {
 			closeSettingsDialog();
 			if (settingsDialogOpen) return;
@@ -5755,6 +5780,7 @@
 
 	function openSettingsDialog() {
 		closeFindPanel();
+		printOptionsDialogOpen = false;
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
@@ -6917,6 +6943,47 @@
 		URL.revokeObjectURL(url);
 	}
 
+	function requestPrintDocument() {
+		if (!documentData) return;
+
+		closeFindPanel();
+		if (settingsDialogOpen) closeSettingsDialog();
+		if (settingsDialogOpen) return;
+
+		printOptionsDialogOpen = true;
+	}
+
+	async function confirmPrintDocument() {
+		printOptionsDialogOpen = false;
+		await tick();
+		await printDocument({ includeMarginNotesAppendix });
+	}
+
+	async function printDocument(options: PrintDocumentOptions = {}) {
+		if (!documentData) return;
+
+		editorMarkdown = activeEditorMarkdown();
+		printDocumentHtml = renderPrintMarkdown(editorMarkdown, { resolveImageSrc: resolveMarkdownImageSrc });
+		printableThreads = options.includeMarginNotesAppendix === false
+			? []
+			: printAppendixCandidateThreads;
+		await tick();
+
+		const nativePrint = desktopShell ? tauriInvoke<void>('print_window') : null;
+
+		if (nativePrint) {
+			try {
+				await nativePrint;
+
+				return;
+			} catch(err) {
+				console.warn('Unable to use native print', err);
+			}
+		}
+
+		window.print();
+	}
+
 	function isAbortError(err: unknown) {
 		return err instanceof DOMException && err.name === 'AbortError';
 	}
@@ -6967,6 +7034,11 @@
 		if (!event.shiftKey && key === 's') {
 			event.preventDefault();
 			saveLocalMarkdown();
+		}
+
+		if (!event.shiftKey && key === 'p') {
+			event.preventDefault();
+			requestPrintDocument();
 		}
 
 		if (!event.shiftKey && key === 'n') {
@@ -7445,6 +7517,17 @@
 				variant="ghost"
 				size="icon-sm"
 				class="topbar-icon-button"
+				aria-label="Print document"
+				title="Print document"
+				onclick={requestPrintDocument}
+			>
+				<PrinterIcon aria-hidden="true" />
+			</Button>
+
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="topbar-icon-button"
 				aria-label="Settings"
 				title="Settings"
 				onclick={openSettingsDialog}
@@ -7823,6 +7906,33 @@
 		</aside>
 	</div>
 
+	<section class="print-document" aria-hidden="true">
+		<div class="print-document-body">
+			{@html printDocumentHtml}
+		</div>
+
+		{#if printableThreads.length > 0}
+			<section class="print-annotations">
+				<h2>Margin Notes</h2>
+
+				{#each printableThreads as thread}
+					<article class="print-annotation" class:print-suggestion={thread.kind === 'suggestion'}>
+						<p class="print-annotation-label">
+							{thread.kind === 'suggestion' ? 'Suggestion' : 'Comment'} by {thread.author}
+							- line {thread.currentLine ?? thread.line}
+						</p>
+
+						{#if thread.quote}
+							<blockquote>{thread.quote}</blockquote>
+						{/if}
+
+						<p>{thread.body}</p>
+					</article>
+				{/each}
+			</section>
+		{/if}
+	</section>
+
 	{#if saveProgressVisible}
 		<div
 			class="save-progress-indicator"
@@ -7865,6 +7975,60 @@
 			</Button>
 		</div>
 	{/if}
+
+		<Dialog.Root bind:open={printOptionsDialogOpen}>
+			<Dialog.Content
+				class="settings-dialog print-options-dialog"
+				aria-labelledby="print-options-title"
+				showCloseButton={false}
+			>
+				<form on:submit|preventDefault={confirmPrintDocument}>
+					<Dialog.Header class="settings-dialog-header">
+						<div>
+							<p class="eyebrow">Margin</p>
+							<Dialog.Title id="print-options-title">Print</Dialog.Title>
+						</div>
+
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							class="icon-button"
+							aria-label="Close print options"
+							onclick={() => printOptionsDialogOpen = false}
+						>
+							<XIcon aria-hidden="true" />
+						</Button>
+					</Dialog.Header>
+
+					<fieldset class="settings-fieldset print-options-fieldset">
+						<label class="print-option-checkbox" for="print-include-margin-notes">
+							<input
+								id="print-include-margin-notes"
+								type="checkbox"
+								bind:checked={includeMarginNotesAppendix}
+								disabled={printAppendixCandidateThreads.length === 0}
+							/>
+							<span>Include margin notes appendix</span>
+						</label>
+					</fieldset>
+
+					<Dialog.Footer class="settings-actions">
+						<Button
+							variant="outline"
+							size="sm"
+							class="ghost-button"
+							onclick={() => printOptionsDialogOpen = false}
+						>Cancel</Button>
+
+						<Button
+							size="sm"
+							class="primary"
+							type="submit"
+						>Print</Button>
+					</Dialog.Footer>
+				</form>
+			</Dialog.Content>
+		</Dialog.Root>
 
 		<Dialog.Root bind:open={settingsDialogOpen}>
 			<Dialog.Content
