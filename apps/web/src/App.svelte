@@ -54,6 +54,7 @@
 		type ViewUpdate
 	} from '@codemirror/view';
 	import { tags } from '@lezer/highlight';
+	import katex from 'katex';
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
@@ -91,6 +92,11 @@
 		type RecentDocument
 	} from './lib/local-documents';
 	import { orderedListMarkersForLines } from './lib/markdown-lists';
+	import {
+		inlineMarkdownMathSpans,
+		markdownMathBlocksForLines,
+		type MarkdownMathBlock as ParsedMarkdownMathBlock
+	} from './lib/markdown-math';
 
 	import {
 		appendMarginCommentBlock,
@@ -210,6 +216,7 @@
 	const localAutosaveDelayMs = 900;
 	const saveProgressMinVisibleMs = 1000;
 	const saveProgressFadeMs = 500;
+	const markdownBlockWidgetNavigationRadius = 6;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	const marginHighlightStyle = HighlightStyle.define([
@@ -442,11 +449,12 @@
 	type SourceBlock = {
 		start: number;
 		end: number;
-		kind: 'line' | 'frontmatter' | 'fenced-code' | 'list' | 'indented' | 'table';
+		kind: 'line' | 'frontmatter' | 'fenced-code' | 'list' | 'indented' | 'table' | 'math';
 		listEditBaseSourceIndent?: number;
 		listEditBaseVisualIndent?: number;
 		language?: string;
 		frontmatter?: MarkdownFrontmatter;
+		math?: ParsedMarkdownMathBlock;
 		table?: MarkdownTable
 	 };
 
@@ -822,6 +830,72 @@
 			});
 
 			return rule;
+		}
+
+		ignoreEvent() {
+			return false;
+		}
+	}
+
+	class MarkdownMathWidget extends WidgetType {
+		source = '';
+		displayMode = false;
+		lineNumber = 1;
+		editPosition = 0;
+		key = '';
+
+		constructor(source: string, displayMode: boolean, lineNumber: number, editPosition: number) {
+			super();
+			this.source = source;
+			this.displayMode = displayMode;
+			this.lineNumber = lineNumber;
+			this.editPosition = editPosition;
+			this.key = `${displayMode}:${source}:${lineNumber}:${editPosition}`;
+		}
+
+		eq(other: WidgetType) {
+			return other instanceof MarkdownMathWidget && other.key === this.key;
+		}
+
+		toDOM(view: EditorView) {
+			const wrapper = document.createElement('span');
+
+			wrapper.className = `markdown-math-widget ${this.displayMode ? 'display' : 'inline'}`;
+			wrapper.tabIndex = 0;
+			wrapper.setAttribute('role', 'button');
+			wrapper.setAttribute('aria-label', this.displayMode ? 'Edit display math' : 'Edit inline math');
+
+			try {
+				katex.render(this.source, wrapper, {
+					displayMode: this.displayMode,
+					throwOnError: false,
+					strict: 'ignore',
+					trust: false
+				});
+			} catch (error) {
+				wrapper.classList.add('is-error');
+				wrapper.textContent = this.source;
+				wrapper.title = error instanceof Error ? error.message : 'Unable to render math';
+			}
+
+			const editMath = (event: Event) => {
+				event.preventDefault();
+
+				const position = Math.min(this.editPosition, view.state.doc.length);
+
+				view.dispatch({ selection: { anchor: position } });
+				view.focus();
+			};
+
+			wrapper.addEventListener('mousedown', editMath);
+
+			wrapper.addEventListener('keydown', (event) => {
+				const keyboardEvent = event as KeyboardEvent;
+
+				if (keyboardEvent.key === 'Enter') editMath(keyboardEvent);
+			});
+
+			return wrapper;
 		}
 
 		ignoreEvent() {
@@ -1751,15 +1825,21 @@
 		const frontmatterBlocks = markdownFrontmatterBlocks(state);
 		const fencedBlocks = fencedCodeBlocks(state);
 		const tableBlocks = markdownTableBlocks(state);
-		const ignoredContainerBlocks = [
+		const mathBlocks = markdownMathBlocks(state, [
 			...frontmatterBlocks,
 			...fencedBlocks,
 			...tableBlocks
+		]);
+		const ignoredContainerBlocks = [
+			...frontmatterBlocks,
+			...fencedBlocks,
+			...tableBlocks,
+			...mathBlocks
 		];
 		const headingModel = markdownHeadingModel(state, ignoredContainerBlocks);
 		const orderedListMarkers = markdownOrderedListMarkers(state, ignoredContainerBlocks);
 		const listModel = markdownListModel(state, orderedListMarkers, ignoredContainerBlocks);
-		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
+		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, mathBlocks, listModel);
 		const activeHeadingControlLines = activeHeadingControlLineNumbers(state, headingModel);
 		const activeListControlLines = activeListControlLineNumbers(state, listModel);
 		const selectionLineNumber = state.doc.lineAt(state.selection.main.head).number;
@@ -1774,6 +1854,7 @@
 			const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
 			const fencedBlock = blockForLine(fencedBlocks, line.number);
 			const tableBlock = blockForLine(tableBlocks, line.number);
+			const mathBlock = blockForLine(mathBlocks, line.number);
 
 			if (headingModel.collapsedAncestorByLine.has(line.number)) {
 				ranges.push(Decoration.line({
@@ -1896,6 +1977,31 @@
 					}).range(line.from, blockEnd.to));
 
 					lineNumber = tableBlock.end;
+				}
+
+				continue;
+			}
+
+			if (mathBlock?.math) {
+				if (active) {
+					ranges.push(Decoration.line({
+						class: `cm-live-math-source-line ${activeClass}`,
+						attributes: activeAttributes
+					}).range(line.from));
+
+					continue;
+				}
+
+				if (line.number === mathBlock.start) {
+					const blockEnd = state.doc.line(mathBlock.end);
+					const singleLine = mathBlock.start === mathBlock.end;
+
+					ranges.push(Decoration.replace({
+						widget: new MarkdownMathWidget(mathBlock.math.source, true, mathBlock.start, line.from),
+						block: !singleLine
+					}).range(line.from, blockEnd.to));
+
+					lineNumber = mathBlock.end;
 				}
 
 				continue;
@@ -2239,6 +2345,7 @@
 		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
 		tableBlocks: SourceBlock[],
+		mathBlocks: SourceBlock[],
 		listModel: MarkdownListModel
 	) {
 		const blocks: SourceBlock[] = [];
@@ -2250,7 +2357,7 @@
 			const endLine = state.doc.lineAt(endPosition).number;
 
 			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks, listModel);
+				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks, mathBlocks, listModel);
 
 				if (!blocks.some((existing) => sameSourceBlock(existing, block))) {
 					blocks.push(block);
@@ -2277,6 +2384,7 @@
 		frontmatterBlocks: SourceBlock[],
 		fencedBlocks: SourceBlock[],
 		tableBlocks: SourceBlock[],
+		mathBlocks: SourceBlock[],
 		listModel: MarkdownListModel
 	): SourceBlock {
 		const frontmatterBlock = blockForLine(frontmatterBlocks, lineNumber);
@@ -2290,6 +2398,10 @@
 		const tableBlock = blockForLine(tableBlocks, lineNumber);
 
 		if (tableBlock) return tableBlock;
+
+		const mathBlock = blockForLine(mathBlocks, lineNumber);
+
+		if (mathBlock) return mathBlock;
 
 		const listBlock = activeListBlockForLine(lineNumber, listModel);
 
@@ -3559,6 +3671,22 @@
 		return orderedListMarkersForLines(lines, ignoredLines);
 	}
 
+	function markdownMathBlocks(state: EditorState, ignoredBlocks: SourceBlock[] = []): SourceBlock[] {
+		const lines: string[] = [];
+		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
+
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			lines.push(state.doc.line(lineNumber).text);
+		}
+
+		return markdownMathBlocksForLines(lines, ignoredLines).map((block) => ({
+			start: block.start,
+			end: block.end,
+			kind: 'math',
+			math: block
+		}));
+	}
+
 	function indentedBlockForLine(state: EditorState, lineNumber: number): SourceBlock | null {
 		const line = state.doc.line(lineNumber);
 
@@ -3693,6 +3821,15 @@
 			hide(from, labelStart);
 			addMark(labelStart, labelEnd, 'cm-live-footnote-ref', footnoteReferenceAttributes(match[1]));
 			hide(labelEnd, to);
+		}
+
+		for (const math of inlineMarkdownMathSpans(text, contentOffset)) {
+			if (!claim(math.from, math.to)) continue;
+
+			ranges.push(Decoration.replace({
+				widget: new MarkdownMathWidget(math.source, math.displayMode, line.number, line.from + math.from),
+				inclusive: false
+			}).range(line.from + math.from, line.from + math.to));
 		}
 
 		for (const match of text.matchAll(/~~([^~\n]+)~~/g)) {
@@ -4036,13 +4173,13 @@
 					{ key: 'Backspace', run: smartMarkdownBackspace },
 					{
 						key: 'ArrowUp',
-						run: (view) => moveAcrossMarkdownImageLine(view, -1),
-						shift: (view) => moveAcrossMarkdownImageLine(view, -1, true)
+						run: (view) => moveAcrossMarkdownBlockWidgetLine(view, -1),
+						shift: (view) => moveAcrossMarkdownBlockWidgetLine(view, -1, true)
 					},
 					{
 						key: 'ArrowDown',
-						run: (view) => moveAcrossMarkdownImageLine(view, 1),
-						shift: (view) => moveAcrossMarkdownImageLine(view, 1, true)
+						run: (view) => moveAcrossMarkdownBlockWidgetLine(view, 1),
+						shift: (view) => moveAcrossMarkdownBlockWidgetLine(view, 1, true)
 					},
 					{ key: 'Tab', run: indentMore },
 					{ key: 'Shift-Tab', run: indentLess },
@@ -4826,11 +4963,11 @@
 		return currentDraftChanges.compose(update.changes);
 	}
 
-	function moveAcrossMarkdownImageLine(view: EditorView, direction: -1 | 1, extend = false) {
+	function moveAcrossMarkdownBlockWidgetLine(view: EditorView, direction: -1 | 1, extend = false) {
 		const selection = view.state.selection.main;
 
 		if (!selection.empty && !extend) return false;
-		if (!shouldMoveAcrossMarkdownImageLine(view.state, selection.head, direction)) return false;
+		if (!shouldMoveAcrossMarkdownBlockWidgetLine(view.state, selection.head, direction)) return false;
 
 		const target = adjacentSourceLinePosition(view.state, selection.head, direction);
 
@@ -4846,14 +4983,14 @@
 		return true;
 	}
 
-	function shouldMoveAcrossMarkdownImageLine(state: EditorState, position: number, direction: -1 | 1) {
+	function shouldMoveAcrossMarkdownBlockWidgetLine(state: EditorState, position: number, direction: -1 | 1) {
 		const currentLine = state.doc.lineAt(position);
 		const targetLineNumber = currentLine.number + direction;
 
 		if (targetLineNumber < 1 || targetLineNumber > state.doc.lines) return false;
 
-		return isMarkdownImageOnlyLine(state, currentLine.number)
-			|| isMarkdownImageOnlyLine(state, targetLineNumber);
+		return isNearMarkdownBlockWidgetLine(state, currentLine.number)
+			|| isNearMarkdownBlockWidgetLine(state, targetLineNumber);
 	}
 
 	function adjacentSourceLinePosition(state: EditorState, position: number, direction: -1 | 1) {
@@ -4870,6 +5007,37 @@
 
 	function isMarkdownImageOnlyLine(state: EditorState, lineNumber: number) {
 		return Boolean(markdownImageOnly(state.doc.line(lineNumber).text));
+	}
+
+	function isNearMarkdownBlockWidgetLine(state: EditorState, lineNumber: number) {
+		for (const block of markdownBlockWidgetBlocks(state)) {
+			if (
+				lineNumber >= block.start - markdownBlockWidgetNavigationRadius
+				&& lineNumber <= block.end + markdownBlockWidgetNavigationRadius
+			) return true;
+		}
+
+		return false;
+	}
+
+	function markdownBlockWidgetBlocks(state: EditorState): SourceBlock[] {
+		const imageBlocks: SourceBlock[] = [];
+		const ignoredBlocks = [
+			...markdownFrontmatterBlocks(state),
+			...fencedCodeBlocks(state),
+			...markdownTableBlocks(state)
+		];
+
+		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+			if (isMarkdownImageOnlyLine(state, lineNumber)) {
+				imageBlocks.push({ start: lineNumber, end: lineNumber, kind: 'line' });
+			}
+		}
+
+		return [
+			...imageBlocks,
+			...markdownMathBlocks(state, ignoredBlocks)
+		];
 	}
 
 	function smartMarkdownEnter(view: EditorView) {
