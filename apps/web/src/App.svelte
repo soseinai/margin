@@ -81,7 +81,6 @@
 	import {
 		compactLocalPath,
 		directoryPath,
-		escapeMarkdownImageAlt,
 		fileNameFromPath,
 		imageAltText,
 		isAbsoluteLocalPath,
@@ -89,18 +88,52 @@
 		isImageSourceLike,
 		isMarkdownPathLike,
 		joinLocalPath,
-		markdownImageDestination,
 		markdownImageReference,
 		normalizePathSeparators,
 		normalizeRecentDocuments,
 		type RecentDocument
 	} from './lib/local-documents';
+	import {
+		clampImageResize,
+		markdownImageFromMatch,
+		markdownImageOnly,
+		markdownImagePattern,
+		markdownImageSizeCss,
+		markdownImageWithSize,
+		type MarkdownImage
+	} from './lib/markdown-images';
+	import {
+		isFrontmatterBoundaryLine,
+		isFrontmatterClosingLine,
+		parseFrontmatter,
+		type MarkdownFrontmatter
+	} from './lib/markdown-frontmatter';
 	import { orderedListMarkersForLines } from './lib/markdown-lists';
 	import {
 		inlineMarkdownMathSpans,
 		markdownMathBlocksForLines,
 		type MarkdownMathBlock as ParsedMarkdownMathBlock
 	} from './lib/markdown-math';
+	import {
+		isClosingMarkdownFence,
+		markdownCodeFenceLanguage,
+		openingMarkdownFence,
+		type MarkdownFenceInfo
+	} from './lib/markdown-code-fences';
+	import {
+		leadingMarkdownIndent,
+		leadingMarkdownWhitespaceLength,
+		markdownIndentWidth,
+		sourceMarkdownIndentLengthForWidth
+	} from './lib/markdown-indent';
+	import {
+		markdownTableAlignment,
+		markdownTableCells,
+		markdownTableDelimiterCells,
+		padMarkdownTableAlignments,
+		padMarkdownTableCells,
+		type MarkdownTable
+	} from './lib/markdown-tables';
 
 	import {
 		appendMarginCommentBlock,
@@ -496,7 +529,6 @@
 		table?: MarkdownTable
 	 };
 
-	type FenceInfo = { marker: '`' | '~'; length: number; language: string };
 	type MarkdownHeadingLine = { level: number; text: string; syntaxLength: number };
 	type MarkdownHeading = {
 		blockEnd: number;
@@ -541,35 +573,6 @@
 		items: Map<number, MarkdownListItem>;
 		ownerByLine: Map<number, MarkdownListItem>
 	 };
-	type MarkdownFrontmatterEntry = { key: string; value: string };
-	type MarkdownFrontmatter = {
-		entries: MarkdownFrontmatterEntry[];
-		rawLines: string[]
-	};
-	type MarkdownImage = {
-		alt: string;
-		src: string;
-		title: string;
-		raw: string;
-		attrs: MarkdownImageAttributes
-	};
-	type MarkdownImageAttributes = {
-		width: MarkdownImageSize | null;
-		height: MarkdownImageSize | null;
-		other: string[]
-	};
-	type MarkdownImageSize = {
-		value: number;
-		unit: string;
-		raw: string
-	};
-
-	type MarkdownTable = {
-		headers: string[];
-		alignments: Array<'left' | 'center' | 'right' | null>;
-		rows: string[][]
-	 };
-
 	const markdownImageBounds = new Map<string, { width: number; height: number }>();
 	const markdownImageResizeObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
@@ -1981,7 +1984,7 @@
 				}
 
 				if (!active && listContext && !boundary) {
-					const sourceIndentLength = sourceIndentLengthForWidth(line.text, listContext.sourceIndentWidth);
+					const sourceIndentLength = sourceMarkdownIndentLengthForWidth(line.text, listContext.sourceIndentWidth);
 
 					if (sourceIndentLength > 0) {
 						ranges.push(Decoration.mark({
@@ -2582,7 +2585,7 @@
 	function addActiveListBaseIndentHider(ranges: Range<Decoration>[], line: Line, block: SourceBlock) {
 		if (typeof block.listEditBaseSourceIndent !== 'number') return;
 
-		const length = sourceIndentLengthForWidth(line.text, block.listEditBaseSourceIndent);
+		const length = sourceMarkdownIndentLengthForWidth(line.text, block.listEditBaseSourceIndent);
 
 		if (length <= 0) return;
 
@@ -2700,13 +2703,13 @@
 
 	function fencedCodeBlocks(state: EditorState): SourceBlock[] {
 		const blocks: SourceBlock[] = [];
-		let openFence: { line: number; fence: FenceInfo } | null = null;
+		let openFence: { line: number; fence: MarkdownFenceInfo } | null = null;
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const text = state.doc.line(lineNumber).text;
 
 			if (openFence) {
-				if (isClosingFence(text, openFence.fence)) {
+				if (isClosingMarkdownFence(text, openFence.fence)) {
 					blocks.push({
 						start: openFence.line,
 						end: lineNumber,
@@ -2719,7 +2722,7 @@
 				continue;
 			}
 
-			const fence = openingFence(text);
+			const fence = openingMarkdownFence(text);
 
 			if (fence) openFence = { line: lineNumber, fence };
 		}
@@ -2765,213 +2768,10 @@
 		return [];
 	}
 
-	function isFrontmatterBoundaryLine(text: string) {
-		return (/^[ \t]*---[ \t]*$/).test(text);
-	}
-
-	function isFrontmatterClosingLine(text: string) {
-		return (/^[ \t]*\.\.\.[ \t]*$/).test(text);
-	}
-
-	function parseFrontmatter(rawLines: string[]): MarkdownFrontmatter {
-		const entries: MarkdownFrontmatterEntry[] = [];
-		let currentEntry: MarkdownFrontmatterEntry | null = null;
-
-		for (const line of rawLines) {
-			const match = (/^[ \t]*([A-Za-z0-9_.-]+):[ \t]*(.*)$/).exec(line);
-
-			if (match) {
-				currentEntry = {
-					key: match[1],
-					value: frontmatterValueLabel(match[2])
-				};
-
-				entries.push(currentEntry);
-				continue;
-			}
-
-			if (!currentEntry) continue;
-
-			const listItem = (/^[ \t]+-[ \t]+(.+)$/).exec(line);
-			const continuation = (/^[ \t]+(.+)$/).exec(line);
-
-			if (listItem) {
-				currentEntry.value = joinFrontmatterValue(currentEntry.value, frontmatterValueLabel(listItem[1]), ', ');
-				continue;
-			}
-
-			if (continuation) {
-				currentEntry.value = joinFrontmatterValue(currentEntry.value, frontmatterValueLabel(continuation[1]), ' ');
-			}
-		}
-
-		return { entries, rawLines };
-	}
-
-	function joinFrontmatterValue(current: string, next: string, separator: string) {
-		if (!current) return next;
-		if (!next) return current;
-
-		return `${current}${separator}${next}`;
-	}
-
-	function frontmatterValueLabel(value: string) {
-		const trimmed = value.trim();
-
-		if (
-			(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-			(trimmed.startsWith("'") && trimmed.endsWith("'"))
-		) {
-			return trimmed.slice(1, -1);
-		}
-
-		return trimmed;
-	}
-
-	function markdownImageOnly(text: string): MarkdownImage | null {
-		const trimmed = text.trim();
-		const match = markdownImagePattern().exec(trimmed);
-
-		if (!match || match[0] !== trimmed) return null;
-
-		return markdownImageFromMatch(match);
-	}
-
 	function blockImageLineAt(state: EditorState, lineNumber: number) {
 		if (lineNumber < 1 || lineNumber > state.doc.lines) return false;
 
 		return Boolean(markdownImageOnly(state.doc.line(lineNumber).text));
-	}
-
-	function markdownImagePattern() {
-		return /!\[([^\]\n]*)\]\(((?:<[^>\n]+>(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?)|(?:[^)\n]+))\)(?:\{([^\n}]*)\})?/g;
-	}
-
-	function markdownImageFromMatch(match: RegExpMatchArray): MarkdownImage | null {
-		const rawDestination = match[2]?.trim() ?? '';
-		const { src, title } = splitMarkdownImageDestination(rawDestination);
-
-		if (!src) return null;
-
-		return {
-			alt: match[1] ?? '',
-			src,
-			title,
-			raw: match[0],
-			attrs: parseMarkdownImageAttributes(match[3] ?? '')
-		};
-	}
-
-	function parseMarkdownImageAttributes(value: string): MarkdownImageAttributes {
-		const attrs: MarkdownImageAttributes = { width: null, height: null, other: [] };
-		const source = value.trim().replace(/^:/, '').trim();
-
-		for (const token of markdownAttributeTokens(source)) {
-			const match = (/^([A-Za-z][A-Za-z0-9_-]*)=(.+)$/).exec(token);
-
-			if (!match) {
-				attrs.other.push(token);
-				continue;
-			}
-
-			const key = match[1].toLowerCase();
-			const size = parseMarkdownImageSize(match[2]);
-
-			if (key === 'width' && size) {
-				attrs.width = size;
-			} else if (key === 'height' && size) {
-				attrs.height = size;
-			} else {
-				attrs.other.push(token);
-			}
-		}
-
-		return attrs;
-	}
-
-	function markdownAttributeTokens(value: string) {
-		const tokens: string[] = [];
-		let token = '';
-		let quote = '';
-
-		for (const character of value) {
-			if (quote) {
-				token += character;
-				if (character === quote) quote = '';
-				continue;
-			}
-
-			if (character === '"' || character === "'") {
-				quote = character;
-				token += character;
-				continue;
-			}
-
-			if (/\s/.test(character)) {
-				if (token) {
-					tokens.push(token);
-					token = '';
-				}
-
-				continue;
-			}
-
-			token += character;
-		}
-
-		if (token) tokens.push(token);
-
-		return tokens;
-	}
-
-	function parseMarkdownImageSize(value: string): MarkdownImageSize | null {
-		const raw = unquoteMarkdownTitle(value);
-		const match = (/^(\d+(?:\.\d+)?)([A-Za-z%]*)$/).exec(raw);
-
-		if (!match) return null;
-
-		return {
-			value: Number(match[1]),
-			unit: match[2],
-			raw
-		};
-	}
-
-	function splitMarkdownImageDestination(destination: string) {
-		if (destination.startsWith('<')) {
-			const closeIndex = destination.indexOf('>');
-
-			if (closeIndex > 0) {
-				return {
-					src: destination.slice(1, closeIndex).trim(),
-					title: unquoteMarkdownTitle(destination.slice(closeIndex + 1).trim())
-				};
-			}
-		}
-
-		const title = (/\s+(["'])(.*?)\1\s*$/).exec(destination);
-
-		if (title) {
-			return {
-				src: destination.slice(0, title.index).trim(),
-				title: title[2]
-			};
-		}
-
-		return { src: destination.trim(), title: '' };
-	}
-
-	function unquoteMarkdownTitle(value: string) {
-		const trimmed = value.trim();
-
-		if (
-			(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-			(trimmed.startsWith("'") && trimmed.endsWith("'"))
-		) {
-			return trimmed.slice(1, -1);
-		}
-
-		return trimmed;
 	}
 
 	function resolveMarkdownImageSrc(src: string) {
@@ -2993,12 +2793,6 @@
 
 		if (width) imageElement.style.width = width;
 		if (height) imageElement.style.height = height;
-	}
-
-	function markdownImageSizeCss(size: MarkdownImageSize | null) {
-		if (!size) return '';
-
-		return `${size.value}${size.unit || 'px'}`;
 	}
 
 	function isExternalImageSource(src: string) {
@@ -3042,10 +2836,6 @@
 		};
 	}
 
-	function clampImageResize(value: number) {
-		return Math.max(48, Math.min(2400, Math.round(value)));
-	}
-
 	function replaceMarkdownImageSize(
 		view: EditorView,
 		image: MarkdownImage,
@@ -3065,54 +2855,12 @@
 		});
 	}
 
-	function markdownImageWithSize(image: MarkdownImage, width: number, height: number) {
-		const attrs = [
-			...image.attrs.other,
-			`width=${clampImageResize(width)}`,
-			`height=${clampImageResize(height)}`
-		];
-
-		return `![${escapeMarkdownImageAlt(image.alt)}](${markdownImageDestinationWithTitle(image)}){${attrs.join(' ')}}`;
-	}
-
-	function markdownImageDestinationWithTitle(image: MarkdownImage) {
-		const destination = markdownImageDestination(image.src);
-
-		if (!image.title) return destination;
-
-		return `${destination} "${escapeMarkdownTitle(image.title)}"`;
-	}
-
-	function escapeMarkdownTitle(value: string) {
-		return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-	}
-
 	function isHorizontalRuleLine(text: string) {
 		return (/^[ \t]{0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/).test(text);
 	}
 
-	function openingFence(text: string): FenceInfo | null {
-		const match = (/^\s*(`{3,}|~{3,})(.*)$/).exec(text);
-
-		if (!match) return null;
-
-		const marker = match[1][0] as '`' | '~';
-
-		return { marker, length: match[1].length, language: codeFenceLanguage(match[2] ?? '') };
-	}
-
-	function codeFenceLanguage(info: string) {
-		const token = info.trim().split(/\s+/)[0] ?? '';
-
-		return token
-			.replace(/^\{\.?/, '')
-			.replace(/^\./, '')
-			.replace(/^language-/, '')
-			.replace(/\}$/, '');
-	}
-
 	function markdownCodeLanguage(info: string) {
-		const language = codeFenceLanguage(info);
+		const language = markdownCodeFenceLanguage(info);
 
 		if (!language) return null;
 
@@ -3150,35 +2898,27 @@
 		}
 	}
 
-	function isClosingFence(text: string, fence: FenceInfo) {
-		const trimmed = text.trim();
-
-		if (!trimmed || trimmed[0] !== fence.marker || trimmed.length < fence.length) return false;
-
-		return [...trimmed].every((character) => character === fence.marker);
-	}
-
 	function markdownTableBlocks(state: EditorState): SourceBlock[] {
 		const blocks: SourceBlock[] = [];
 
 		for (let lineNumber = 1; lineNumber < state.doc.lines; lineNumber += 1) {
 			if (blockForLine(blocks, lineNumber)) continue;
 
-			const header = tableCells(state.doc.line(lineNumber).text);
-			const delimiter = tableCells(state.doc.line(lineNumber + 1).text);
+			const header = markdownTableCells(state.doc.line(lineNumber).text);
+			const delimiter = markdownTableCells(state.doc.line(lineNumber + 1).text);
 
-			if (!header || !delimiter || !tableDelimiterCells(delimiter)) continue;
+			if (!header || !delimiter || !markdownTableDelimiterCells(delimiter)) continue;
 
 			const columnCount = Math.max(header.length, delimiter.length);
 			const rows: string[][] = [];
 			let end = lineNumber + 1;
 
 			for (let rowLine = lineNumber + 2; rowLine <= state.doc.lines; rowLine += 1) {
-				const cells = tableCells(state.doc.line(rowLine).text);
+				const cells = markdownTableCells(state.doc.line(rowLine).text);
 
-				if (!cells || tableDelimiterCells(cells)) break;
+				if (!cells || markdownTableDelimiterCells(cells)) break;
 
-				rows.push(padTableCells(cells, columnCount));
+				rows.push(padMarkdownTableCells(cells, columnCount));
 				end = rowLine;
 			}
 
@@ -3187,8 +2927,8 @@
 				end,
 				kind: 'table',
 				table: {
-					headers: padTableCells(header, columnCount),
-					alignments: padTableAlignments(delimiter.map(tableAlignment), columnCount),
+					headers: padMarkdownTableCells(header, columnCount),
+					alignments: padMarkdownTableAlignments(delimiter.map(markdownTableAlignment), columnCount),
 					rows
 				}
 			});
@@ -3197,76 +2937,6 @@
 		}
 
 		return blocks;
-	}
-
-	function tableCells(text: string) {
-		const trimmed = text.trim();
-
-		if (!trimmed.includes('|')) return null;
-
-		let row = trimmed;
-
-		if (row.startsWith('|')) row = row.slice(1);
-		if (row.endsWith('|')) row = row.slice(0, -1);
-
-		const cells: string[] = [];
-		let current = '';
-		let escaped = false;
-
-		for (const character of row) {
-			if (escaped) {
-				current += character === '|' ? '|' : `\\${character}`;
-				escaped = false;
-
-				continue;
-			}
-
-			if (character === '\\') {
-				escaped = true;
-
-				continue;
-			}
-
-			if (character === '|') {
-				cells.push(current.trim());
-				current = '';
-
-				continue;
-			}
-
-			current += character;
-		}
-
-		cells.push(current.trim());
-
-		return cells.length > 1 ? cells : null;
-	}
-
-	function tableDelimiterCells(cells: string[]) {
-		return cells.length > 0 && cells.every((cell) => (/^:?-{3,}:?$/).test(cell.replace(/\s+/g, '')));
-	}
-
-	function tableAlignment(cell: string): 'left' | 'center' | 'right' | null {
-		const normalized = cell.replace(/\s+/g, '');
-		const left = normalized.startsWith(':');
-		const right = normalized.endsWith(':');
-
-		if (left && right) return 'center';
-		if (right) return 'right';
-		if (left) return 'left';
-
-		return null;
-	}
-
-	function padTableCells(cells: string[], length: number) {
-		return Array.from({ length }, (_, index) => cells[index] ?? '');
-	}
-
-	function padTableAlignments(
-		alignments: Array<'left' | 'center' | 'right' | null>,
-		length: number
-	) {
-		return Array.from({ length }, (_, index) => alignments[index] ?? null);
 	}
 
 	function belongsToListContinuation(
@@ -3278,7 +2948,7 @@
 		for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
 			const text = state.doc.line(lineNumber).text;
 
-			if (text.trim() && leadingIndent(text) < info.contentIndent) return false;
+			if (text.trim() && leadingMarkdownIndent(text) < info.contentIndent) return false;
 		}
 
 		return true;
@@ -3301,7 +2971,7 @@
 
 			if (!info) {
 				if (line.text.trim()) {
-					const sourceIndent = leadingIndent(line.text);
+					const sourceIndent = leadingMarkdownIndent(line.text);
 
 					while (stack.length && sourceIndent < stack[stack.length - 1].info.contentIndent) {
 						stack.pop();
@@ -3383,7 +3053,7 @@
 		for (let nextLine = item.lineNumber + 1; nextLine <= state.doc.lines; nextLine += 1) {
 			const text = state.doc.line(nextLine).text;
 
-			if (!text.trim() || leadingIndent(text) >= item.info.contentIndent) {
+			if (!text.trim() || leadingMarkdownIndent(text) >= item.info.contentIndent) {
 				end = nextLine;
 
 				continue;
@@ -3400,11 +3070,11 @@
 
 		if (!match) return null;
 
-		const indent = indentWidth(match[1]);
+		const indent = markdownIndentWidth(match[1]);
 
 		return {
 			indent,
-			contentIndent: indent + indentWidth(match[2] + match[3]),
+			contentIndent: indent + markdownIndentWidth(match[2] + match[3]),
 			marker: match[2],
 			task: Boolean(match[4])
 		};
@@ -3510,7 +3180,7 @@
 		if (!context || context.sourceIndent >= context.info.contentIndent + 4) return null;
 
 		return {
-			sourceIndentLength: leadingWhitespaceLength(line.text),
+			sourceIndentLength: leadingMarkdownWhitespaceLength(line.text),
 			sourceIndentWidth: context.sourceIndent,
 			visualIndent: context.visualIndent
 		};
@@ -3522,7 +3192,7 @@
 		listModel: MarkdownListModel
 	): ListContainerContext | null {
 		const line = state.doc.line(lineNumber);
-		const sourceIndent = leadingIndent(line.text);
+		const sourceIndent = leadingMarkdownIndent(line.text);
 		const item = listModel.ownerByLine.get(lineNumber);
 
 		if (!item || lineNumber === item.lineNumber || sourceIndent < item.info.contentIndent) return null;
@@ -3546,10 +3216,10 @@
 		const listCode = markdownListIndentedCodeInfo(state, lineNumber, listModel);
 
 		if (listCode) return listCode;
-		if (leadingIndent(line.text) < 4 || listModel.ownerByLine.has(lineNumber)) return null;
+		if (leadingMarkdownIndent(line.text) < 4 || listModel.ownerByLine.has(lineNumber)) return null;
 
 		return {
-			sourceIndentLength: sourceIndentLengthForWidth(line.text, 4),
+			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, 4),
 			sourceIndentWidth: 4,
 			visualIndent: 0
 		};
@@ -3570,7 +3240,7 @@
 		if (context.sourceIndent < codeIndent) return null;
 
 		return {
-			sourceIndentLength: sourceIndentLengthForWidth(line.text, codeIndent),
+			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, codeIndent),
 			sourceIndentWidth: codeIndent,
 			visualIndent: context.visualIndent
 		};
@@ -3587,7 +3257,7 @@
 		if (!context) return null;
 
 		return {
-			sourceIndentLength: sourceIndentLengthForWidth(line.text, context.info.contentIndent),
+			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, context.info.contentIndent),
 			sourceIndentWidth: context.info.contentIndent,
 			visualIndent: context.visualIndent
 		};
@@ -3653,11 +3323,11 @@
 	}
 
 	function markdownListInfoFallback(indent: string, marker: string): ListInfo {
-		const indentWidthValue = indentWidth(indent);
+		const indentWidthValue = markdownIndentWidth(indent);
 
 		return {
 			indent: indentWidthValue,
-			contentIndent: indentWidthValue + indentWidth(`${marker} `),
+			contentIndent: indentWidthValue + markdownIndentWidth(`${marker} `),
 			marker,
 			task: false
 		};
@@ -3732,7 +3402,7 @@
 	function indentedBlockForLine(state: EditorState, lineNumber: number): SourceBlock | null {
 		const line = state.doc.line(lineNumber);
 
-		if (!line.text.trim() || leadingIndent(line.text) < 4) return null;
+		if (!line.text.trim() || leadingMarkdownIndent(line.text) < 4) return null;
 
 		let start = lineNumber;
 		let end = lineNumber;
@@ -3740,7 +3410,7 @@
 		for (let previous = lineNumber - 1; previous >= 1; previous -= 1) {
 			const text = state.doc.line(previous).text;
 
-			if (text.trim() && leadingIndent(text) < 4) break;
+			if (text.trim() && leadingMarkdownIndent(text) < 4) break;
 
 			start = previous;
 		}
@@ -3748,50 +3418,12 @@
 		for (let next = lineNumber + 1; next <= state.doc.lines; next += 1) {
 			const text = state.doc.line(next).text;
 
-			if (text.trim() && leadingIndent(text) < 4) break;
+			if (text.trim() && leadingMarkdownIndent(text) < 4) break;
 
 			end = next;
 		}
 
 		return { start, end, kind: 'indented' };
-	}
-
-	function leadingIndent(text: string) {
-		const match = (/^\s*/).exec(text);
-
-		return indentWidth(match?.[0] ?? '');
-	}
-
-	function leadingWhitespaceLength(text: string) {
-		return (/^\s*/).exec(text)?.[0].length ?? 0;
-	}
-
-	function sourceIndentLengthForWidth(text: string, width: number) {
-		if (width <= 0) return 0;
-
-		let currentWidth = 0;
-		let length = 0;
-
-		for (const character of text) {
-			if (character !== ' ' && character !== '\t') break;
-
-			currentWidth += character === '\t' ? 4 : 1;
-			length += character.length;
-
-			if (currentWidth >= width) break;
-		}
-
-		return length;
-	}
-
-	function indentWidth(value: string) {
-		let width = 0;
-
-		for (const character of value) {
-			width += character === '\t' ? 4 : 1;
-		}
-
-		return width;
 	}
 
 	function addInlineMarkdownPreview(ranges: Range<Decoration>[], line: Line, contentOffset = 0) {
