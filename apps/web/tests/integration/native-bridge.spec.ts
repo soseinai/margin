@@ -17,6 +17,12 @@ function lastCallArgs(calls: Awaited<ReturnType<typeof tauriCalls>>, command: st
 
 test('routes native menu events through the frontend contract', async ({ page }) => {
   await installTauriMock(page);
+  await page.addInitScript(() => {
+    (window as typeof window & { __marginPrintCalls?: number }).__marginPrintCalls = 0;
+    window.print = () => {
+      (window as typeof window & { __marginPrintCalls: number }).__marginPrintCalls += 1;
+    };
+  });
   await openCleanApp(page, '/?desktop-preview');
 
   await replaceEditorMarkdown(page, 'Native menu target');
@@ -34,11 +40,53 @@ test('routes native menu events through the frontend contract', async ({ page })
   await emitTauriEvent(page, 'margin://previous-tab');
   await expect(editor(page)).toContainText('Column');
 
+  await emitTauriEvent(page, 'margin://print-document');
+  const printDialog = page.getByRole('dialog', { name: 'Print' });
+  await expect(printDialog).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Include margin notes appendix' })).toBeDisabled();
+  await printDialog.getByRole('button', { name: 'Print', exact: true }).click();
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+    return calls.filter((call) => call.command === 'print_window').length;
+  }).toBe(1);
+  await expect.poll(() =>
+    page.evaluate(() => (window as typeof window & { __marginPrintCalls: number }).__marginPrintCalls)
+  ).toBe(0);
+  await expect(page.locator('.print-document-body')).toContainText('Column');
+
   await emitTauriEvent(page, 'margin://next-tab');
   await expect(page.getByRole('heading', { name: 'Untitled 2.md' })).toBeVisible();
 
   await emitTauriEvent(page, 'margin://open-settings');
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+test('can omit the margin notes appendix from native print', async ({ page }) => {
+  await installTauriMock(page);
+  await openCleanApp(page, '/?desktop-preview');
+
+  await replaceEditorMarkdown(page, 'Body with a margin note.');
+  await selectAllEditorText(page);
+  await emitTauriEvent(page, 'margin://add-comment');
+  await page.getByPlaceholder('Add a comment').fill('Printed appendix note.');
+  await page.getByRole('button', { name: 'Comment' }).click();
+  await expect(page.getByText('Printed appendix note.').first()).toBeVisible();
+
+  await emitTauriEvent(page, 'margin://print-document');
+  const printDialog = page.getByRole('dialog', { name: 'Print' });
+  await expect(printDialog).toBeVisible();
+
+  const appendixOption = page.getByRole('checkbox', { name: 'Include margin notes appendix' });
+  await expect(appendixOption).toBeChecked();
+  await appendixOption.uncheck();
+  await printDialog.getByRole('button', { name: 'Print', exact: true }).click();
+
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+    return calls.filter((call) => call.command === 'print_window').length;
+  }).toBe(1);
+  await expect(page.locator('.print-document-body')).toContainText('Body with a margin note.');
+  await expect(page.locator('.print-annotations')).toHaveCount(0);
 });
 
 test('opens native deep links, recent documents, and dropped Markdown files', async ({ page }) => {

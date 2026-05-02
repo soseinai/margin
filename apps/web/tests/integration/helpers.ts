@@ -427,6 +427,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
             if (command === 'watch_markdown_document') return undefined;
             if (command === 'confirm_close_tab') return confirmClose;
             if (command === 'quit_app') return undefined;
+            if (command === 'print_window') return undefined;
 
             if (command === 'check_for_app_update') {
               if (checkUpdateError) throw new Error(checkUpdateError);

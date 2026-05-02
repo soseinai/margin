@@ -290,6 +290,22 @@ fn quit_app(app: AppHandle) {
 }
 
 #[tauri::command]
+fn print_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(not(target_os = "ios"))]
+    {
+        window
+            .print()
+            .map_err(|err| format!("Unable to print document: {err}"))
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        let _ = window;
+        Err("Printing is not available on iOS.".to_string())
+    }
+}
+
+#[tauri::command]
 fn save_markdown_document(
     path: String,
     markdown: String,
@@ -1564,6 +1580,8 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+S"),
             )?;
+            let print_file =
+                MenuItem::with_id(app, "file_print", "Print...", true, Some("CmdOrCtrl+P"))?;
             let file_open_separator = PredefinedMenuItem::separator(app)?;
             let file_save_separator = PredefinedMenuItem::separator(app)?;
             let close_tab = MenuItem::with_id(
@@ -1596,6 +1614,7 @@ pub fn run() {
                     &file_open_separator,
                     &save_file,
                     &save_file_as,
+                    &print_file,
                     &file_save_separator,
                     &close_tab,
                     &close_window,
@@ -1795,6 +1814,8 @@ pub fn run() {
             let _ = app.emit("margin://save-document", ());
         } else if menu_id.as_ref() == "file_save_as" {
             let _ = app.emit("margin://save-document-as", ());
+        } else if menu_id.as_ref() == "file_print" {
+            let _ = app.emit("margin://print-document", ());
         } else if menu_id.as_ref() == "file_close_tab" {
             let _ = app.emit("margin://close-tab", ());
         } else if menu_id.as_ref() == "file_close_window" {
@@ -1830,6 +1851,7 @@ pub fn run() {
             show_comment_context_menu,
             confirm_close_tab,
             quit_app,
+            print_window,
             save_markdown_document,
             read_settings,
             write_settings,
