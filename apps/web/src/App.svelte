@@ -1447,13 +1447,7 @@
 	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
-	$: printDocumentHtml = (
-		nativeFilePath,
-		desktopShell,
-		renderPrintMarkdown(editorMarkdown || documentData?.markdown || '', { resolveImageSrc: resolveMarkdownImageSrc })
-	);
 	$: printAppendixCandidateThreads = threads.filter((thread) => !thread.resolved && thread.body.trim().length > 0);
-	$: printableThreads = printAppendixCandidateThreads;
 	$: titlebarEyebrowPlaceholder = localFileMode
 		&& !nativeFilePath
 		&& !localFileHandle
