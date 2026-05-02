@@ -1,0 +1,8 @@
+Euler Math webfont
+
+Source: https://ctan.net/fonts/euler-math/Euler-Math.otf
+Converted from OTF to WOFF2 for browser delivery.
+
+Font version: 0.75
+License: SIL Open Font License, Version 1.1
+License URL: http://scripts.sil.org/OFL

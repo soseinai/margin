@@ -71,6 +71,40 @@ test('edits a new Markdown document in the browser editor', async ({ page }) => 
   );
 });
 
+test('renders Markdown math in the live preview editor', async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.goto('/');
+
+  const editor = page.locator('.cm-content[contenteditable="true"]').first();
+  await expect(editor).toBeVisible();
+
+  await editor.click();
+  await page.keyboard.insertText('Inline $ \\sum_i x_i $ math.');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('$$ \\sum_{i=1}^n x_i $$');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('$$');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('\\int_0^1 x^2 dx');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('$$');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('after math');
+
+  const inlineMath = page.locator('.markdown-math-widget.inline .katex').first();
+
+  await expect(inlineMath).toBeVisible();
+  await expect(inlineMath).toHaveCSS('font-family', /Euler Math/);
+  await expect(page.locator('.markdown-math-widget.inline .mathnormal').first()).toHaveCSS('font-family', /Euler Math/);
+  await expect(page.locator('.markdown-math-widget.inline .op-symbol.small-op').first()).toHaveCSS('font-family', /Euler Math/);
+  await expect(page.locator('.markdown-math-widget.display .katex-display').first()).toBeVisible();
+  await expect(page.locator('.markdown-math-widget.display .op-symbol.large-op').first()).toHaveCSS('font-family', /Euler Math/);
+  await expect(page.locator('.cm-line .markdown-math-widget.display')).toBeVisible();
+});
+
 test('edits a saved margin comment', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 });
   await page.addInitScript(() => {

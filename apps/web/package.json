@@ -25,6 +25,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@lezer/highlight": "^1.2.3",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "katex": "^0.16.45",
     "svelte": "^5.43.7",
     "vite": "^7.2.4"
   },

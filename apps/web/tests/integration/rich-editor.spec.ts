@@ -81,6 +81,51 @@ test('renders edit affordances for rich Markdown widgets', async ({ page }) => {
   await expect(page.getByLabel('Edit horizontal rule')).toBeVisible();
 });
 
+test('arrow keys move one source line across display math', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = [
+    'Before math',
+    'Another row before math',
+    '$$ E = mc^2 $$',
+    '',
+    'After math',
+    'Another row after math'
+  ].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEditorLineText(page)).toBe('After math');
+
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEditorLineText(page)).toBe('$$ E = mc^2 $$');
+
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEditorLineText(page)).toBe('Another row before math');
+
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEditorLineText(page)).toBe('Before math');
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEditorLineText(page)).toBe('Another row before math');
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEditorLineText(page)).toBe('$$ E = mc^2 $$');
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEditorLineText(page)).toBe('After math');
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEditorLineText(page)).toBe('Another row after math');
+});
+
 test('drops image sources into the editor as Markdown references', async ({ page }) => {
   await openCleanApp(page);
   await replaceEditorMarkdown(page, 'Drop below.');

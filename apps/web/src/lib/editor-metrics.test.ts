@@ -133,6 +133,18 @@ describe('live preview edit/display metrics', () => {
     expect(codeLineRule).toContain('margin-left: calc(var(--codeblock-indent) - 12px)');
     expect(fenceLineRule).toContain('margin-left: calc(var(--codeblock-indent) - 12px)');
   });
+
+  it('keeps rendered math editable and display math scrollable', () => {
+    const inlineRule = cssRule('.markdown-math-widget.inline');
+    const katexRule = cssRule('.markdown-math-widget .katex');
+    const displayRule = cssRule('.markdown-math-widget.display');
+    const sourceRule = cssRule('.live-preview-editor .cm-live-math-source-line');
+
+    expect(inlineRule).toContain('display: inline-block');
+    expect(katexRule).toContain('font-family: var(--font-math)');
+    expect(displayRule).toContain('overflow-x: auto');
+    expect(sourceRule).toContain('font-family: var(--font-plex-mono)');
+  });
 });
 
 function cssRule(selector: string) {

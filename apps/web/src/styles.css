@@ -5,6 +5,17 @@
 
 @import "tailwindcss";
 
+@font-face {
+  font-display: block;
+  font-family: "Euler Math";
+  font-style: normal;
+  font-weight: 400;
+  src:
+    local("Euler Math"),
+    local("Euler-Math"),
+    url("./assets/fonts/Euler-Math.woff2") format("woff2");
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -56,6 +67,7 @@
   --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-plex-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-math: "Euler Math", "Times New Roman", serif;
   --dur-fast: 120ms;
   --dur-base: 200ms;
   --dur-slow: 300ms;
@@ -2064,6 +2076,62 @@ button.task-checkbox-widget.checked::after {
   text-underline-offset: 2px;
 }
 
+.markdown-math-widget {
+  color: var(--fg);
+  cursor: text;
+}
+
+.markdown-math-widget.inline {
+  display: inline-block;
+  margin: 0 0.08em;
+  max-width: 100%;
+  vertical-align: -0.08em;
+}
+
+.markdown-math-widget.inline .katex {
+  font-size: 1.03em;
+}
+
+.markdown-math-widget .katex {
+  font-family: var(--font-math);
+}
+
+.markdown-math-widget .katex .textrm,
+.markdown-math-widget .katex .mathnormal,
+.markdown-math-widget .katex .mathit,
+.markdown-math-widget .katex .mathrm,
+.markdown-math-widget .katex .mathbf,
+.markdown-math-widget .katex .boldsymbol,
+.markdown-math-widget .katex .mainrm,
+.markdown-math-widget .katex .op-symbol {
+  font-family: var(--font-math);
+}
+
+.markdown-math-widget.display {
+  margin: 10px -4px 20px;
+  overflow-x: auto;
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.markdown-math-widget.display .katex-display {
+  margin: 0;
+  overflow: visible;
+}
+
+.markdown-math-widget:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  outline-offset: 3px;
+}
+
+.markdown-math-widget.is-error {
+  background: color-mix(in srgb, var(--error-bg) 72%, transparent);
+  color: var(--error-text);
+  font-family: var(--font-plex-mono);
+  font-size: 13px;
+  padding: 1px 4px;
+}
+
 .markdown-image-widget {
   cursor: text;
   max-width: 100%;
@@ -2374,6 +2442,13 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 }
 
 .live-preview-editor .cm-live-table-source-line {
+  color: var(--text-strong);
+  font-family: var(--font-plex-mono);
+  font-size: 13.5px;
+  line-height: 1.58;
+}
+
+.live-preview-editor .cm-live-math-source-line {
   color: var(--text-strong);
   font-family: var(--font-plex-mono);
   font-size: 13.5px;
