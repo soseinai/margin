@@ -1,3 +1,8 @@
+import {
+	leadingMarkdownIndent,
+	markdownIndentWidth
+} from './markdown-indent';
+
 type OrderedListContext = { indent: number; value: number };
 
 export function orderedListMarkersForLines(lines: string[], ignoredLines = new Set<number>()) {
@@ -34,14 +39,14 @@ export function orderedListMarkersForLines(lines: string[], ignoredLines = new S
 		const unordered = (/^(\s*)[-*+]\s+/).exec(text);
 
 		if (unordered) {
-			const indent = indentWidth(unordered[1]);
+			const indent = markdownIndentWidth(unordered[1]);
 			while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
 
 			continue;
 		}
 
 		if (text.trim()) {
-			const indent = leadingIndent(text);
+			const indent = leadingMarkdownIndent(text);
 			while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
 		}
 	}
@@ -55,23 +60,7 @@ function orderedListItemInfo(text: string) {
 	if (!match) return null;
 
 	return {
-		indent: indentWidth(match[1]),
+		indent: markdownIndentWidth(match[1]),
 		value: Number(match[2])
 	};
-}
-
-function leadingIndent(text: string) {
-	const match = (/^\s*/).exec(text);
-
-	return indentWidth(match?.[0] ?? '');
-}
-
-function indentWidth(value: string) {
-	let width = 0;
-
-	for (const character of value) {
-		width += character === '\t' ? 4 : 1;
-	}
-
-	return width;
 }

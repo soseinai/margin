@@ -1,3 +1,22 @@
+import {
+  markdownImageFromParts,
+  markdownImagePattern,
+  markdownImageSizeCss,
+  splitMarkdownDestination,
+  type MarkdownImageAttributes
+} from './markdown-images';
+import {
+  isClosingMarkdownFence,
+  openingMarkdownFence
+} from './markdown-code-fences';
+import {
+  markdownTableAlignments,
+  markdownTableCells,
+  padMarkdownTableCells,
+  type MarkdownTable,
+  type MarkdownTableAlignment
+} from './markdown-tables';
+
 type PrintMarkdownOptions = {
   resolveImageSrc?: (src: string) => string;
 };
@@ -5,12 +24,6 @@ type PrintMarkdownOptions = {
 type ListItem = {
   checked: boolean | null;
   text: string;
-};
-
-type TableBlock = {
-  headers: string[];
-  alignments: Array<'left' | 'center' | 'right' | null>;
-  rows: string[][];
 };
 
 const tokenPrefix = '\u0000MPT';
@@ -29,12 +42,12 @@ export function renderPrintMarkdown(markdown: string, options: PrintMarkdownOpti
       continue;
     }
 
-    const fence = openingFence(line);
+    const fence = openingMarkdownFence(line);
     if (fence) {
       const code: string[] = [];
       index += 1;
 
-      while (index < lines.length && !closingFence(lines[index], fence)) {
+      while (index < lines.length && !isClosingMarkdownFence(lines[index], fence)) {
         code.push(lines[index]);
         index += 1;
       }
@@ -102,27 +115,13 @@ function startsBlock(lines: string[], index: number) {
   const line = lines[index];
 
   return Boolean(
-    openingFence(line) ||
+    openingMarkdownFence(line) ||
       /^(#{1,6})[ \t]+/.test(line) ||
       /^[ \t]{0,3}>/.test(line) ||
       /^[ \t]{0,3}(?:[-+*]|\d+[.)])[ \t]+/.test(line) ||
       /^[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line) ||
       tableAt(lines, index)
   );
-}
-
-function openingFence(line: string) {
-  const match = /^[ \t]*(`{3,}|~{3,})/.exec(line);
-
-  if (!match) return null;
-
-  return { marker: match[1][0], length: match[1].length };
-}
-
-function closingFence(line: string, fence: { marker: string; length: number }) {
-  const match = new RegExp(`^[ \\t]*\\${fence.marker}{${fence.length},}[ \\t]*$`).exec(line);
-
-  return Boolean(match);
 }
 
 function listAt(lines: string[], startIndex: number) {
@@ -182,7 +181,7 @@ function renderList(ordered: boolean, items: ListItem[], options: PrintMarkdownO
 function tableAt(lines: string[], startIndex: number) {
   if (startIndex + 1 >= lines.length) return null;
 
-  const header = tableCells(lines[startIndex]);
+  const header = markdownTableCells(lines[startIndex]);
   const divider = tableDivider(lines[startIndex + 1]);
 
   if (!header || !divider || header.length !== divider.length) return null;
@@ -191,10 +190,10 @@ function tableAt(lines: string[], startIndex: number) {
   let index = startIndex + 2;
 
   while (index < lines.length) {
-    const cells = tableCells(lines[index]);
+    const cells = markdownTableCells(lines[index]);
     if (!cells) break;
 
-    rows.push(padCells(cells, header.length));
+    rows.push(padMarkdownTableCells(cells, header.length));
     index += 1;
   }
 
@@ -208,38 +207,14 @@ function tableAt(lines: string[], startIndex: number) {
   };
 }
 
-function tableCells(line: string) {
-  if (!line.includes('|')) return null;
-
-  let source = line.trim();
-  if (source.startsWith('|')) source = source.slice(1);
-  if (source.endsWith('|')) source = source.slice(0, -1);
-
-  const cells = source.split('|').map((cell) => cell.trim());
-
-  return cells.length > 1 ? cells : null;
-}
-
-function tableDivider(line: string): Array<'left' | 'center' | 'right' | null> | null {
-  const cells = tableCells(line);
+function tableDivider(line: string): MarkdownTableAlignment[] | null {
+  const cells = markdownTableCells(line);
   if (!cells) return null;
 
-  const alignments: Array<'left' | 'center' | 'right' | null> = [];
-
-  for (const cell of cells) {
-    if (!/^:?-{3,}:?$/.test(cell)) return null;
-
-    alignments.push(cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : cell.startsWith(':') ? 'left' : null);
-  }
-
-  return alignments;
+  return markdownTableAlignments(cells);
 }
 
-function padCells(cells: string[], count: number) {
-  return Array.from({ length: count }, (_, index) => cells[index] ?? '');
-}
-
-function renderTable(table: TableBlock, options: PrintMarkdownOptions) {
+function renderTable(table: MarkdownTable, options: PrintMarkdownOptions) {
   const header = table.headers
     .map((cell, index) => `<th${alignmentAttribute(table.alignments[index])}>${renderInline(cell, options)}</th>`)
     .join('');
@@ -255,7 +230,7 @@ function renderTable(table: TableBlock, options: PrintMarkdownOptions) {
   return `<table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function alignmentAttribute(alignment: 'left' | 'center' | 'right' | null | undefined) {
+function alignmentAttribute(alignment: MarkdownTableAlignment | undefined) {
   return alignment ? ` style="text-align: ${alignment};"` : '';
 }
 
@@ -319,131 +294,19 @@ function tokenKey(index: number) {
   return `${tokenPrefix}${index}${tokenSuffix}`;
 }
 
-function markdownImagePattern() {
-  return /!\[([^\]\n]*)\]\(((?:<[^>\n]+>(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?)|(?:[^)\n]+))\)(?:\{([^\n}]*)\})?/g;
-}
-
-function markdownImageFromParts(alt: string, destination: string, attrs: string) {
-  const { src, title } = splitMarkdownDestination(destination.trim());
-
-  if (!src) return null;
-
-  return {
-    alt,
-    attrs: parseImageAttributes(attrs),
-    src,
-    title
-  };
-}
-
-function splitMarkdownDestination(destination: string) {
-  if (destination.startsWith('<')) {
-    const closeIndex = destination.indexOf('>');
-
-    if (closeIndex > 0) {
-      return {
-        src: destination.slice(1, closeIndex).trim(),
-        title: unquoteMarkdownTitle(destination.slice(closeIndex + 1).trim())
-      };
-    }
-  }
-
-  const title = (/\s+(["'])(.*?)\1\s*$/).exec(destination);
-
-  if (title) {
-    return {
-      src: destination.slice(0, title.index).trim(),
-      title: title[2]
-    };
-  }
-
-  return { src: destination.trim(), title: '' };
-}
-
-function parseImageAttributes(value: string) {
-  const attrs: { width?: string; height?: string } = {};
-
-  for (const token of attributeTokens(value.trim().replace(/^:/, '').trim())) {
-    const match = /^([A-Za-z][A-Za-z0-9_-]*)=(.+)$/.exec(token);
-    if (!match) continue;
-
-    const key = match[1].toLowerCase();
-    const size = imageSizeValue(match[2]);
-
-    if (size && (key === 'width' || key === 'height')) attrs[key] = size;
-  }
-
-  return attrs;
-}
-
-function attributeTokens(value: string) {
-  const tokens: string[] = [];
-  let quote = '';
-  let token = '';
-
-  for (const character of value) {
-    if (quote) {
-      token += character;
-      if (character === quote) quote = '';
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-      token += character;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      if (token) {
-        tokens.push(token);
-        token = '';
-      }
-
-      continue;
-    }
-
-    token += character;
-  }
-
-  if (token) tokens.push(token);
-
-  return tokens;
-}
-
-function imageSizeValue(value: string) {
-  const raw = unquoteMarkdownTitle(value);
-  const match = /^(\d+(?:\.\d+)?)([A-Za-z%]*)$/.exec(raw);
-
-  if (!match) return '';
-
-  return `${Number(match[1])}${match[2] || 'px'}`;
-}
-
-function imageStyle(attrs: { width?: string; height?: string }) {
+function imageStyle(attrs: MarkdownImageAttributes) {
   const declarations: string[] = [];
+  const width = markdownImageSizeCss(attrs.width);
+  const height = markdownImageSizeCss(attrs.height);
 
-  if (attrs.width) declarations.push(`width: ${attrs.width}`);
-  if (attrs.height) declarations.push(`height: ${attrs.height}`);
+  if (width) declarations.push(`width: ${width}`);
+  if (height) declarations.push(`height: ${height}`);
 
   return declarations.length > 0 ? ` style="${escapeAttribute(declarations.join('; '))}"` : '';
 }
 
 function safeResourceUrl(url: string) {
   return !/^\s*javascript:/i.test(url);
-}
-
-function unquoteMarkdownTitle(value: string) {
-  const trimmed = value.trim();
-
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-
-  return trimmed;
 }
 
 function escapeHtml(value: string) {
