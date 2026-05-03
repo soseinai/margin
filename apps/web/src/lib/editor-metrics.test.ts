@@ -92,7 +92,7 @@ describe('live preview edit/display metrics', () => {
 
     expect(headingRule).toContain('--heading-toggle-top: 0.62em');
     expect(headingRule).toContain('position: relative');
-    expect(secondLevelRule).toContain('--heading-toggle-top: calc(30px + 0.62em)');
+    expect(secondLevelRule).toContain('--heading-toggle-top: calc(32px + 0.62em)');
     expect(toggleRule).toContain('opacity: 0');
     expect(toggleRule).toContain('height: 24px');
     expect(toggleRule).toContain('left: -30px');
@@ -108,6 +108,7 @@ describe('live preview edit/display metrics', () => {
 
     expect(sourceSyntax).not.toContain('font-family');
     expect(sourceSyntax).not.toContain('line-height');
+    expect(sourceSyntax).toContain('color: var(--fg-4)');
     expect(headingSyntax).toContain('font-size: 0.58em');
   });
 
