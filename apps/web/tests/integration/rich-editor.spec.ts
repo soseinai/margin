@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   activeEditorLineText,
   editor,
+  editorMarkdown,
   openCleanApp,
   platformModifier,
   replaceEditorMarkdown,
@@ -36,7 +37,116 @@ test('smart list enter continues markers and backspace exits an empty marker', a
 
   const download = await saveViaDownload(page);
   const savedMarkdown = await readFile((await download.path()) as string, 'utf8');
-  expect(savedMarkdown).toContain(['- First item', '- Second item', '  Plain paragraph'].join('\n'));
+  expect(savedMarkdown).toContain(['- First item', '- Second item', 'Plain paragraph'].join('\n'));
+});
+
+test('single return exits empty list and blockquote lines', async ({ page }) => {
+  await openCleanApp(page);
+
+  for (const markdown of ['- ', '- [ ] ', '> ']) {
+    await replaceEditorMarkdown(page, markdown);
+    await setEditorSelection(page, markdown.length, markdown.length);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => editorMarkdown(page)).toBe('');
+  }
+});
+
+test('empty nested list enter outdents one level before exiting the list', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = ['- Parent', '  - Child', '    - '].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', '  - '].join('\n'));
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', '- '].join('\n'));
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', ''].join('\n'));
+});
+
+test('nested list enter creates an empty child marker before outdenting it', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = ['- Parent', '  - Child'].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', '  - '].join('\n'));
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', '- '].join('\n'));
+  await expect.poll(() => activeEditorLineText(page)).toBe('- ');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveAttribute('style', /--list-indent: 0px/);
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', ''].join('\n'));
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveCount(0);
+});
+
+test('indented blank line after a nested list item outdents in place', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = ['- Parent', '  - Child', '  '].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '  - Child', ''].join('\n'));
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveCount(0);
+});
+
+test('orphaned indented empty list marker outdents before exiting', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = '  - ';
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe('- ');
+  await expect.poll(() => activeEditorLineText(page)).toBe('- ');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveAttribute('style', /--list-indent: 0px/);
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe('');
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveCount(0);
+});
+
+test('empty nested task list enter outdents before exiting', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = ['- Parent', '  - [ ] '].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.length, markdown.length);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', '- [ ] '].join('\n'));
+  await expect.poll(() => activeEditorLineText(page)).toBe('- [ ] ');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveAttribute('style', /--list-indent: 0px/);
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['- Parent', ''].join('\n'));
+  await expect.poll(() => activeEditorLineText(page)).toBe('');
+  await expect(page.locator('.cm-active-source-line.cm-live-list-line')).toHaveCount(0);
+});
+
+test('smart blockquote enter continues text lines and exits blank quote lines', async ({ page }) => {
+  await openCleanApp(page);
+  await replaceEditorMarkdown(page, '> First line');
+
+  await setEditorSelection(page, '> First line'.length, '> First line'.length);
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('Second line');
+  await expect.poll(() => editorMarkdown(page)).toBe(['> First line', '> Second line'].join('\n'));
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['> First line', '> Second line', '> '].join('\n'));
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorMarkdown(page)).toBe(['> First line', '> Second line', ''].join('\n'));
 });
 
 test('list collapse hides and shows child lines', async ({ page }) => {
@@ -79,6 +189,117 @@ test('renders edit affordances for rich Markdown widgets', async ({ page }) => {
   await expect(page.getByLabel('Edit Markdown table')).toBeVisible();
   await expect(page.getByLabel('Edit Markdown image')).toBeVisible();
   await expect(page.getByLabel('Edit horizontal rule')).toBeVisible();
+});
+
+test('dims math and strikethrough source markers while editing', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = ['$$', 'x + y', '$$', '', 'Use $z$ and ~~gone~~'].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, 0, 0);
+
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+    return texts.filter((text) => text === '$$').length;
+  }).toBe(2);
+
+  const inlinePosition = markdown.indexOf('$z$') + 1;
+
+  await setEditorSelection(page, inlinePosition, inlinePosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+
+    return {
+      dollar: texts.filter((text) => text === '$').length,
+      strike: texts.filter((text) => text === '~~').length
+    };
+  }).toEqual({ dollar: 2, strike: 2 });
+});
+
+test('dims structural Markdown affordances while editing', async ({ page }) => {
+  await openCleanApp(page);
+  const markdown = [
+    '---',
+    'title: Affordances',
+    '---',
+    '',
+    '```ts',
+    'const answer = 42;',
+    '```',
+    '',
+    '| Name | Value |',
+    '| :--- | ---: |',
+    '| Item | Draft |',
+    '',
+    'See [Guide](https://example.com) and ![Alt](image.png).',
+    'Use [Reference][guide] and footnote[^1].',
+    '[guide]: https://example.com',
+    '[^1]: Footnote body.'
+  ].join('\n');
+
+  await replaceEditorMarkdown(page, markdown);
+  await setEditorSelection(page, markdown.indexOf('title'), markdown.indexOf('title'));
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+    return texts.filter((text) => text === '---').length;
+  }).toBe(2);
+
+  const codePosition = markdown.indexOf('const answer');
+  await setEditorSelection(page, codePosition, codePosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+    return texts.filter((text) => text === '```').length;
+  }).toBe(2);
+
+  const tablePosition = markdown.indexOf('| Name') + 2;
+  await setEditorSelection(page, tablePosition, tablePosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+
+    return {
+      pipes: texts.filter((text) => text === '|').length,
+      leftAlign: texts.includes(':---'),
+      rightAlign: texts.includes('---:')
+    };
+  }).toEqual({ pipes: 9, leftAlign: true, rightAlign: true });
+
+  const linkPosition = markdown.indexOf('[Guide]') + 1;
+  await setEditorSelection(page, linkPosition, linkPosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+
+    return {
+      directLink: texts.includes(']('),
+      imageStart: texts.includes('!['),
+      imageClose: texts.filter((text) => text === ')').length,
+      refLink: texts.includes(']['),
+      footnoteRef: texts.includes('[^')
+    };
+  }).toEqual({
+    directLink: true,
+    imageStart: true,
+    imageClose: 2,
+    refLink: false,
+    footnoteRef: false
+  });
+
+  const referencePosition = markdown.indexOf('[Reference]') + 1;
+  await setEditorSelection(page, referencePosition, referencePosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+
+    return {
+      refLink: texts.includes(']['),
+      footnoteRef: texts.includes('[^')
+    };
+  }).toEqual({ refLink: true, footnoteRef: true });
+
+  const definitionPosition = markdown.indexOf('[guide]:') + 1;
+  await setEditorSelection(page, definitionPosition, definitionPosition);
+  await expect.poll(async () => {
+    const texts = await markdownSourceSyntaxTexts(page);
+    return texts.includes(']:');
+  }).toBe(true);
 });
 
 test('arrow keys move one source line across display math', async ({ page }) => {
@@ -164,3 +385,9 @@ test('modifier-clicking a footnote reference jumps to its definition', async ({ 
   }, await platformModifier(page));
   await expect.poll(() => activeEditorLineText(page)).toContain('Footnote definition.');
 });
+
+function markdownSourceSyntaxTexts(page: Parameters<typeof editor>[0]) {
+  return page.locator('.cm-markdown-source-syntax').evaluateAll((nodes) =>
+    nodes.map((node) => node.textContent ?? '')
+  );
+}

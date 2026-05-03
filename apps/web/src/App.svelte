@@ -35,6 +35,7 @@
 	import {
 		ChangeSet,
 		EditorState,
+		Prec,
 		StateEffect,
 		StateField,
 		type Extension,
@@ -1562,6 +1563,7 @@
 	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
 	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
+	$: marginRailOpen = marginItems.length > 0;
 	$: updateSaveProgressIndicator(saveState);
 	$: localAuthor = appSettings.localUserName;
 
@@ -1940,6 +1942,7 @@
 						class: `cm-live-frontmatter-source-line ${activeClass}`,
 						attributes: activeAttributes
 					}).range(line.from));
+					addFrontmatterFenceSourceSyntax(ranges, line);
 
 					continue;
 				}
@@ -1976,6 +1979,10 @@
 					attributes: active ? activeAttributes : listContext ? markdownCodeBlockAttributes(listContext) : undefined
 				}).range(line.from));
 
+				if (active && boundary) {
+					addCodeFenceSourceSyntax(ranges, line);
+				}
+
 				if (!active && boundary && line.from < line.to) {
 					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden' }).range(line.from, line.to));
 				}
@@ -2006,6 +2013,8 @@
 						class: `cm-live-table-source-line ${activeClass}`,
 						attributes: activeAttributes
 					}).range(line.from));
+					addTableSourceSyntax(ranges, line, line.number === tableBlock.start + 1);
+					addInlineMarkdownSourceSyntax(ranges, line);
 
 					continue;
 				}
@@ -2030,6 +2039,7 @@
 						class: `cm-live-math-source-line ${activeClass}`,
 						attributes: activeAttributes
 					}).range(line.from));
+					addDisplayMathSourceSyntax(ranges, line);
 
 					continue;
 				}
@@ -2066,6 +2076,7 @@
 					ranges.push(Decoration.mark({
 						class: 'cm-markdown-source-syntax cm-markdown-blockquote-syntax'
 					}).range(line.from, line.from + markerEnd));
+					addInlineMarkdownSourceSyntax(ranges, line, markerEnd);
 				}
 
 				if (!active) {
@@ -2090,6 +2101,7 @@
 					ranges.push(Decoration.mark({
 						class: 'cm-markdown-source-syntax cm-markdown-footnote-syntax'
 					}).range(line.from + footnoteDefinition[1].length, line.from + contentOffset));
+					addInlineMarkdownSourceSyntax(ranges, line, contentOffset);
 				}
 
 				if (!active) {
@@ -2114,6 +2126,7 @@
 							activeAttributes
 						)
 					}).range(line.from));
+					addInlineMarkdownSourceSyntax(ranges, line);
 				} else {
 					ranges.push(Decoration.replace({
 						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
@@ -2171,6 +2184,7 @@
 					ranges.push(Decoration.mark({
 						class: 'cm-markdown-source-syntax cm-markdown-heading-syntax'
 					}).range(line.from, line.from + heading.syntaxLength));
+					addInlineMarkdownSourceSyntax(ranges, line, heading.syntaxLength);
 				}
 
 				if (!active) {
@@ -2219,6 +2233,7 @@
 						widget: new TaskCheckboxWidget(checked, checkPosition),
 						side: -1
 					}).range(markerStart));
+					addInlineMarkdownSourceSyntax(ranges, line, contentOffset);
 				}
 
 				if (!active) {
@@ -2269,6 +2284,7 @@
 
 				if (active) {
 					ranges.push(Decoration.mark({ class: 'cm-markdown-syntax-hidden cm-markdown-list-source-prefix' }).range(line.from, syntaxEnd));
+					addInlineMarkdownSourceSyntax(ranges, line, list[1].length + list[2].length + list[3].length);
 				}
 
 				if (!active) {
@@ -2320,6 +2336,7 @@
 					class: activeClass,
 					attributes: activeAttributes
 				}).range(line.from));
+				addInlineMarkdownSourceSyntax(ranges, line);
 			} else {
 				addInlineMarkdownPreview(ranges, line);
 			}
@@ -2445,7 +2462,7 @@
 
 		if (mathBlock) return mathBlock;
 
-		const listBlock = activeListBlockForLine(lineNumber, listModel);
+		const listBlock = activeListBlockForLine(state, lineNumber, listModel);
 
 		if (listBlock) return listBlock;
 
@@ -2456,10 +2473,14 @@
 		return { start: lineNumber, end: lineNumber, kind: 'line' };
 	}
 
-	function activeListBlockForLine(lineNumber: number, listModel: MarkdownListModel): SourceBlock | null {
+	function activeListBlockForLine(state: EditorState, lineNumber: number, listModel: MarkdownListModel): SourceBlock | null {
 		const item = listModel.ownerByLine.get(lineNumber);
 
 		if (!item) return null;
+
+		const line = state.doc.line(lineNumber);
+
+		if (!line.text.trim() && leadingIndent(line.text) < item.info.contentIndent) return null;
 
 		const itemBlock: SourceBlock = {
 			start: item.lineNumber,
@@ -3921,6 +3942,237 @@
 		}
 	}
 
+	function addInlineMarkdownSourceSyntax(ranges: Range<Decoration>[], line: Line, contentOffset = 0) {
+		const text = line.text;
+		const occupied: Array<{ from: number; to: number }> = [];
+		const overlaps = (from: number, to: number) => occupied.some((range) => from < range.to && to > range.from);
+
+		const claim = (from: number, to: number) => {
+			if (from < contentOffset || from >= to || overlaps(from, to)) return false;
+
+			occupied.push({ from, to });
+
+			return true;
+		};
+
+		const addSyntaxMark = (from: number, to: number) => {
+			if (from >= to) return;
+
+			ranges.push(Decoration.mark({
+				class: 'cm-markdown-source-syntax cm-markdown-inline-syntax'
+			}).range(line.from + from, line.from + to));
+		};
+
+		const referenceDefinition = (/^([ \t]{0,3})\[([^\]\n]+)\]:(\s*)/).exec(text);
+
+		if (referenceDefinition) {
+			const from = referenceDefinition[1].length;
+			const idEnd = from + 1 + referenceDefinition[2].length;
+			const to = idEnd + 2 + referenceDefinition[3].length;
+
+			if (claim(from, to)) {
+				addSyntaxMark(from, from + 1);
+				addSyntaxMark(idEnd, idEnd + 2);
+			}
+		}
+
+		for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 1);
+			addSyntaxMark(to - 1, to);
+		}
+
+		for (const match of text.matchAll(markdownImagePattern())) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			addImageSourceSyntax(ranges, line, match, from);
+		}
+
+		for (const match of text.matchAll(/\[([^\]\n]+)\]\(([^)\n]+)\)/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			const labelEnd = from + 1 + match[1].length;
+
+			addSyntaxMark(from, from + 1);
+			addSyntaxMark(labelEnd, labelEnd + 2);
+			addSyntaxMark(to - 1, to);
+		}
+
+		for (const match of text.matchAll(/\[\^([^\]\s]+)\]/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 2);
+			addSyntaxMark(to - 1, to);
+		}
+
+		for (const match of text.matchAll(/\[([^\]\n]+)\]\[([^\]\n]*)\]/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			const labelEnd = from + 1 + match[1].length;
+
+			addSyntaxMark(from, from + 1);
+			addSyntaxMark(labelEnd, labelEnd + 2);
+			addSyntaxMark(to - 1, to);
+		}
+
+		for (const math of inlineMarkdownMathSpans(text, contentOffset)) {
+			if (!claim(math.from, math.to)) continue;
+
+			addSyntaxMark(math.from, math.from + 1);
+			addSyntaxMark(math.to - 1, math.to);
+		}
+
+		for (const match of text.matchAll(/~~([^~\n]+)~~/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 2);
+			addSyntaxMark(to - 2, to);
+		}
+
+		for (const match of text.matchAll(/\*\*([^*\n]+)\*\*/g)) {
+			const from = match.index ?? 0;
+			const to = from + match[0].length;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 2);
+			addSyntaxMark(to - 2, to);
+		}
+
+		for (const match of text.matchAll(/(^|[\s(])\*([^*\n]+)\*/g)) {
+			const prefixLength = match[1].length;
+			const from = (match.index ?? 0) + prefixLength;
+			const to = from + match[0].length - prefixLength;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 1);
+			addSyntaxMark(to - 1, to);
+		}
+
+		for (const match of text.matchAll(/(^|[\s(])_([^_\n]+)_/g)) {
+			const prefixLength = match[1].length;
+			const from = (match.index ?? 0) + prefixLength;
+			const to = from + match[0].length - prefixLength;
+
+			if (!claim(from, to)) continue;
+
+			addSyntaxMark(from, from + 1);
+			addSyntaxMark(to - 1, to);
+		}
+	}
+
+	function addImageSourceSyntax(ranges: Range<Decoration>[], line: Line, match: RegExpMatchArray, from: number) {
+		const alt = match[1] ?? '';
+		const destination = match[2] ?? '';
+		const altEnd = from + 2 + alt.length;
+		const destinationEnd = altEnd + 2 + destination.length;
+		const to = from + match[0].length;
+
+		addLineSourceSyntaxMark(ranges, line, from, from + 2);
+		addLineSourceSyntaxMark(ranges, line, altEnd, altEnd + 2);
+		addLineSourceSyntaxMark(ranges, line, destinationEnd, destinationEnd + 1);
+
+		if (match[3] !== undefined) {
+			addLineSourceSyntaxMark(ranges, line, destinationEnd + 1, destinationEnd + 2);
+			addLineSourceSyntaxMark(ranges, line, to - 1, to);
+		}
+	}
+
+	function addCodeFenceSourceSyntax(ranges: Range<Decoration>[], line: Line) {
+		const fence = (/^([ \t]*)(`{3,}|~{3,})/).exec(line.text);
+
+		if (!fence) return;
+
+		const from = fence[1].length;
+
+		addLineSourceSyntaxMark(ranges, line, from, from + fence[2].length);
+	}
+
+	function addFrontmatterFenceSourceSyntax(ranges: Range<Decoration>[], line: Line) {
+		const fence = (/^([ \t]*)(---|\.\.\.)([ \t]*)$/).exec(line.text);
+
+		if (!fence) return;
+
+		const from = fence[1].length;
+
+		addLineSourceSyntaxMark(ranges, line, from, from + fence[2].length);
+	}
+
+	function addTableSourceSyntax(ranges: Range<Decoration>[], line: Line, delimiterLine: boolean) {
+		let escaped = false;
+
+		for (let index = 0; index < line.text.length; index += 1) {
+			const character = line.text[index];
+
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+
+			if (character === '\\') {
+				escaped = true;
+				continue;
+			}
+
+			if (character === '|') {
+				addLineSourceSyntaxMark(ranges, line, index, index + 1);
+			}
+		}
+
+		if (!delimiterLine) return;
+
+		for (const match of line.text.matchAll(/[:\-]+/g)) {
+			const from = match.index ?? 0;
+
+			addLineSourceSyntaxMark(ranges, line, from, from + match[0].length);
+		}
+	}
+
+	function addDisplayMathSourceSyntax(ranges: Range<Decoration>[], line: Line) {
+		const opening = (/^([ \t]{0,3})\$\$/).exec(line.text);
+
+		if (opening) {
+			const from = opening[1].length;
+
+			addLineSourceSyntaxMark(ranges, line, from, from + 2);
+		}
+
+		const closing = (/\$\$[ \t]*$/).exec(line.text);
+		const openingIndex = opening ? opening[1].length : -1;
+
+		if (!closing || closing.index === openingIndex) return;
+
+		addLineSourceSyntaxMark(ranges, line, closing.index, closing.index + 2);
+	}
+
+	function addLineSourceSyntaxMark(ranges: Range<Decoration>[], line: Line, from: number, to: number) {
+		if (from >= to) return;
+
+		ranges.push(Decoration.mark({
+			class: 'cm-markdown-source-syntax cm-markdown-inline-syntax'
+		}).range(line.from + from, line.from + to));
+	}
+
 	function threadRangeInState(state: EditorState, thread: ThreadView): ThreadRangeMatch | null {
 		const candidates = thread.kind === 'suggestion'
 			? suggestionRangeCandidates(thread)
@@ -4118,6 +4370,10 @@
 				syntaxHighlighting(marginHighlightStyle),
 				search({ top: true, createPanel: marginSearchPanel }),
 				livePreviewField,
+				Prec.highest(keymap.of([
+					{ key: 'Enter', run: smartMarkdownEnter },
+					{ key: 'Backspace', run: smartMarkdownBackspace }
+				])),
 				keymap.of([
 					{
 						key: 'Mod-Enter',
@@ -4231,8 +4487,6 @@
 							return true;
 						}
 					},
-					{ key: 'Enter', run: smartMarkdownEnter },
-					{ key: 'Backspace', run: smartMarkdownBackspace },
 					{
 						key: 'ArrowUp',
 						run: (view) => moveAcrossMarkdownBlockWidgetLine(view, -1),
@@ -5108,33 +5362,89 @@
 		if (!selection.empty) return insertNewlineAndIndent(view);
 
 		const line = view.state.doc.lineAt(selection.head);
-		const list = (/^(\s*)((?:[-*+]|\d+[.)]))(\s+)(.*)$/).exec(line.text);
-
-		if (!list) return insertNewlineAndIndent(view);
-
-		const prefix = `${list[1]}${list[2]}${list[3]}`;
 		const cursorOffset = selection.head - line.from;
+		const blockquote = (/^([ \t]{0,3}(?:>[ \t]?)+)(.*)$/).exec(line.text);
 
-		if (cursorOffset < prefix.length) return insertNewlineAndIndent(view);
+		if (blockquote) {
+			const prefix = blockquote[1];
+			const indent = (/^[ \t]*/).exec(prefix)?.[0] ?? '';
 
-		if (!list[4].trim()) {
+			if (cursorOffset < prefix.length) return insertNewlineAndIndent(view);
+
+			if (!blockquote[2].trim() && cursorOffset === line.length) {
+				view.dispatch({
+					changes: {
+						from: line.from,
+						to: line.from + prefix.length,
+						insert: indent
+					},
+					selection: { anchor: line.from + indent.length }
+				});
+
+				return true;
+			}
+
+			const insert = `\n${continuedBlockquotePrefix(prefix)}`;
+
 			view.dispatch({
 				changes: {
-					from: line.from,
-					to: line.from + prefix.length,
-					insert: list[1]
+					from: selection.head,
+					insert
 				},
-				selection: { anchor: line.from + list[1].length }
+				selection: { anchor: selection.head + insert.length }
 			});
 
 			return true;
 		}
 
+		if (!line.text.trim() && cursorOffset === line.length) {
+			const outdentedIndent = outdentedBlankListContinuationIndent(view.state, line.number, line.text);
+
+			if (outdentedIndent !== null) {
+				view.dispatch({
+					changes: {
+						from: line.from,
+						to: line.to,
+						insert: outdentedIndent
+					},
+					selection: { anchor: line.from + outdentedIndent.length }
+				});
+
+				return true;
+			}
+		}
+
+		const list = (/^(\s*)((?:[-*+]|\d+[.)]))(\s+)((?:\[[ xX]\]\s+)?)(.*)$/).exec(line.text);
+
+		if (!list) return insertNewlineAndIndent(view);
+
+		const prefix = `${list[1]}${list[2]}${list[3]}${list[4]}`;
+
+		if (cursorOffset < prefix.length) return insertNewlineAndIndent(view);
+
+		if (!list[5].trim() && cursorOffset === line.length) {
+			const insert = outdentedEmptyListPrefix(view.state, line.number, list[1], list[2], list[3], list[4]);
+
+			view.dispatch({
+				changes: {
+					from: line.from,
+					to: line.from + prefix.length,
+					insert
+				},
+				selection: { anchor: line.from + insert.length }
+			});
+
+			return true;
+		}
+
+		const insert = `\n${list[1]}${nextListMarker(list[2])}${list[3]}${nextTaskMarker(list[4])}`;
+
 		view.dispatch({
 			changes: {
 				from: selection.head,
-				insert: `\n${list[1]}${nextListMarker(list[2])}${list[3]}`
-			}
+				insert
+			},
+			selection: { anchor: selection.head + insert.length }
 		});
 
 		return true;
@@ -5172,6 +5482,105 @@
 		if (!ordered) return marker;
 
 		return `${Number(ordered[1]) + 1}${ordered[2]}`;
+	}
+
+	function nextTaskMarker(marker: string) {
+		return marker ? '[ ] ' : '';
+	}
+
+	function outdentedEmptyListPrefix(
+		state: EditorState,
+		lineNumber: number,
+		indent: string,
+		marker: string,
+		spacing: string,
+		taskMarker: string
+	) {
+		const currentIndentWidth = indentWidth(indent);
+
+		if (currentIndentWidth <= 0) return '';
+
+		let targetIndentWidth = emptyListOutdentTargetWidth(state, lineNumber, currentIndentWidth);
+
+		if (targetIndentWidth >= currentIndentWidth) {
+			targetIndentWidth = Math.max(0, currentIndentWidth - 2);
+		}
+
+		return `${indentStringForWidth(indent, targetIndentWidth)}${marker}${spacing}${taskMarker}`;
+	}
+
+	function outdentedBlankListContinuationIndent(state: EditorState, lineNumber: number, text: string) {
+		const currentIndentWidth = leadingIndent(text);
+
+		if (currentIndentWidth <= 0) return null;
+
+		const listModel = listModelForEnterState(state);
+		const owner = listModel.ownerByLine.get(lineNumber);
+		const parent = owner?.parentLine ? listModel.items.get(owner.parentLine) : null;
+
+		if (!owner || !parent) return null;
+
+		const targetIndentWidth = parent.info.indent;
+
+		if (targetIndentWidth >= currentIndentWidth) return null;
+
+		return indentStringForWidth(text, targetIndentWidth);
+	}
+
+	function emptyListOutdentTargetWidth(state: EditorState, lineNumber: number, currentIndentWidth: number) {
+		const listModel = listModelForEnterState(state);
+		const item = listModel.items.get(lineNumber);
+		const parent = item?.parentLine ? listModel.items.get(item.parentLine) : null;
+
+		if (parent) return parent.info.indent;
+
+		return Math.max(0, currentIndentWidth - 2);
+	}
+
+	function listModelForEnterState(state: EditorState) {
+		const frontmatterBlocks = markdownFrontmatterBlocks(state);
+		const fencedBlocks = fencedCodeBlocks(state);
+		const tableBlocks = markdownTableBlocks(state);
+		const ignoredBlocks = [
+			...frontmatterBlocks,
+			...fencedBlocks,
+			...tableBlocks,
+			...markdownMathBlocks(state, [
+				...frontmatterBlocks,
+				...fencedBlocks,
+				...tableBlocks
+			])
+		];
+
+		return markdownListModel(
+			state,
+			markdownOrderedListMarkers(state, ignoredBlocks),
+			ignoredBlocks
+		);
+	}
+
+	function indentStringForWidth(sourceIndent: string, targetWidth: number) {
+		if (targetWidth <= 0) return '';
+
+		let width = 0;
+		let result = '';
+
+		for (const character of sourceIndent) {
+			const characterWidth = character === '\t' ? 4 : 1;
+
+			if (width + characterWidth > targetWidth) break;
+
+			result += character;
+			width += characterWidth;
+
+			if (width === targetWidth) return result;
+		}
+
+		return `${result}${' '.repeat(targetWidth - width)}`;
+	}
+
+	function continuedBlockquotePrefix(prefix: string) {
+		return /[ \t]$/.test(prefix) ? prefix : `${prefix} `;
 	}
 
 	function displayTextForMarkdownLine(line: string) {
@@ -7832,69 +8241,77 @@
 			</nav>
 		{/if}
 
-		<div class="editor-layout">
-			<section class="paper-column">
-				<article
-					class="document-surface live-preview-surface"
-					bind:this={documentSurface}
-					aria-label="Markdown live preview editor"
-				>
-					{#if documentData}
-						<div
-							class="live-preview-editor"
-							use:codeMirrorLiveEditor={{
-								value: documentData.markdown,
-								threads,
-								documentKey: documentSessionKey
-							}}
-						></div>
-					{/if}
-				</article>
-			</section>
-
-			<aside class="margin-rail" aria-label="Document comments">
 			<div
-				class="comment-stage"
-				style={`min-height: ${stageHeight}px;`}
+				class="editor-layout"
+				class:margin-rail-open={marginRailOpen}
 			>
-				{#if marginItems.length > 0}
-					<svg
-						class="connector-layer"
-						viewBox={`0 0 340 ${stageHeight}`}
-						preserveAspectRatio="none"
-						aria-hidden="true"
+				<section class="paper-column">
+					<article
+						class="document-surface live-preview-surface"
+						bind:this={documentSurface}
+						aria-label="Markdown live preview editor"
 					>
+						{#if documentData}
+							<div
+								class="live-preview-editor"
+								use:codeMirrorLiveEditor={{
+									value: documentData.markdown,
+									threads,
+									documentKey: documentSessionKey
+								}}
+							></div>
+						{/if}
+					</article>
+				</section>
+
+				<aside
+					class="margin-rail"
+					class:open={marginRailOpen}
+					class:empty={!marginRailOpen}
+					aria-label="Document comments"
+				>
+					<div
+						class="comment-stage"
+						style={`min-height: ${stageHeight}px;`}
+					>
+						{#if marginItems.length > 0}
+							<svg
+								class="connector-layer"
+								viewBox={`0 0 340 ${stageHeight}`}
+								preserveAspectRatio="none"
+								aria-hidden="true"
+							>
+								{#each marginItems as item}
+									<path
+										class="connector-shadow"
+										class:connector-suggestion={item.connectorKind === 'suggestion'}
+										class:connector-composer={item.type === 'composer'}
+										class:connector-active={activeThreadId === item.id}
+										d={connectorPath(item.anchorTop, item.top)}
+									></path>
+
+									<path
+										class:connector-suggestion={item.connectorKind === 'suggestion'}
+										class:connector-composer={item.type === 'composer'}
+										class:connector-active={activeThreadId === item.id}
+										d={connectorPath(item.anchorTop, item.top)}
+									></path>
+
+									<circle
+										class="connector-source"
+										class:connector-suggestion={item.connectorKind === 'suggestion'}
+										class:connector-composer={item.type === 'composer'}
+										class:connector-active={activeThreadId === item.id}
+										cx="0"
+										cy={Math.max(12, item.anchorTop)}
+										r="3"
+									></circle>
+
+								{/each}
+							</svg>
+						{/if}
+
 						{#each marginItems as item}
-							<path
-								class="connector-shadow"
-								class:connector-suggestion={item.connectorKind === 'suggestion'}
-								class:connector-composer={item.type === 'composer'}
-								class:connector-active={activeThreadId === item.id}
-								d={connectorPath(item.anchorTop, item.top)}
-							></path>
-
-							<path
-								class:connector-suggestion={item.connectorKind === 'suggestion'}
-								class:connector-composer={item.type === 'composer'}
-								class:connector-active={activeThreadId === item.id}
-								d={connectorPath(item.anchorTop, item.top)}
-							></path>
-
-							<circle
-								class="connector-source"
-								class:connector-suggestion={item.connectorKind === 'suggestion'}
-								class:connector-composer={item.type === 'composer'}
-								class:connector-active={activeThreadId === item.id}
-								cx="0"
-								cy={Math.max(12, item.anchorTop)}
-								r="3"
-							></circle>
-
-						{/each}
-					</svg>
-				{/if}
-
-				{#each marginItems as item}
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"

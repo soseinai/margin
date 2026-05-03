@@ -150,7 +150,7 @@
     --gray-20: #585854;
     --gray-40: #80807a;
     --gray-60: #aaa9a1;
-    --gray-80: #d8d6ce;
+    --gray-80: #e9e7df;
     --sosein-success: #8db18d;
     --sosein-danger: #cf8f8a;
     --sheet-bg: #1d1d1c;
@@ -225,7 +225,7 @@
   --gray-20: #585854;
   --gray-40: #80807a;
   --gray-60: #aaa9a1;
-  --gray-80: #d8d6ce;
+  --gray-80: #e9e7df;
   --sosein-success: #8db18d;
   --sosein-danger: #cf8f8a;
   --sheet-bg: #1d1d1c;
@@ -1362,14 +1362,23 @@ textarea:not([data-slot]):focus {
 .editor-layout {
   align-items: start;
   display: flex;
-  gap: 32px;
+  gap: 0;
   justify-content: center;
   padding: 14px 32px 104px;
+  transition: gap var(--dur-slow) var(--ease-out);
+}
+
+.editor-layout.margin-rail-open {
+  gap: 32px;
 }
 
 .desktop-shell .editor-layout {
-  gap: 12px;
+  gap: 0;
   padding-top: 26px;
+}
+
+.desktop-shell .editor-layout.margin-rail-open {
+  gap: 12px;
 }
 
 .file-tree-panel {
@@ -1730,19 +1739,19 @@ textarea:not([data-slot]):focus {
 }
 
 .document-surface h1 {
-  font-size: 34px;
-  font-weight: 400;
+  font-size: 38px;
+  font-weight: 500;
 }
 
 .document-surface h2 {
-  font-size: 22px;
-  font-weight: 400;
-  margin-top: 34px;
+  font-size: 26px;
+  font-weight: 500;
+  margin-top: 36px;
 }
 
 .document-surface h3 {
-  font-size: 18px;
-  font-weight: 400;
+  font-size: 20px;
+  font-weight: 500;
 }
 
 .document-surface p,
@@ -2117,7 +2126,7 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-markdown-source-syntax {
-  color: var(--text-muted);
+  color: var(--fg-4);
   font-weight: 400;
 }
 
@@ -2127,7 +2136,7 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-markdown-list-syntax {
-  color: var(--text-muted);
+  color: var(--fg-4);
   font-size: 0.9em;
 }
 
@@ -2140,7 +2149,7 @@ textarea:not([data-slot]):focus {
 
 .live-preview-editor .cm-markdown-blockquote-syntax,
 .live-preview-editor .cm-markdown-footnote-syntax {
-  color: var(--text-muted);
+  color: var(--fg-4);
   font-size: 0.9em;
 }
 
@@ -2158,31 +2167,31 @@ textarea:not([data-slot]):focus {
 }
 
 .live-preview-editor .cm-live-heading-1 {
-  font-size: 34px;
-  font-weight: 400;
-  padding: 0 0 20px;
+  font-size: 38px;
+  font-weight: 500;
+  padding: 0 0 22px;
 }
 
 .live-preview-editor .cm-live-heading-2 {
-  --heading-toggle-top: calc(30px + 0.62em);
-  font-size: 22px;
-  font-weight: 400;
-  padding: 30px 0 12px;
+  --heading-toggle-top: calc(32px + 0.62em);
+  font-size: 26px;
+  font-weight: 500;
+  padding: 32px 0 14px;
 }
 
 .live-preview-editor .cm-live-heading-3 {
-  --heading-toggle-top: calc(22px + 0.62em);
-  font-size: 18px;
-  font-weight: 400;
-  padding: 22px 0 8px;
+  --heading-toggle-top: calc(24px + 0.62em);
+  font-size: 20px;
+  font-weight: 500;
+  padding: 24px 0 9px;
 }
 
 .live-preview-editor .cm-live-heading-4,
 .live-preview-editor .cm-live-heading-5,
 .live-preview-editor .cm-live-heading-6 {
   --heading-toggle-top: calc(16px + 0.62em);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: 17px;
+  font-weight: 500;
   padding: 16px 0 6px;
 }
 
@@ -2252,7 +2261,7 @@ button.markdown-heading-collapse-toggle:focus-visible {
 }
 
 .live-preview-editor .cm-live-list-line::before {
-  color: var(--text-muted);
+  color: var(--fg-4);
   content: "•";
   left: var(--list-indent);
   position: absolute;
@@ -3314,11 +3323,29 @@ blockquote {
 }
 
 .margin-rail {
-  flex: 0 0 300px;
   display: block;
+  flex: 0 0 0;
   max-height: none;
+  opacity: 1;
   overflow: visible;
+  padding-right: 0;
+  position: relative;
+  transition:
+    flex-basis var(--dur-slow) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out),
+    padding-right var(--dur-slow) var(--ease-out),
+    width var(--dur-slow) var(--ease-out);
+  width: 0;
+}
+
+.margin-rail.open {
+  flex-basis: 300px;
   padding-right: 4px;
+  width: 300px;
+}
+
+.margin-rail.empty {
+  pointer-events: none;
 }
 
 .comment-stage {
@@ -3967,8 +3994,12 @@ blockquote {
 
   .editor-layout {
     display: grid;
-    gap: 22px;
+    gap: 0;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-layout.margin-rail-open {
+    gap: 22px;
   }
 
   .workspace-layout {
@@ -4014,12 +4045,17 @@ blockquote {
     display: none;
   }
 
-  .margin-rail {
+  .margin-rail.empty {
+    display: none;
+  }
+
+  .margin-rail.open {
     border-top: 1px solid color-mix(in srgb, var(--rule) 76%, transparent);
     flex-basis: auto;
     max-height: none;
     padding: 18px 0 0;
     position: static;
+    width: auto;
   }
 
   .comment-stage {
