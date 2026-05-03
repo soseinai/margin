@@ -2483,7 +2483,7 @@
 
 		const line = state.doc.line(lineNumber);
 
-		if (!line.text.trim() && leadingIndent(line.text) < item.info.contentIndent) return null;
+		if (!line.text.trim() && leadingMarkdownIndent(line.text) < item.info.contentIndent) return null;
 
 		const itemBlock: SourceBlock = {
 			start: item.lineNumber,
@@ -5128,7 +5128,7 @@
 		spacing: string,
 		taskMarker: string
 	) {
-		const currentIndentWidth = indentWidth(indent);
+		const currentIndentWidth = markdownIndentWidth(indent);
 
 		if (currentIndentWidth <= 0) return '';
 
@@ -5142,7 +5142,7 @@
 	}
 
 	function outdentedBlankListContinuationIndent(state: EditorState, lineNumber: number, text: string) {
-		const currentIndentWidth = leadingIndent(text);
+		const currentIndentWidth = leadingMarkdownIndent(text);
 
 		if (currentIndentWidth <= 0) return null;
 
