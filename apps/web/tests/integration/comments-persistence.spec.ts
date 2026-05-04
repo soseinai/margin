@@ -72,6 +72,24 @@ test('comment composer supports escape cancel and disabled empty submit', async 
   await expect(page.getByLabel('New comment')).toBeHidden();
 });
 
+test('animates comment cards while resolving them', async ({ page }) => {
+  await openCleanApp(page);
+
+  await replaceEditorMarkdown(page, 'Resolve animation target');
+  await selectAllEditorText(page);
+  await openCommentComposer(page);
+  await page.getByPlaceholder('Add a comment').fill('Animate this out.');
+  await page.getByRole('button', { name: 'Comment' }).click();
+
+  const card = page.getByRole('button', { name: 'Go to comment' });
+  await card.hover();
+  await page.getByLabel('Resolve comment').click();
+
+  await expect.poll(() => card.evaluate((node) => node.classList.contains('resolving-comment')).catch(() => false)).toBe(true);
+  await expect(page.locator('.connector-layer path.connector-resolving:not(.connector-shadow)')).toHaveCount(1);
+  await expect(card).toBeHidden();
+});
+
 test('reveals connector chrome only while hovering the comment area', async ({ page }) => {
   await openCleanApp(page);
 

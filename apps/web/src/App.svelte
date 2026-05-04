@@ -193,6 +193,7 @@
 	let activeThreadId = '';
 	let hoveredThreadId = '';
 	let selectedThreadId = '';
+	let resolvingThreadIds = new Set<string>();
 	let draftBaseMarkdown = '';
 	let draftChanges = ChangeSet.empty(0);
 	let documentSessionKey = 'sample';
@@ -267,6 +268,7 @@
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
 	const anchorContextCharacters = 96;
+	const commentResolveAnimationMs = 320;
 	const gutterCardGap = 14;
 	const gutterReservedTop = 86;
 	const marginViewportPadding = 180;
@@ -5121,6 +5123,26 @@
 		hoveredThreadId = '';
 	}
 
+	function setThreadResolving(threadId: string, resolving: boolean) {
+		const nextThreadIds = new Set(resolvingThreadIds);
+
+		if (resolving) {
+			nextThreadIds.add(threadId);
+		} else {
+			nextThreadIds.delete(threadId);
+		}
+
+		resolvingThreadIds = nextThreadIds;
+	}
+
+	function threadIsResolving(threadId: string) {
+		return resolvingThreadIds.has(threadId);
+	}
+
+	function waitForCommentResolveAnimation(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, commentResolveAnimationMs));
+	}
+
 	function handleGlobalPointerDown(event: PointerEvent) {
 		const target = event.target;
 
@@ -7446,8 +7468,18 @@
 
 	async function resolveComment(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'comment') return;
+		if (threadIsResolving(thread.id)) return;
+
+		const resolvingDocumentSessionKey = documentSessionKey;
 
 		if (editingCommentId === thread.id) clearCommentEdit();
+
+		selectThread(thread.id);
+		setThreadResolving(thread.id, true);
+		await waitForCommentResolveAnimation();
+		setThreadResolving(thread.id, false);
+
+		if (!annotations || documentSessionKey !== resolvingDocumentSessionKey) return;
 
 		annotations = {
 			...annotations,
@@ -7796,6 +7828,7 @@
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
 										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
 										d={connectorPath(item, activeThreadId === item.id)}
 										style={`--thread-index: ${index};`}
 									></path>
@@ -7805,6 +7838,7 @@
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
 										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
 										d={connectorPath(item, activeThreadId === item.id)}
 										style={`--thread-index: ${index};`}
 									></path>
@@ -7815,6 +7849,7 @@
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
 										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
 										cx="0"
 										cy={Math.max(12, item.anchorTop)}
 										r={connectorSourceRadius(item, activeThreadId === item.id)}
@@ -7874,6 +7909,7 @@
 							class:resolved={item.thread.status === 'resolved'}
 							class:focused={activeThreadId === item.thread.id}
 							class:selected={selectedThreadId === item.thread.id}
+							class:resolving-comment={threadIsResolving(item.thread.id)}
 							class:editing-comment={item.thread.kind === 'comment' && editingCommentId === item.thread.id}
 							role="button"
 							aria-label={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? 'Edit comment' : `Go to ${item.thread.kind}`}
@@ -7971,6 +8007,7 @@
 													class="thread-icon-button thread-resolve-button"
 													aria-label="Resolve comment"
 													title="Resolve comment"
+													disabled={threadIsResolving(item.thread.id)}
 													onclick={(event) => {
 														event.stopPropagation();
 														resolveComment(item.thread);

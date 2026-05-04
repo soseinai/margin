@@ -4071,6 +4071,74 @@ blockquote {
   transform: translateY(-2px);
 }
 
+.thread-card.resolving-comment {
+  animation: comment-resolve-out 320ms var(--ease-out) forwards;
+  pointer-events: none;
+  transform-origin: 0 50%;
+}
+
+.thread-card.resolving-comment::before {
+  background: color-mix(in srgb, var(--success) 56%, var(--ink));
+  opacity: 0.72;
+  transform: scaleY(1.08);
+}
+
+.thread-card.resolving-comment .thread-header strong,
+.thread-card.resolving-comment p {
+  color: var(--fg-3);
+}
+
+.connector-layer path.connector-resolving:not(.connector-shadow) {
+  animation: connector-resolve-out 320ms var(--ease-out) forwards;
+  stroke: color-mix(in srgb, var(--success) 48%, var(--ink));
+}
+
+.connector-layer circle.connector-source.connector-resolving {
+  animation: connector-source-resolve-out 320ms var(--ease-out) forwards;
+  stroke: color-mix(in srgb, var(--success) 52%, var(--ink));
+}
+
+@keyframes comment-resolve-out {
+  0% {
+    opacity: 1;
+    transform: translateX(-1px) scale(1);
+  }
+
+  34% {
+    opacity: 0.88;
+    transform: translateX(-3px) scale(0.995);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.985);
+  }
+}
+
+@keyframes connector-resolve-out {
+  0% {
+    opacity: 0.66;
+    stroke-dashoffset: 0;
+  }
+
+  100% {
+    opacity: 0;
+    stroke-dashoffset: 6;
+  }
+}
+
+@keyframes connector-source-resolve-out {
+  0% {
+    opacity: 0.62;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+
 .thread-header {
   align-items: center;
   gap: 5px;
