@@ -87,6 +87,13 @@
   --glass-control-bg: color-mix(in srgb, var(--ink) 5%, transparent);
   --glass-control-hover: color-mix(in srgb, var(--ink) 9%, transparent);
   --glass-highlight: color-mix(in srgb, var(--ink-pure) 10%, transparent);
+  --dialog-bg: color-mix(in srgb, var(--paper-raised) 92%, transparent);
+  --dialog-bg-strong: color-mix(in srgb, var(--paper-raised) 96%, var(--paper-sunk));
+  --dialog-border: color-mix(in srgb, var(--ink) 12%, transparent);
+  --dialog-control-bg: color-mix(in srgb, var(--ink) 5%, transparent);
+  --dialog-control-hover: color-mix(in srgb, var(--ink) 9%, transparent);
+  --dialog-field-bg: color-mix(in srgb, var(--paper-sunk) 56%, transparent);
+  --dialog-overlay: color-mix(in srgb, var(--paper-sunk) 62%, transparent);
   --document-bg: transparent;
   --active-source-bg: transparent;
   --active-heading-bg: transparent;
@@ -1072,7 +1079,9 @@ textarea:not([data-slot]):focus {
 }
 
 [data-slot="dialog-overlay"] {
-  background: color-mix(in srgb, var(--paper-sunk) 76%, transparent);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  background: var(--dialog-overlay);
   border: 0;
   border-radius: 0;
   cursor: default;
@@ -1081,12 +1090,14 @@ textarea:not([data-slot]):focus {
   padding: 0;
   position: fixed;
   width: auto;
+  z-index: 100;
 }
 
 .command-palette-backdrop {
   align-items: flex-start;
-  backdrop-filter: blur(1.5px);
-  background: color-mix(in srgb, var(--paper-sunk) 54%, transparent);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  background: var(--dialog-overlay);
   display: flex;
   inset: 0;
   justify-content: center;
@@ -1096,18 +1107,20 @@ textarea:not([data-slot]):focus {
 }
 
 .command-palette {
-  background: color-mix(in srgb, var(--paper-raised) 94%, var(--paper-sunk));
-  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
-  border-radius: 20px;
+  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  background: var(--dialog-bg-strong);
+  border: 1px solid var(--dialog-border);
+  border-radius: 14px;
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--paper-raised) 84%, transparent) inset,
+    inset 0 1px 0 var(--glass-highlight),
     0 22px 54px color-mix(in srgb, var(--ink) 18%, transparent);
   color: var(--fg-2);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   max-height: min(570px, calc(100dvh - 78px - env(safe-area-inset-top)));
   overflow: hidden;
-  width: min(640px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
 }
 
 .command-palette-search {
@@ -1195,7 +1208,7 @@ textarea:not([data-slot]):focus {
 .command-palette-section-label {
   color: color-mix(in srgb, var(--fg-4) 92%, transparent);
   font-size: 12px;
-  font-weight: 450;
+  font-weight: 500;
   line-height: 14px;
   margin-top: 5px;
   padding: 0 14px 3px;
@@ -1210,7 +1223,7 @@ button.command-palette-option:not([data-slot]) {
   appearance: none;
   background: transparent;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--fg-2);
   cursor: pointer;
   display: grid;
@@ -1326,17 +1339,31 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .settings-dialog {
-  background: var(--paper-raised);
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  border-radius: 8px;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  background: var(--dialog-bg-strong);
+  border: 1px solid var(--dialog-border);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 24px 72px color-mix(in srgb, var(--ink) 18%, transparent);
   color: var(--fg-2);
+  font-family: var(--font-ui);
   margin: 0;
-  max-width: 374px;
+  max-width: 396px;
   min-width: 318px;
+  overflow: hidden;
   padding: 0;
   position: fixed;
-  width: min(100%, 374px);
+  width: min(calc(100vw - 32px), 396px);
+  z-index: 120;
+}
+
+.app-settings-dialog {
+  background: color-mix(in srgb, var(--paper-sunk) 28%, var(--paper-raised));
+  max-width: 760px;
+  min-width: 680px;
+  width: min(calc(100vw - 56px), 760px);
 }
 
 :root[data-theme="dark"] :is(
@@ -1361,27 +1388,128 @@ button.command-palette-option.empty:not([data-slot]) {
 
 .settings-dialog form {
   display: grid;
-  gap: 14px;
+  gap: 15px;
   padding: 0;
+}
+
+.app-settings-dialog form {
+  display: block;
+  gap: 0;
+}
+
+.settings-window-layout {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  min-height: 438px;
+}
+
+.settings-sidebar {
+  background:
+    linear-gradient(color-mix(in srgb, var(--ink) 2%, transparent), transparent 128px),
+    color-mix(in srgb, var(--paper-sunk) 74%, var(--paper-raised));
+  border-right: 1px solid var(--dialog-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 52px 5px 14px;
+}
+
+.settings-sidebar-list {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+button.settings-sidebar-item:not([data-slot]) {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--fg-2);
+  cursor: default;
+  display: grid;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  gap: 7px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  height: 28px;
+  letter-spacing: 0;
+  min-height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  text-align: left;
+}
+
+button.settings-sidebar-item:not([data-slot]):hover {
+  background: var(--dialog-control-bg);
+}
+
+button.settings-sidebar-item:not([data-slot]):focus-visible {
+  outline: 0;
+}
+
+button.settings-sidebar-item.active:not([data-slot]) {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  color: var(--fg);
+}
+
+.settings-sidebar-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--ink) 11%, transparent);
+  border-radius: 5px;
+  display: flex;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.settings-sidebar-item.active .settings-sidebar-icon {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.settings-sidebar-icon svg {
+  height: 12px;
+  width: 12px;
+}
+
+.settings-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
 }
 
 .settings-dialog-header {
   align-items: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  border-bottom: 1px solid var(--dialog-border);
   display: flex;
   flex-direction: row;
   gap: 8px;
   justify-content: space-between;
-  min-height: 34px;
-  padding: 6px 7px 6px 14px;
+  min-height: 44px;
+  padding: 8px 8px 8px 16px;
+}
+
+.settings-pane-header {
+  background: transparent;
+  border-bottom: 0;
+  min-height: 72px;
+  padding: 19px 18px 13px 24px;
 }
 
 .settings-dialog-header h2 {
   color: var(--fg);
   font-size: 13.5px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.2;
   margin: 0;
+}
+
+.settings-pane-header h2 {
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 1.12;
 }
 
 .settings-dialog-header .eyebrow {
@@ -1390,32 +1518,93 @@ button.command-palette-option.empty:not([data-slot]) {
 
 .settings-dialog .icon-button {
   border-color: transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg-3);
-  height: 20px;
-  min-height: 20px;
-  opacity: 0.64;
-  width: 20px;
+  height: 28px;
+  min-height: 28px;
+  opacity: 0.72;
+  width: 28px;
 }
 
 .settings-dialog .icon-button svg {
-  height: 12px;
-  width: 12px;
+  height: 14px;
+  width: 14px;
 }
 
 .settings-dialog .icon-button:hover:not(:disabled),
 .settings-dialog .icon-button:focus-visible {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  background: var(--dialog-control-hover);
   border-color: transparent;
   box-shadow: none;
   color: var(--fg);
   opacity: 1;
-  outline: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
-  outline-offset: 1px;
+  outline: 0;
 }
 
 .settings-dialog .icon-button:active:not(:disabled) {
   transform: none;
+}
+
+.settings-pane-body {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px 18px;
+}
+
+.settings-group {
+  background: color-mix(in srgb, var(--paper-raised) 82%, var(--ink) 4%);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
+  box-shadow: none;
+  display: grid;
+  overflow: hidden;
+}
+
+.settings-row {
+  align-items: center;
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(170px, 1fr) minmax(220px, auto);
+  min-height: 62px;
+  padding: 12px 16px;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid color-mix(in srgb, var(--dialog-border) 72%, transparent);
+}
+
+.settings-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-row-copy [data-slot="label"] {
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 520;
+  letter-spacing: 0;
+  line-height: 1.25;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-row-copy p {
+  color: var(--fg-4);
+  font-size: 11.5px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.settings-row-control {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .settings-fieldset {
@@ -1423,33 +1612,39 @@ button.command-palette-option.empty:not([data-slot]) {
   display: grid;
   gap: 9px;
   margin: 0;
-  padding: 0 14px;
+  padding: 0 16px;
 }
 
 .settings-fieldset [data-slot="label"] {
   color: var(--fg-3);
   font-family: var(--font-ui);
   font-size: 11px;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   margin: 0;
   padding: 0;
-  text-transform: uppercase;
 }
 
 .theme-segmented-control {
-  background: color-mix(in srgb, var(--paper-sunk) 52%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  border-radius: 6px;
+  background: var(--dialog-control-bg);
+  border: 1px solid var(--dialog-border);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   display: grid;
   gap: 1px;
-  grid-template-columns: repeat(3, 76px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-self: start;
   padding: 2px;
+  width: 100%;
+}
+
+.settings-row .theme-segmented-control {
+  width: 238px;
 }
 
 .theme-option {
   align-items: center;
-  border-radius: 4px;
+  border-radius: 7px;
   color: var(--fg-3);
   cursor: pointer;
   display: flex;
@@ -1464,7 +1659,7 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .theme-option.active {
-  background: var(--paper-raised);
+  background: var(--dialog-control-hover);
   color: var(--fg);
 }
 
@@ -1472,25 +1667,27 @@ button.command-palette-option.empty:not([data-slot]) {
   align-items: center;
   display: flex;
   gap: 9px;
+  justify-content: flex-end;
   min-width: 0;
 }
 
 .settings-text-input {
-  background: color-mix(in srgb, var(--paper-sunk) 48%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  border-radius: 5px;
+  background: var(--dialog-field-bg);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
   color: var(--fg);
   flex: 1 1 auto;
   font: inherit;
   font-size: 13px;
-  height: 32px;
+  height: 34px;
   min-width: 0;
   outline: none;
   padding: 0 10px;
+  width: 188px;
 }
 
 .settings-text-input:focus {
-  border-color: color-mix(in srgb, var(--ink) 28%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 26%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
@@ -1506,8 +1703,15 @@ button.command-palette-option.empty:not([data-slot]) {
   margin: 0;
 }
 
+.settings-pane-body > .settings-error {
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
 .settings-update-fieldset {
-  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-top: 1px solid var(--dialog-border);
   padding-top: 14px;
 }
 
@@ -1525,6 +1729,10 @@ button.command-palette-option.empty:not([data-slot]) {
   margin: 5px 0 0;
 }
 
+.settings-row-copy .settings-update-status {
+  margin: 0;
+}
+
 .settings-update-status.error {
   color: var(--error-text);
 }
@@ -1536,12 +1744,15 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .settings-update-available {
-  background: color-mix(in srgb, var(--paper-sunk) 40%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
-  gap: 7px;
-  padding: 10px;
+  gap: 8px;
+  justify-items: end;
+  max-width: 250px;
+  padding: 0;
+  text-align: right;
 }
 
 .settings-update-available p {
@@ -1557,27 +1768,60 @@ button.command-palette-option.empty:not([data-slot]) {
 
 .settings-update-install {
   gap: 6px;
-  justify-self: start;
+  justify-self: end;
   min-height: 28px;
   padding: 0 10px;
 }
 
 .settings-actions {
-  background: transparent;
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
   border: 0;
+  border-top: 1px solid var(--dialog-border);
   border-radius: 0;
   display: flex;
   flex-direction: row;
   gap: 6px;
   justify-content: flex-end;
   margin: 0;
-  padding: 0 14px 14px;
+  padding: 10px 16px 12px;
+}
+
+.settings-pane .settings-actions {
+  padding: 11px 24px 14px;
 }
 
 .settings-actions button {
+  border-radius: 8px;
   font-size: 12px;
   min-height: 28px;
   padding: 0 10px;
+}
+
+.settings-dialog .ghost-button,
+.inline-composer .ghost-button {
+  background: transparent;
+  color: var(--fg-3);
+}
+
+.settings-dialog .ghost-button:hover:not(:disabled),
+.settings-dialog .ghost-button:focus-visible,
+.inline-composer .ghost-button:hover:not(:disabled),
+.inline-composer .ghost-button:focus-visible {
+  background: var(--dialog-control-hover);
+  color: var(--fg);
+}
+
+.settings-dialog .primary,
+.inline-composer .primary {
+  background: color-mix(in srgb, var(--ink) 82%, transparent);
+  color: var(--paper-raised);
+}
+
+.settings-dialog .primary:hover:not(:disabled),
+.settings-dialog .primary:focus-visible,
+.inline-composer .primary:hover:not(:disabled),
+.inline-composer .primary:focus-visible {
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
 }
 
 .word-count-dialog {
@@ -1592,34 +1836,32 @@ button.command-palette-option.empty:not([data-slot]) {
 .word-count-panel {
   display: grid;
   gap: 9px;
-  padding: 0 14px;
+  padding: 0 16px;
 }
 
 .word-count-dashboard {
   display: grid;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 16px;
 }
 
 .word-count-hero {
   align-items: end;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--ink) 9%, transparent), transparent 46%),
-    color-mix(in srgb, var(--paper-sunk) 58%, var(--paper-raised));
-  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
+  background: var(--dialog-field-bg);
+  border: 1px solid var(--dialog-border);
   border-radius: 8px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 54%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 104px;
+  min-height: 96px;
   overflow: hidden;
   padding: 16px;
   position: relative;
 }
 
 .word-count-hero::before {
-  background: var(--ink);
+  background: color-mix(in srgb, var(--ink) 46%, transparent);
   content: "";
   height: 100%;
   left: 0;
@@ -1644,13 +1886,13 @@ button.command-palette-option.empty:not([data-slot]) {
 .word-count-kicker {
   color: var(--fg-4);
   font-size: 10px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
 }
 
 .word-count-primary-label {
   color: var(--fg-3);
   font-size: 12px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
 }
 
 .word-count-hero strong {
@@ -1673,10 +1915,10 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .word-count-metric {
-  background: color-mix(in srgb, var(--paper-raised) 72%, var(--paper-sunk));
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  border-radius: 7px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 48%, transparent);
+  background: var(--dialog-control-bg);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   display: grid;
   gap: 9px;
   min-width: 0;
@@ -1687,9 +1929,9 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .word-count-metric::before {
-  background: var(--gray-40);
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
   content: "";
-  height: 3px;
+  height: 1px;
   left: 0;
   position: absolute;
   right: 0;
@@ -1700,10 +1942,9 @@ button.command-palette-option.empty:not([data-slot]) {
   color: var(--fg-3);
   font-family: var(--font-ui);
   font-size: 10px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
   line-height: 1.2;
   margin: 0;
-  text-transform: uppercase;
 }
 
 .word-count-grid dd {
@@ -1757,7 +1998,7 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .word-count-selection {
-  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-top: 1px solid var(--dialog-border);
   padding-top: 14px;
 }
 
@@ -1765,10 +2006,10 @@ button.command-palette-option.empty:not([data-slot]) {
   color: var(--fg-3);
   font-family: var(--font-ui);
   font-size: 11px;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   margin: 0;
   padding: 0;
-  text-transform: uppercase;
 }
 
 .word-count-selection .word-count-metric::before {
@@ -3728,17 +3969,19 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 .inline-composer {
   animation: thread-card-enter 240ms var(--ease-out) backwards;
   animation-delay: calc(20ms + var(--thread-index, 0) * 16ms);
-  background: var(--paper-raised);
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, var(--rule));
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  background: var(--dialog-bg-strong);
+  border: 1px solid var(--dialog-border);
   border-radius: 8px;
   box-shadow:
-    0 8px 20px rgb(0 0 0 / 5%),
-    0 1px 5px rgb(0 0 0 / 4%);
+    inset 0 1px 0 var(--glass-highlight),
+    0 16px 36px color-mix(in srgb, var(--ink) 10%, transparent);
   display: grid;
-  gap: 12px;
+  gap: 10px;
   outline: 0 solid transparent;
   outline-offset: 0;
-  padding: 16px;
+  padding: 14px;
   position: absolute;
   transition:
     border-color var(--dur-base) var(--ease-out),
@@ -3750,18 +3993,18 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 }
 
 :root[data-theme="dark"] .inline-composer {
-  border-color: color-mix(in srgb, var(--ink) 10%, var(--rule));
+  border-color: var(--dialog-border);
   box-shadow:
-    0 12px 26px rgb(0 0 0 / 16%),
-    0 2px 8px rgb(0 0 0 / 24%);
+    inset 0 1px 0 var(--glass-highlight),
+    0 18px 42px rgb(0 0 0 / 18%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .inline-composer {
-    border-color: color-mix(in srgb, var(--ink) 10%, var(--rule));
+    border-color: var(--dialog-border);
     box-shadow:
-      0 12px 26px rgb(0 0 0 / 16%),
-      0 2px 8px rgb(0 0 0 / 24%);
+      inset 0 1px 0 var(--glass-highlight),
+      0 18px 42px rgb(0 0 0 / 18%);
   }
 }
 
@@ -3781,8 +4024,9 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 .inline-composer [data-slot="textarea"],
 .inline-composer [data-slot="textarea"]:focus,
 .inline-composer [data-slot="textarea"]:focus-visible {
-  background: color-mix(in srgb, var(--paper-sunk) 54%, var(--paper-raised));
-  border-color: color-mix(in srgb, var(--border-soft) 70%, transparent);
+  background: var(--dialog-field-bg);
+  border-color: var(--dialog-border);
+  border-radius: 8px;
   box-shadow: none;
   font-family: var(--font-body);
   outline: none;
@@ -3851,11 +4095,11 @@ blockquote {
 }
 
 .composer-actions [data-slot="button"] {
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 12.5px;
-  height: 32px;
-  min-height: 32px;
-  padding-inline: 14px;
+  height: 30px;
+  min-height: 30px;
+  padding-inline: 12px;
 }
 
 .margin-rail {
@@ -4088,16 +4332,16 @@ blockquote {
 }
 
 .inline-composer:focus-within {
-  border-color: color-mix(in srgb, var(--ink) 46%, var(--rule));
+  border-color: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 
 :root[data-theme="dark"] .inline-composer:focus-within {
-  border-color: color-mix(in srgb, var(--ink) 46%, var(--rule));
+  border-color: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .inline-composer:focus-within {
-    border-color: color-mix(in srgb, var(--ink) 46%, var(--rule));
+    border-color: color-mix(in srgb, var(--ink) 28%, transparent);
   }
 }
 
@@ -4520,11 +4764,11 @@ blockquote {
 .thread-header span,
 .status-pill {
   color: var(--fg-4);
-  font-family: var(--font-plex-mono);
+  font-family: var(--font-ui);
   font-size: 10px;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   line-height: 1.2;
-  text-transform: uppercase;
 }
 
 .thread-card.focused .thread-header strong,
@@ -4548,8 +4792,8 @@ blockquote {
 .thread-icon-button {
   background: transparent;
   border-color: transparent;
-  border-radius: 4px;
-  color: var(--ink);
+  border-radius: 7px;
+  color: var(--fg-3);
   height: 22px;
   min-height: 22px;
   padding: 0;
@@ -4575,10 +4819,10 @@ blockquote {
 
 .thread-icon-button:hover:not(:disabled),
 .thread-icon-button:focus-visible {
-  background: transparent;
-  border-color: var(--ink);
+  background: var(--dialog-control-hover);
+  border-color: transparent;
   box-shadow: none;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .thread-card blockquote {
@@ -4593,6 +4837,9 @@ blockquote {
 }
 
 .comment-edit-form {
+  background: var(--dialog-bg-strong);
+  border-color: var(--dialog-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   position: static;
   width: 100%;
 }
@@ -4939,6 +5186,68 @@ blockquote {
     max-width: none;
     min-width: 0;
     width: calc(100vw - 24px);
+  }
+
+  .app-settings-dialog {
+    min-width: 0;
+  }
+
+  .settings-window-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    min-height: 0;
+  }
+
+  .settings-sidebar {
+    border-bottom: 1px solid var(--dialog-border);
+    border-right: 0;
+    padding: 8px 10px;
+  }
+
+  .settings-sidebar-list {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  button.settings-sidebar-item:not([data-slot]) {
+    flex: 0 0 auto;
+    height: 28px;
+    min-height: 28px;
+    min-width: 112px;
+  }
+
+  .settings-pane-header {
+    min-height: 58px;
+    padding: 14px 12px 10px 16px;
+  }
+
+  .settings-pane-body {
+    max-height: calc(100dvh - 184px);
+    padding: 0 12px 14px;
+  }
+
+  .settings-row {
+    align-items: start;
+    gap: 10px;
+    grid-template-columns: 1fr;
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  .settings-row-control {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .settings-row .theme-segmented-control,
+  .settings-user-control,
+  .settings-text-input {
+    width: 100%;
+  }
+
+  .settings-pane .settings-actions {
+    padding: 10px 12px 12px;
   }
 
   .command-palette-backdrop {

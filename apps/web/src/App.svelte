@@ -9479,7 +9479,7 @@
 
 		<Dialog.Root bind:open={settingsDialogOpen}>
 			<Dialog.Content
-				class="settings-dialog"
+				class="settings-dialog app-settings-dialog"
 				aria-labelledby="settings-title"
 				showCloseButton={false}
 			>
@@ -9487,121 +9487,158 @@
 					event.preventDefault();
 					saveSettings();
 				}}>
-					<Dialog.Header class="settings-dialog-header">
-						<div>
-							<p class="eyebrow">Margin</p>
-							<Dialog.Title id="settings-title">Settings</Dialog.Title>
-						</div>
+					<div class="settings-window-layout">
+						<aside class="settings-sidebar" aria-label="Settings areas">
+							<div class="settings-sidebar-list">
+								<button class="settings-sidebar-item active" type="button" aria-current="page">
+									<span class="settings-sidebar-icon">
+										<SettingsIcon aria-hidden="true" />
+									</span>
+									<span>General</span>
+								</button>
+							</div>
+						</aside>
 
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							class="icon-button"
-							aria-label="Close settings"
-							onclick={closeSettingsDialog}
-						>
-							<XIcon aria-hidden="true" />
-						</Button>
-					</Dialog.Header>
-
-					<fieldset class="settings-fieldset">
-						<Label>Theme</Label>
-
-						<ToggleGroup.Root
-							class="theme-segmented-control"
-							type="single"
-							bind:value={settingsDraftTheme}
-						>
-							{#each themeOptions as theme}
-								<ToggleGroup.Item
-									class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
-									value={theme}
-								>
-									<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
-								</ToggleGroup.Item>
-							{/each}
-						</ToggleGroup.Root>
-					</fieldset>
-
-					<fieldset class="settings-fieldset">
-						<Label for="settings-local-user-name">Local name</Label>
-
-						<div class="settings-user-control">
-							<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
-							<input
-								id="settings-local-user-name"
-								class="settings-text-input"
-								bind:value={settingsDraftLocalUserName}
-								autocomplete="name"
-								maxlength="80"
-							/>
-						</div>
-					</fieldset>
-
-					{#if desktopShell}
-						<section class="settings-fieldset settings-update-fieldset" aria-labelledby="settings-updates-title">
-							<div class="settings-update-header">
+						<section class="settings-pane" aria-labelledby="settings-title">
+							<Dialog.Header class="settings-dialog-header settings-pane-header">
 								<div>
-									<Label id="settings-updates-title">Updates</Label>
-									{#if updateStatusMessage}
-										<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
-											{updateStatusMessage}
-										</p>
-									{/if}
+									<p class="eyebrow">Margin</p>
+									<Dialog.Title id="settings-title">General</Dialog.Title>
 								</div>
 
 								<Button
-									variant="outline"
-									size="sm"
-									class="ghost-button settings-update-check"
-									onclick={() => checkForDesktopUpdate(true)}
-									disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
+									variant="ghost"
+									size="icon-sm"
+									class="icon-button"
+									aria-label="Close settings"
+									onclick={closeSettingsDialog}
 								>
-									<RefreshCwIcon aria-hidden="true" />
-									<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
+									<XIcon aria-hidden="true" />
 								</Button>
+							</Dialog.Header>
+
+							<div class="settings-pane-body">
+								<section class="settings-group" aria-label="General settings">
+										<div class="settings-row">
+											<div class="settings-row-copy">
+												<Label>Theme</Label>
+											</div>
+
+										<div class="settings-row-control">
+											<ToggleGroup.Root
+												class="theme-segmented-control"
+												type="single"
+												aria-label="Theme"
+												bind:value={settingsDraftTheme}
+											>
+												{#each themeOptions as theme}
+													<ToggleGroup.Item
+														class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
+														value={theme}
+													>
+														<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
+													</ToggleGroup.Item>
+												{/each}
+											</ToggleGroup.Root>
+										</div>
+									</div>
+
+									<div class="settings-row">
+										<div class="settings-row-copy">
+											<Label for="settings-local-user-name">Local name</Label>
+											<p>Shown on local comments and suggestions.</p>
+										</div>
+
+										<div class="settings-row-control">
+											<div class="settings-user-control">
+												<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
+												<input
+													id="settings-local-user-name"
+													class="settings-text-input"
+													bind:value={settingsDraftLocalUserName}
+													autocomplete="name"
+													maxlength="80"
+												/>
+											</div>
+										</div>
+									</div>
+								</section>
+
+								{#if desktopShell}
+									<section class="settings-group" aria-label="Application updates">
+										<div class="settings-row">
+											<div class="settings-row-copy">
+												<Label id="settings-updates-title">Updates</Label>
+												<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
+													{updateStatusMessage || 'Check for newer desktop builds.'}
+												</p>
+											</div>
+
+											<div class="settings-row-control">
+												<Button
+													variant="outline"
+													size="sm"
+													class="ghost-button settings-update-check"
+													onclick={() => checkForDesktopUpdate(true)}
+													disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
+												>
+													<RefreshCwIcon aria-hidden="true" />
+													<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
+												</Button>
+											</div>
+										</div>
+
+										{#if availableAppUpdate}
+											<div class="settings-row">
+												<div class="settings-row-copy">
+													<Label>Available update</Label>
+													<p>Version {availableAppUpdate.version} is available.</p>
+												</div>
+
+												<div class="settings-row-control">
+													<div class="settings-update-available">
+														{#if availableAppUpdate.notes}
+															<p>{availableAppUpdate.notes}</p>
+														{/if}
+														<Button
+															size="sm"
+															class="primary settings-update-install"
+															onclick={installDesktopUpdate}
+															disabled={updateCheckState === 'installing'}
+														>
+															<DownloadIcon aria-hidden="true" />
+															<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
+														</Button>
+													</div>
+												</div>
+											</div>
+										{/if}
+									</section>
+								{/if}
+
+								{#if settingsError}
+									<p class="settings-error">{settingsError}</p>
+								{/if}
 							</div>
 
-							{#if availableAppUpdate}
-								<div class="settings-update-available">
-									<p>Version {availableAppUpdate.version} is available</p>
-									{#if availableAppUpdate.notes}
-										<p>{availableAppUpdate.notes}</p>
-									{/if}
-									<Button
-										size="sm"
-										class="primary settings-update-install"
-										onclick={installDesktopUpdate}
-										disabled={updateCheckState === 'installing'}
-									>
-										<DownloadIcon aria-hidden="true" />
-										<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
-									</Button>
-								</div>
-							{/if}
+							<Dialog.Footer class="settings-actions">
+								<Button
+									variant="outline"
+									size="sm"
+									class="ghost-button"
+									onclick={closeSettingsDialog}
+									disabled={settingsSaving}
+								>Cancel</Button>
+
+								<Button
+									size="sm"
+									class="primary"
+									type="submit"
+									disabled={settingsSaving}
+								>{settingsSaving ? 'Saving' : 'Save'}</Button>
+							</Dialog.Footer>
 						</section>
-					{/if}
-
-					{#if settingsError}
-						<p class="settings-error">{settingsError}</p>
-					{/if}
-
-					<Dialog.Footer class="settings-actions">
-						<Button
-							variant="outline"
-							size="sm"
-							class="ghost-button"
-							onclick={closeSettingsDialog}
-							disabled={settingsSaving}
-						>Cancel</Button>
-
-						<Button
-							size="sm"
-							class="primary"
-							type="submit"
-							disabled={settingsSaving}
-						>{settingsSaving ? 'Saving' : 'Save'}</Button>
-					</Dialog.Footer>
+					</div>
 				</form>
 			</Dialog.Content>
 		</Dialog.Root>
