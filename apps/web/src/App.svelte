@@ -176,6 +176,7 @@
 	let wordCountStats: WordCountStats = emptyWordCountStats();
 	let includeMarginNotesAppendix = true;
 	let settingsSaving = false;
+	let settingsSaveQueued = false;
 	let settingsError = '';
 	let availableAppUpdate: AppUpdateMetadata | null = null;
 	let updateCheckState: AppUpdateCheckState = 'idle';
@@ -6593,8 +6594,6 @@
 	}
 
 	function closeSettingsDialog() {
-		if (settingsSaving) return;
-
 		settingsDialogOpen = false;
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
@@ -6722,33 +6721,52 @@
 		return `${formatCount(stats.open)} open / ${formatCount(stats.total)} ${taskLabel}`;
 	}
 
-	async function saveSettings() {
+	function updateSettingsTheme(theme: ThemeSetting) {
+		if (theme === settingsDraftTheme) return;
+
+		settingsDraftTheme = theme;
+		applyTheme(theme);
+		void saveSettingsDraft();
+	}
+
+	function updateSettingsLocalUserName(value: string) {
+		settingsDraftLocalUserName = value;
+		void saveSettingsDraft();
+	}
+
+	async function saveSettingsDraft() {
+		settingsSaveQueued = true;
+		if (settingsSaving) return;
+
 		settingsSaving = true;
-		settingsError = '';
-
-		const nextSettings: AppSettings = {
-			theme: settingsDraftTheme,
-			localUserName: settingsDraftLocalUserName.trim()
-		};
-
-		const request = desktopShell
-			? tauriInvoke<AppSettings>('write_settings', { settings: nextSettings })
-			: null;
 
 		try {
-			const savedSettings = request ? await request : nextSettings;
+			while (settingsSaveQueued) {
+				settingsSaveQueued = false;
+				settingsError = '';
 
-			appSettings = normalizeSettings(savedSettings);
-			settingsDraftLocalUserName = appSettings.localUserName;
+				const nextSettings: AppSettings = {
+					theme: settingsDraftTheme,
+					localUserName: settingsDraftLocalUserName.trim()
+				};
 
-			if (!request) localStorage.setItem(settingsStorageKey, JSON.stringify(appSettings));
+				const request = desktopShell
+					? tauriInvoke<AppSettings>('write_settings', { settings: nextSettings })
+					: null;
 
-			applyTheme(appSettings.theme);
-			settingsDialogOpen = false;
+				const savedSettings = request ? await request : nextSettings;
+
+				appSettings = normalizeSettings(savedSettings);
+
+				if (!request) localStorage.setItem(settingsStorageKey, JSON.stringify(appSettings));
+
+				applyTheme(appSettings.theme);
+			}
 		} catch(err) {
 			settingsError = err instanceof Error ? err.message : 'Unable to save settings';
 		} finally {
 			settingsSaving = false;
+			if (settingsSaveQueued) void saveSettingsDraft();
 		}
 	}
 
@@ -9483,163 +9501,143 @@
 				aria-labelledby="settings-title"
 				showCloseButton={false}
 			>
-				<form onsubmit={(event) => {
-					event.preventDefault();
-					saveSettings();
-				}}>
-					<div class="settings-window-layout">
-						<aside class="settings-sidebar" aria-label="Settings areas">
-							<div class="settings-sidebar-list">
-								<button class="settings-sidebar-item active" type="button" aria-current="page">
-									<span class="settings-sidebar-icon">
-										<SettingsIcon aria-hidden="true" />
-									</span>
-									<span>General</span>
-								</button>
-							</div>
-						</aside>
+				<div class="settings-window-layout">
+					<aside class="settings-sidebar" aria-label="Settings areas">
+						<div class="settings-sidebar-list">
+							<button class="settings-sidebar-item active" type="button" aria-current="page">
+								<span class="settings-sidebar-icon">
+									<SettingsIcon aria-hidden="true" />
+								</span>
+								<span>General</span>
+							</button>
+						</div>
+					</aside>
 
-						<section class="settings-pane" aria-labelledby="settings-title">
-							<Dialog.Header class="settings-dialog-header settings-pane-header">
-								<div>
-									<p class="eyebrow">Margin</p>
-									<Dialog.Title id="settings-title">General</Dialog.Title>
+					<section class="settings-pane" aria-labelledby="settings-title">
+						<Dialog.Header class="settings-dialog-header settings-pane-header">
+							<div>
+								<p class="eyebrow">Margin</p>
+								<Dialog.Title id="settings-title">General</Dialog.Title>
+							</div>
+
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="icon-button"
+								aria-label="Close settings"
+								onclick={closeSettingsDialog}
+							>
+								<XIcon aria-hidden="true" />
+							</Button>
+						</Dialog.Header>
+
+						<div class="settings-pane-body">
+							<section class="settings-group" aria-label="General settings">
+								<div class="settings-row">
+									<div class="settings-row-copy">
+										<Label>Theme</Label>
+									</div>
+
+									<div class="settings-row-control">
+										<ToggleGroup.Root
+											class="theme-segmented-control"
+											type="single"
+											aria-label="Theme"
+											value={settingsDraftTheme}
+										>
+											{#each themeOptions as theme}
+												<ToggleGroup.Item
+													class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
+													value={theme}
+													onclick={() => updateSettingsTheme(theme)}
+												>
+													<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
+												</ToggleGroup.Item>
+											{/each}
+										</ToggleGroup.Root>
+									</div>
 								</div>
 
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									class="icon-button"
-									aria-label="Close settings"
-									onclick={closeSettingsDialog}
-								>
-									<XIcon aria-hidden="true" />
-								</Button>
-							</Dialog.Header>
-
-							<div class="settings-pane-body">
-								<section class="settings-group" aria-label="General settings">
-										<div class="settings-row">
-											<div class="settings-row-copy">
-												<Label>Theme</Label>
-											</div>
-
-										<div class="settings-row-control">
-											<ToggleGroup.Root
-												class="theme-segmented-control"
-												type="single"
-												aria-label="Theme"
-												bind:value={settingsDraftTheme}
-											>
-												{#each themeOptions as theme}
-													<ToggleGroup.Item
-														class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
-														value={theme}
-													>
-														<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
-													</ToggleGroup.Item>
-												{/each}
-											</ToggleGroup.Root>
-										</div>
+								<div class="settings-row">
+									<div class="settings-row-copy">
+										<Label for="settings-local-user-name">Local name</Label>
+										<p>Shown on local comments and suggestions.</p>
 									</div>
 
+									<div class="settings-row-control">
+										<div class="settings-user-control">
+											<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
+											<input
+												id="settings-local-user-name"
+												class="settings-text-input"
+												value={settingsDraftLocalUserName}
+												oninput={(event) => updateSettingsLocalUserName((event.currentTarget as HTMLInputElement).value)}
+												autocomplete="name"
+												maxlength="80"
+											/>
+										</div>
+									</div>
+								</div>
+							</section>
+
+							{#if desktopShell}
+								<section class="settings-group" aria-label="Application updates">
 									<div class="settings-row">
 										<div class="settings-row-copy">
-											<Label for="settings-local-user-name">Local name</Label>
-											<p>Shown on local comments and suggestions.</p>
+											<Label id="settings-updates-title">Updates</Label>
+											<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
+												{updateStatusMessage || 'Check for newer desktop builds.'}
+											</p>
 										</div>
 
 										<div class="settings-row-control">
-											<div class="settings-user-control">
-												<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
-												<input
-													id="settings-local-user-name"
-													class="settings-text-input"
-													bind:value={settingsDraftLocalUserName}
-													autocomplete="name"
-													maxlength="80"
-												/>
-											</div>
+											<Button
+												variant="outline"
+												size="sm"
+												class="ghost-button settings-update-check"
+												onclick={() => checkForDesktopUpdate(true)}
+												disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
+											>
+												<RefreshCwIcon aria-hidden="true" />
+												<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
+											</Button>
 										</div>
 									</div>
-								</section>
 
-								{#if desktopShell}
-									<section class="settings-group" aria-label="Application updates">
+									{#if availableAppUpdate}
 										<div class="settings-row">
 											<div class="settings-row-copy">
-												<Label id="settings-updates-title">Updates</Label>
-												<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
-													{updateStatusMessage || 'Check for newer desktop builds.'}
-												</p>
+												<Label>Available update</Label>
+												<p>Version {availableAppUpdate.version} is available.</p>
 											</div>
 
 											<div class="settings-row-control">
-												<Button
-													variant="outline"
-													size="sm"
-													class="ghost-button settings-update-check"
-													onclick={() => checkForDesktopUpdate(true)}
-													disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
-												>
-													<RefreshCwIcon aria-hidden="true" />
-													<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
-												</Button>
+												<div class="settings-update-available">
+													{#if availableAppUpdate.notes}
+														<p>{availableAppUpdate.notes}</p>
+													{/if}
+													<Button
+														size="sm"
+														class="primary settings-update-install"
+														onclick={installDesktopUpdate}
+														disabled={updateCheckState === 'installing'}
+													>
+														<DownloadIcon aria-hidden="true" />
+														<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
+													</Button>
+												</div>
 											</div>
 										</div>
+									{/if}
+								</section>
+							{/if}
 
-										{#if availableAppUpdate}
-											<div class="settings-row">
-												<div class="settings-row-copy">
-													<Label>Available update</Label>
-													<p>Version {availableAppUpdate.version} is available.</p>
-												</div>
-
-												<div class="settings-row-control">
-													<div class="settings-update-available">
-														{#if availableAppUpdate.notes}
-															<p>{availableAppUpdate.notes}</p>
-														{/if}
-														<Button
-															size="sm"
-															class="primary settings-update-install"
-															onclick={installDesktopUpdate}
-															disabled={updateCheckState === 'installing'}
-														>
-															<DownloadIcon aria-hidden="true" />
-															<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
-														</Button>
-													</div>
-												</div>
-											</div>
-										{/if}
-									</section>
-								{/if}
-
-								{#if settingsError}
-									<p class="settings-error">{settingsError}</p>
-								{/if}
-							</div>
-
-							<Dialog.Footer class="settings-actions">
-								<Button
-									variant="outline"
-									size="sm"
-									class="ghost-button"
-									onclick={closeSettingsDialog}
-									disabled={settingsSaving}
-								>Cancel</Button>
-
-								<Button
-									size="sm"
-									class="primary"
-									type="submit"
-									disabled={settingsSaving}
-								>{settingsSaving ? 'Saving' : 'Save'}</Button>
-							</Dialog.Footer>
-						</section>
-					</div>
-				</form>
+							{#if settingsError}
+								<p class="settings-error">{settingsError}</p>
+							{/if}
+						</div>
+					</section>
+				</div>
 			</Dialog.Content>
 		</Dialog.Root>
 	</main>

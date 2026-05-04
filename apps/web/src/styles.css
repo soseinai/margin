@@ -1361,6 +1361,7 @@ button.command-palette-option.empty:not([data-slot]) {
 
 .app-settings-dialog {
   background: color-mix(in srgb, var(--paper-sunk) 28%, var(--paper-raised));
+  border-radius: 21px;
   max-width: 760px;
   min-width: 680px;
   width: min(calc(100vw - 56px), 760px);
@@ -1399,25 +1400,32 @@ button.command-palette-option.empty:not([data-slot]) {
 
 .settings-window-layout {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 162px minmax(0, 1fr);
   min-height: 438px;
 }
 
 .settings-sidebar {
-  background:
-    linear-gradient(color-mix(in srgb, var(--ink) 2%, transparent), transparent 128px),
-    color-mix(in srgb, var(--paper-sunk) 74%, var(--paper-raised));
-  border-right: 1px solid var(--dialog-border);
+  background: color-mix(in srgb, var(--paper-sunk) 84%, var(--paper-raised));
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 16px;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
+  isolation: isolate;
+  margin: 4px 0 4px 4px;
   min-width: 0;
-  padding: 52px 5px 14px;
+  overflow: hidden;
+  padding: 39px 5px 14px;
+  position: relative;
+  z-index: 1;
 }
 
 .settings-sidebar-list {
   display: grid;
   gap: 2px;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 button.settings-sidebar-item:not([data-slot]) {
@@ -1429,13 +1437,13 @@ button.settings-sidebar-item:not([data-slot]) {
   cursor: default;
   display: grid;
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 500;
-  gap: 7px;
+  gap: 9px;
   grid-template-columns: 18px minmax(0, 1fr);
-  height: 28px;
+  height: 32px;
   letter-spacing: 0;
-  min-height: 28px;
+  min-height: 32px;
   min-width: 0;
   padding: 0 8px;
   text-align: left;
@@ -1450,32 +1458,26 @@ button.settings-sidebar-item:not([data-slot]):focus-visible {
 }
 
 button.settings-sidebar-item.active:not([data-slot]) {
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  background: color-mix(in srgb, var(--paper-raised) 42%, transparent);
   color: var(--fg);
 }
 
 .settings-sidebar-icon {
   align-items: center;
-  background: color-mix(in srgb, var(--ink) 11%, transparent);
-  border-radius: 5px;
   display: flex;
   height: 18px;
   justify-content: center;
   width: 18px;
 }
 
-.settings-sidebar-item.active .settings-sidebar-icon {
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
-}
-
 .settings-sidebar-icon svg {
-  height: 12px;
-  width: 12px;
+  height: 17px;
+  width: 17px;
 }
 
 .settings-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -1551,7 +1553,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
   gap: 16px;
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 18px;
+  padding: 0 24px 24px;
 }
 
 .settings-group {
@@ -5199,8 +5201,12 @@ blockquote {
   }
 
   .settings-sidebar {
+    border: 0;
     border-bottom: 1px solid var(--dialog-border);
-    border-right: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: color-mix(in srgb, var(--paper-sunk) 84%, var(--paper-raised));
+    margin: 0;
     padding: 8px 10px;
   }
 
@@ -5212,9 +5218,9 @@ blockquote {
 
   button.settings-sidebar-item:not([data-slot]) {
     flex: 0 0 auto;
-    height: 28px;
-    min-height: 28px;
-    min-width: 112px;
+    height: 32px;
+    min-height: 32px;
+    min-width: 124px;
   }
 
   .settings-pane-header {
