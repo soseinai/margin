@@ -34,6 +34,26 @@ npm run test:web:e2e
 
 `test:web:e2e` is intentionally empty for now. Install the browser used by integration tests with `just setup-web-integration` on local machines; CI installs Chromium before running the test gate.
 
+## Performance Profiling
+
+Use the typing profiler when editor input feels slow or when changing CodeMirror live preview, parser, source-mode, or decoration code:
+
+```sh
+just profile
+```
+
+The recipe delegates to `npm run profile:typing`. It starts the web app in desktop-preview mode, loads generated Markdown documents, types into the editor, and prints timing summaries for parse, model, decoration, and total transaction cost.
+
+Useful overrides:
+
+```sh
+MARGIN_TYPING_PROFILE_SECTIONS=320,800 just profile
+MARGIN_TYPING_PROFILE_TEXT=abcdefghijklmnopqrst just profile
+MARGIN_TYPING_PROFILE_DELAY_MS=15 just profile
+```
+
+Treat the output as a local performance signal, not a deterministic test gate. If `decorationsMean` dominates, look at live-preview decoration scope; if `parseMean` dominates on very large documents, look at parser incrementality or moving parsing off the main thread.
+
 ## Test Groups
 
 ### Unit Tests

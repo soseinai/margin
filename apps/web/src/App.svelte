@@ -40,7 +40,8 @@
 		StateField,
 		type Extension,
 		type Line,
-		type Range
+		type Range,
+		type Transaction
 	} from '@codemirror/state';
 
 	import {
@@ -50,7 +51,6 @@
 		WidgetType,
 		keymap,
 		runScopeHandlers,
-		type DecorationSet,
 		type Panel,
 		type ViewUpdate
 	} from '@codemirror/view';
@@ -103,38 +103,36 @@
 		markdownImageWithSize,
 		type MarkdownImage
 	} from './lib/markdown-images';
+	import type { MarkdownFrontmatter } from './lib/markdown-frontmatter';
+	import { inlineMarkdownMathSpans } from './lib/markdown-math';
 	import {
-		isFrontmatterBoundaryLine,
-		isFrontmatterClosingLine,
-		parseFrontmatter,
-		type MarkdownFrontmatter
-	} from './lib/markdown-frontmatter';
-	import { orderedListMarkersForLines } from './lib/markdown-lists';
-	import {
-		inlineMarkdownMathSpans,
-		markdownMathBlocksForLines,
-		type MarkdownMathBlock as ParsedMarkdownMathBlock
-	} from './lib/markdown-math';
-	import {
-		isClosingMarkdownFence,
 		markdownCodeFenceLanguage,
-		openingMarkdownFence,
-		type MarkdownFenceInfo
 	} from './lib/markdown-code-fences';
 	import {
 		leadingMarkdownIndent,
-		leadingMarkdownWhitespaceLength,
 		markdownIndentWidth,
 		sourceMarkdownIndentLengthForWidth
 	} from './lib/markdown-indent';
+	import type { MarkdownTable } from './lib/markdown-tables';
 	import {
-		markdownTableAlignment,
-		markdownTableCells,
-		markdownTableDelimiterCells,
-		padMarkdownTableAlignments,
-		padMarkdownTableCells,
-		type MarkdownTable
-	} from './lib/markdown-tables';
+		parsePartialMarkdownTextCore,
+		type ParsedPartialMarkdownTextCore
+	} from './lib/partial-markdown-core';
+	import {
+		MarkdownSourceModeDecider,
+		PartialMarkdownTextModel,
+		blockForLine,
+		isOrderedListMarker,
+		markdownHeadingLine,
+		markdownListContentOffset,
+		markdownListInfo,
+		markdownListInfoFallback,
+		markdownListLayoutForItem,
+		type ListContinuationInfo,
+		type MarkdownLineRange,
+		type MarkdownListLayout,
+		type SourceBlock
+	} from './lib/partial-markdown-text';
 
 	import {
 		appendMarginCommentBlock,
@@ -273,10 +271,21 @@
 	const saveProgressMinVisibleMs = 1000;
 	const saveProgressFadeMs = 500;
 	const markdownBlockWidgetNavigationRadius = 6;
+	const livePreviewViewportLineBuffer = 80;
 	const fileTreePanelMinWidth = 220;
 	const fileTreePanelMaxWidth = 520;
+	const typingProfilerStorageKey = 'margin:typing-profiler';
+	const typingProfilerThresholdStorageKey = 'margin:typing-profiler-threshold-ms';
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
+	let pendingTypingProfile: TypingProfile | null = null;
+	let partialMarkdownTextModelCache: {
+		collapsedHeadingKeys: ReadonlySet<string>;
+		collapsedListItemKeys: ReadonlySet<string>;
+		documentSessionKey: string;
+		model: PartialMarkdownTextModel;
+		parsed: ParsedPartialMarkdownTextCore
+	} | null = null;
 	const marginHighlightStyle = HighlightStyle.define([
 		{
 			tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword],
@@ -526,66 +535,34 @@
 	type LivePreviewState = {
 		threads: ThreadView[];
 		activeThreadId: string;
-		commentAnchor: CommentSelectionAnchor | null;
-		decorations: DecorationSet
+		commentAnchor: CommentSelectionAnchor | null
 	 };
 
-	type SourceBlock = {
-		start: number;
-		end: number;
-		kind: 'line' | 'frontmatter' | 'fenced-code' | 'list' | 'indented' | 'table' | 'math';
-		listEditBaseSourceIndent?: number;
-		listEditBaseVisualIndent?: number;
-		language?: string;
-		frontmatter?: MarkdownFrontmatter;
-		math?: ParsedMarkdownMathBlock;
-		table?: MarkdownTable
-	 };
+	type TypingProfile = {
+		changedLines: string;
+		decorationRanges: number;
+		decorationsMs: number;
+		docLength: number;
+		lines: number;
+		modelCache: 'hit' | 'miss' | 'unknown';
+		modelMs: number;
+		parseMs: number;
+		startedAt: number;
+		state: EditorState;
+		totalMs: number
+	};
+	type TypingProfileRow = {
+		changedLines: string;
+		decorationRanges: number;
+		decorationsMs: number;
+		docLength: number;
+		lines: number;
+		modelCache: 'hit' | 'miss' | 'unknown';
+		modelMs: number;
+		parseMs: number;
+		totalMs: number
+	};
 
-	type MarkdownHeadingLine = { level: number; text: string; syntaxLength: number };
-	type MarkdownHeading = {
-		blockEnd: number;
-		collapseKey: string;
-		level: number;
-		lineNumber: number;
-		text: string
-	 };
-	type MarkdownHeadingModel = {
-		collapsedAncestorByLine: Map<number, number>;
-		items: Map<number, MarkdownHeading>
-	 };
-	type ListInfo = { indent: number; contentIndent: number; marker: string; task: boolean };
-	type ListContinuationInfo = {
-		sourceIndentLength: number;
-		sourceIndentWidth: number;
-		visualIndent: number
-	 };
-	type ListContainerContext = {
-		info: ListInfo;
-		sourceIndent: number;
-		visualIndent: number
-	 };
-	type MarkdownListLayout = {
-		depth: number;
-		marker: string;
-		markerOffset: number;
-		markerX: number;
-		textX: number
-	 };
-	type MarkdownListItem = {
-		blockEnd: number;
-		childLines: number[];
-		collapseKey: string;
-		info: ListInfo;
-		layout: MarkdownListLayout;
-		lineNumber: number;
-		parentLine: number | null
-	 };
-	type MarkdownListModel = {
-		collapsedAncestorByLine: Map<number, number>;
-		items: Map<number, MarkdownListItem>;
-		ownerByLine: Map<number, MarkdownListItem>
-	 };
 	const markdownImageBounds = new Map<string, { width: number; height: number }>();
 	const markdownImageResizeObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
@@ -1349,6 +1326,136 @@
 	const setCommentAnchorEffect = StateEffect.define<CommentSelectionAnchor | null>();
 	const refreshLivePreviewEffect = StateEffect.define<void>();
 	const setMarginDropCursorEffect = StateEffect.define<number | null>();
+	const markdownParseField = StateField.define<ParsedPartialMarkdownTextCore>({
+		create(state) {
+			return parsePartialMarkdownTextCore(state.doc.toString());
+		},
+
+		update(value, transaction) {
+			if (!transaction.docChanged) return value;
+
+			const profile = startTypingProfile(transaction);
+			const start = profile ? performance.now() : 0;
+			const parsed = parsePartialMarkdownTextCore(transaction.state.doc.toString());
+
+			if (profile) {
+				profile.parseMs = performance.now() - start;
+				pendingTypingProfile = profile;
+			}
+
+			return parsed;
+		}
+	});
+
+	function startTypingProfile(transaction: Transaction): TypingProfile | null {
+		if (!typingProfilerEnabled()) return null;
+
+		return {
+			changedLines: changedLineSummary(transaction),
+			decorationRanges: 0,
+			decorationsMs: 0,
+			docLength: transaction.state.doc.length,
+			lines: transaction.state.doc.lines,
+			modelCache: 'unknown',
+			modelMs: 0,
+			parseMs: 0,
+			startedAt: performance.now(),
+			state: transaction.state,
+			totalMs: 0
+		};
+	}
+
+	function consumeTypingProfile(state: EditorState) {
+		if (!pendingTypingProfile || pendingTypingProfile.state !== state) return null;
+
+		const profile = pendingTypingProfile;
+		pendingTypingProfile = null;
+
+		return profile;
+	}
+
+	function activeTypingProfile(state: EditorState) {
+		if (!pendingTypingProfile || pendingTypingProfile.state !== state) return null;
+
+		return pendingTypingProfile;
+	}
+
+	function changedLineSummary(transaction: Transaction) {
+		const ranges: string[] = [];
+
+		transaction.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+			const startPosition = Math.min(fromB, transaction.state.doc.length);
+			const endPosition = Math.min(Math.max(fromB, toB > fromB ? toB - 1 : fromB), transaction.state.doc.length);
+			const startLine = transaction.state.doc.lineAt(startPosition).number;
+			const endLine = transaction.state.doc.lineAt(endPosition).number;
+
+			ranges.push(startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`);
+		});
+
+		return ranges.join(', ') || 'none';
+	}
+
+	function typingProfilerEnabled() {
+		if (typeof window === 'undefined') return false;
+
+		try {
+			return window.localStorage.getItem(typingProfilerStorageKey) === '1'
+				|| new URLSearchParams(window.location.search).has('typingProfile');
+		} catch {
+			return false;
+		}
+	}
+
+	function logTypingProfile(profile: TypingProfile) {
+		const row: TypingProfileRow = {
+			lines: profile.lines,
+			docLength: profile.docLength,
+			changedLines: profile.changedLines,
+			parseMs: formatProfileMs(profile.parseMs),
+			modelMs: formatProfileMs(profile.modelMs),
+			decorationsMs: formatProfileMs(profile.decorationsMs),
+			totalMs: formatProfileMs(profile.totalMs),
+			modelCache: profile.modelCache,
+			decorationRanges: profile.decorationRanges
+		};
+
+		if (profile.totalMs < typingProfilerThresholdMs()) return;
+
+		recordTypingProfile(row);
+
+		if (console.table) {
+			console.table([row]);
+		} else {
+			console.debug('[Margin typing profile]', row);
+		}
+
+		console.debug('[Margin typing profile]', JSON.stringify(row));
+	}
+
+	function recordTypingProfile(row: TypingProfileRow) {
+		if (typeof window === 'undefined') return;
+
+		const target = window as typeof window & { __marginTypingProfiles?: TypingProfileRow[] };
+
+		target.__marginTypingProfiles ??= [];
+		target.__marginTypingProfiles.push(row);
+	}
+
+	function typingProfilerThresholdMs() {
+		if (typeof window === 'undefined') return 0;
+
+		try {
+			const value = Number(window.localStorage.getItem(typingProfilerThresholdStorageKey) ?? '0');
+
+			return Number.isFinite(value) ? value : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	function formatProfileMs(value: number) {
+		return Number(value.toFixed(2));
+	}
 
 	type DropCursorMeasurement = {
 		left: number;
@@ -1467,12 +1574,11 @@
 	);
 
 	const livePreviewField = StateField.define<LivePreviewState>({
-		create(state) {
+		create() {
 			return {
 				threads: [],
 				activeThreadId: '',
-				commentAnchor: null,
-				decorations: buildLivePreviewDecorations(state, [], '', null)
+				commentAnchor: null
 			};
 		},
 
@@ -1506,19 +1612,97 @@
 				}
 			}
 
-			if (transaction.docChanged || transaction.selection || threadChange || activeThreadChange || commentAnchorChange || refreshPreview) {
+			if (threadChange || activeThreadChange || commentAnchorChange || refreshPreview) {
 				return {
 					threads: threadsForState,
 					activeThreadId: activeThreadForState,
-					commentAnchor: commentAnchorForState,
-					decorations: buildLivePreviewDecorations(transaction.state, threadsForState, activeThreadForState, commentAnchorForState)
+					commentAnchor: commentAnchorForState
 				};
 			}
 
 			return value;
-		},
-		provide: (field) => EditorView.decorations.from(field, (value) => value.decorations)
+		}
 	});
+
+	const livePreviewBlockDecorationField = StateField.define({
+		create(state) {
+			return buildLivePreviewBlockDecorations(state);
+		},
+
+		update(value, transaction) {
+			let refreshPreview = false;
+
+			for (const effect of transaction.effects) {
+				if (effect.is(refreshLivePreviewEffect)) {
+					refreshPreview = true;
+					break;
+				}
+			}
+
+			if (transaction.docChanged || transaction.selection || refreshPreview) {
+				return buildLivePreviewBlockDecorations(transaction.state, activeTypingProfile(transaction.state));
+			}
+
+			return value;
+		},
+		provide: (field) => EditorView.decorations.from(field)
+	});
+
+	const livePreviewPlugin = ViewPlugin.fromClass(
+		class {
+			decorations = Decoration.none;
+			view: EditorView;
+
+			constructor(view: EditorView) {
+				this.view = view;
+				this.decorations = this.build();
+			}
+
+			update(update: ViewUpdate) {
+				if (!this.shouldRebuild(update)) return;
+
+				const profile = consumeTypingProfile(update.state);
+
+				this.decorations = this.build(profile);
+				if (profile) logTypingProfile(profile);
+			}
+
+			build(profile: TypingProfile | null = null) {
+				const metadata = this.view.state.field(livePreviewField);
+
+				return buildLivePreviewDecorations(
+					this.view,
+					this.view.state,
+					metadata.threads,
+					metadata.activeThreadId,
+					metadata.commentAnchor,
+					profile
+				);
+			}
+
+			shouldRebuild(update: ViewUpdate) {
+				if (update.docChanged || update.selectionSet || update.viewportChanged) return true;
+
+				for (const transaction of update.transactions) {
+					for (const effect of transaction.effects) {
+						if (
+							effect.is(setThreadsEffect)
+							|| effect.is(setActiveThreadEffect)
+							|| effect.is(setCommentAnchorEffect)
+							|| effect.is(refreshLivePreviewEffect)
+						) {
+							return true;
+						}
+					}
+				}
+
+				return false;
+			}
+		},
+		{
+			decorations: (plugin) => plugin.decorations
+		}
+	);
 
 	$: persistedThreads = annotations
 		? [
@@ -1875,62 +2059,157 @@
 		updateAnchorPositions();
 	}
 
-	function buildLivePreviewDecorations(
+	function buildLivePreviewBlockDecorations(
 		state: EditorState,
-		activeThreads: ThreadView[],
-		focusedThreadId: string,
-		activeCommentAnchor: CommentSelectionAnchor | null
+		profile: TypingProfile | null = null
 	) {
 		const ranges: Range<Decoration>[] = [];
-		const frontmatterBlocks = markdownFrontmatterBlocks(state);
-		const fencedBlocks = fencedCodeBlocks(state);
-		const tableBlocks = markdownTableBlocks(state);
-		const mathBlocks = markdownMathBlocks(state, [
-			...frontmatterBlocks,
-			...fencedBlocks,
-			...tableBlocks
-		]);
-		const ignoredContainerBlocks = [
-			...frontmatterBlocks,
-			...fencedBlocks,
-			...tableBlocks,
-			...mathBlocks
-		];
-		const headingModel = markdownHeadingModel(state, ignoredContainerBlocks);
-		const orderedListMarkers = markdownOrderedListMarkers(state, ignoredContainerBlocks);
-		const listModel = markdownListModel(state, orderedListMarkers, ignoredContainerBlocks);
-		const activeBlocks = activeSourceBlocksForSelection(state, frontmatterBlocks, fencedBlocks, tableBlocks, mathBlocks, listModel);
-		const activeHeadingControlLines = activeHeadingControlLineNumbers(state, headingModel);
-		const activeListControlLines = activeListControlLineNumbers(state, listModel);
-		const selectionLineNumber = state.doc.lineAt(state.selection.main.head).number;
+		const decorationStart = profile ? performance.now() : 0;
+		const parseMsBeforeDecorations = profile?.parseMs ?? 0;
+		const modelMsBeforeDecorations = profile?.modelMs ?? 0;
+		const markdownModel = partialMarkdownTextModelForState(state, profile);
+		const sourceMode = markdownSourceModeDeciderForState(state, markdownModel);
+
+		for (const block of markdownModel.frontmatterBlocks) {
+			if (!block.frontmatter || livePreviewBlockHidden(markdownModel, block.start)) continue;
+			if (sourceMode.decisionForLine(block.start).active) continue;
+
+			const startLine = state.doc.line(block.start);
+			const blockEnd = state.doc.line(block.end);
+
+			ranges.push(Decoration.replace({
+				widget: new FrontmatterWidget(block.frontmatter, block.start),
+				block: true
+			}).range(startLine.from, blockEnd.to));
+		}
+
+		for (const block of markdownModel.tableBlocks) {
+			if (!block.table || livePreviewBlockHidden(markdownModel, block.start)) continue;
+			if (sourceMode.decisionForLine(block.start).active) continue;
+
+			const startLine = state.doc.line(block.start);
+			const blockEnd = state.doc.line(block.end);
+
+			ranges.push(Decoration.replace({
+				widget: new MarkdownTableWidget(block.table, block.start),
+				block: true
+			}).range(startLine.from, blockEnd.to));
+		}
+
+		for (const block of markdownModel.mathBlocks) {
+			if (!block.math || livePreviewBlockHidden(markdownModel, block.start)) continue;
+			if (sourceMode.decisionForLine(block.start).active) continue;
+
+			const startLine = state.doc.line(block.start);
+			const blockEnd = state.doc.line(block.end);
+			const singleLine = block.start === block.end;
+
+			ranges.push(Decoration.replace({
+				widget: new MarkdownMathWidget(block.math.source, true, block.start, startLine.from),
+				block: !singleLine
+			}).range(startLine.from, blockEnd.to));
+		}
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			const line = state.doc.line(lineNumber);
-			const text = line.text;
-			const activeBlock = blockForLine(activeBlocks, line.number);
-			const active = Boolean(activeBlock);
-			const activeClass = activeBlock ? activeSourceClass(activeBlock, line.number) : '';
-			const activeAttributes = activeBlock ? activeSourceLineAttributes(activeBlock) : undefined;
-			const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
-			const fencedBlock = blockForLine(fencedBlocks, line.number);
-			const tableBlock = blockForLine(tableBlocks, line.number);
-			const mathBlock = blockForLine(mathBlocks, line.number);
 
-			if (headingModel.collapsedAncestorByLine.has(line.number)) {
-				ranges.push(Decoration.line({
-					class: 'cm-collapsed-heading-hidden-line'
-				}).range(line.from));
+			if (livePreviewBlockHidden(markdownModel, line.number)) continue;
+			if (blockForLine(markdownModel.ignoredContainerBlocks, line.number)) continue;
 
-				continue;
-			}
+			const imageLine = markdownImageOnly(line.text);
 
-			if (listModel.collapsedAncestorByLine.has(line.number)) {
-				ranges.push(Decoration.line({
-					class: 'cm-collapsed-list-hidden-line'
-				}).range(line.from));
+			if (imageLine) {
+				if (!sourceMode.decisionForLine(line.number).active) {
+					ranges.push(Decoration.replace({
+						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
+						block: true
+					}).range(line.from, line.to));
+				}
 
 				continue;
 			}
+
+			if (isHorizontalRuleLine(line.text) && !sourceMode.decisionForLine(line.number).active) {
+				ranges.push(Decoration.replace({
+					widget: new HorizontalRuleWidget(line.number),
+					block: true
+				}).range(line.from, line.to));
+			}
+		}
+
+		const decorations = Decoration.set(ranges, true);
+
+		if (profile) {
+			profile.decorationRanges += ranges.length;
+			profile.decorationsMs += performance.now()
+				- decorationStart
+				- (profile.parseMs - parseMsBeforeDecorations)
+				- (profile.modelMs - modelMsBeforeDecorations);
+		}
+
+		return decorations;
+	}
+
+	function livePreviewBlockHidden(model: PartialMarkdownTextModel, lineNumber: number) {
+		return model.headingModel.collapsedAncestorByLine.has(lineNumber)
+			|| model.listModel.collapsedAncestorByLine.has(lineNumber);
+	}
+
+	function buildLivePreviewDecorations(
+		view: EditorView,
+		state: EditorState,
+		activeThreads: ThreadView[],
+		focusedThreadId: string,
+		activeCommentAnchor: CommentSelectionAnchor | null,
+		profile: TypingProfile | null = null
+	) {
+		const ranges: Range<Decoration>[] = [];
+		const decorationStart = profile ? performance.now() : 0;
+		const parseMsBeforeDecorations = profile?.parseMs ?? 0;
+		const modelMsBeforeDecorations = profile?.modelMs ?? 0;
+		const markdownModel = partialMarkdownTextModelForState(state, profile);
+		const frontmatterBlocks = markdownModel.frontmatterBlocks;
+		const fencedBlocks = markdownModel.fencedBlocks;
+		const tableBlocks = markdownModel.tableBlocks;
+		const mathBlocks = markdownModel.mathBlocks;
+		const headingModel = markdownModel.headingModel;
+		const orderedListMarkers = markdownModel.orderedListMarkers;
+		const listModel = markdownModel.listModel;
+		const sourceMode = markdownSourceModeDeciderForState(state, markdownModel);
+		const activeHeadingControlLines = sourceMode.activeHeadingControlLines;
+		const activeListControlLines = sourceMode.activeListControlLines;
+		const selectionLineNumber = state.doc.lineAt(state.selection.main.head).number;
+		const lineRanges = livePreviewLineRanges(view, markdownModel);
+
+		for (const lineRange of lineRanges) {
+			for (let lineNumber = lineRange.startLine; lineNumber <= lineRange.endLine; lineNumber += 1) {
+				const line = state.doc.line(lineNumber);
+				const text = line.text;
+				const sourceDecision = sourceMode.decisionForLine(line.number);
+				const activeBlock = sourceDecision.block;
+				const active = sourceDecision.active;
+				const activeClass = sourceDecision.sourceClass;
+				const activeAttributes = sourceDecision.attributes;
+				const frontmatterBlock = blockForLine(frontmatterBlocks, line.number);
+				const fencedBlock = blockForLine(fencedBlocks, line.number);
+				const tableBlock = blockForLine(tableBlocks, line.number);
+				const mathBlock = blockForLine(mathBlocks, line.number);
+
+				if (headingModel.collapsedAncestorByLine.has(line.number)) {
+					ranges.push(Decoration.line({
+						class: 'cm-collapsed-heading-hidden-line'
+					}).range(line.from));
+
+					continue;
+				}
+
+				if (listModel.collapsedAncestorByLine.has(line.number)) {
+					ranges.push(Decoration.line({
+						class: 'cm-collapsed-list-hidden-line'
+					}).range(line.from));
+
+					continue;
+				}
 
 			if (activeBlock) {
 				addActiveListBaseIndentHider(ranges, line, activeBlock);
@@ -1963,24 +2242,13 @@
 					continue;
 				}
 
-				if (line.number === frontmatterBlock.start) {
-					const blockEnd = state.doc.line(frontmatterBlock.end);
-
-					ranges.push(Decoration.replace({
-						widget: new FrontmatterWidget(frontmatterBlock.frontmatter, frontmatterBlock.start),
-						block: true
-					}).range(line.from, blockEnd.to));
-
-					lineNumber = frontmatterBlock.end;
-				}
-
 				continue;
 			}
 
 			if (fencedBlock) {
 				const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
 				const emptyCodeBlock = fencedBlock.end === fencedBlock.start + 1;
-				const listContext = active ? null : markdownListContainerInfo(state, fencedBlock.start, listModel);
+				const listContext = active ? null : markdownModel.listContainerInfo(fencedBlock.start);
 
 				const classes = active
 					? `cm-live-codeblock-line ${activeClass}`
@@ -2035,17 +2303,6 @@
 					continue;
 				}
 
-				if (line.number === tableBlock.start) {
-					const blockEnd = state.doc.line(tableBlock.end);
-
-					ranges.push(Decoration.replace({
-						widget: new MarkdownTableWidget(tableBlock.table, tableBlock.start),
-						block: true
-					}).range(line.from, blockEnd.to));
-
-					lineNumber = tableBlock.end;
-				}
-
 				continue;
 			}
 
@@ -2058,18 +2315,6 @@
 					addDisplayMathSourceSyntax(ranges, line);
 
 					continue;
-				}
-
-				if (line.number === mathBlock.start) {
-					const blockEnd = state.doc.line(mathBlock.end);
-					const singleLine = mathBlock.start === mathBlock.end;
-
-					ranges.push(Decoration.replace({
-						widget: new MarkdownMathWidget(mathBlock.math.source, true, mathBlock.start, line.from),
-						block: !singleLine
-					}).range(line.from, blockEnd.to));
-
-					lineNumber = mathBlock.end;
 				}
 
 				continue;
@@ -2143,11 +2388,6 @@
 						)
 					}).range(line.from));
 					addInlineMarkdownSourceSyntax(ranges, line);
-				} else {
-					ranges.push(Decoration.replace({
-						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
-						block: true
-					}).range(line.from, line.to));
 				}
 
 				continue;
@@ -2159,11 +2399,6 @@
 						class: activeClass,
 						attributes: activeAttributes
 					}).range(line.from));
-				} else {
-					ranges.push(Decoration.replace({
-						widget: new HorizontalRuleWidget(line.number),
-						block: true
-					}).range(line.from, line.to));
 				}
 
 				continue;
@@ -2220,7 +2455,7 @@
 				const contentOffset = syntaxEnd - line.from;
 				const checked = task[4].toLowerCase() === 'x';
 				const taskItem = listModel.items.get(line.number);
-				const taskInfo = taskItem?.info ?? listInfo(line.text);
+				const taskInfo = taskItem?.info ?? markdownListInfo(line.text);
 				const taskHasChildren = Boolean(taskItem?.childLines.length);
 				const taskCollapseKey = taskItem?.collapseKey ?? '';
 				const taskCollapsed = taskCollapseKey ? collapsedListItemKeys.has(taskCollapseKey) : false;
@@ -2275,7 +2510,7 @@
 				const markerStart = line.from + list[1].length;
 				const syntaxEnd = markerStart + list[2].length + list[3].length;
 				const item = listModel.items.get(line.number);
-				const itemInfo = item?.info ?? listInfo(line.text);
+				const itemInfo = item?.info ?? markdownListInfo(line.text);
 				const itemHasChildren = Boolean(item?.childLines.length);
 				const itemCollapseKey = item?.collapseKey ?? '';
 				const itemCollapsed = itemCollapseKey ? collapsedListItemKeys.has(itemCollapseKey) : false;
@@ -2311,7 +2546,7 @@
 				continue;
 			}
 
-			const indentedCode = active ? null : markdownIndentedCodeInfo(state, line.number, listModel);
+			const indentedCode = active ? null : markdownModel.indentedCodeInfo(line.number);
 
 			if (indentedCode) {
 				ranges.push(Decoration.line({
@@ -2328,7 +2563,7 @@
 				continue;
 			}
 
-			const listContinuation = active ? null : markdownListContinuationInfo(state, line.number, listModel);
+			const listContinuation = active ? null : markdownModel.listContinuationInfo(line.number);
 
 			if (listContinuation) {
 				ranges.push(Decoration.line({
@@ -2357,11 +2592,12 @@
 				addInlineMarkdownPreview(ranges, line);
 			}
 		}
+	}
 
 		for (const thread of activeThreads) {
 			const range = threadRangeInState(state, thread);
 
-			if (!range) continue;
+			if (!range || !rangeIntersectsLineRanges(state, range.from, range.to, lineRanges)) continue;
 
 			const focused = focusedThreadId === thread.id ? ' is-focused' : '';
 			const statusClass = thread.status ? ` is-${thread.status}` : '';
@@ -2406,214 +2642,166 @@
 
 		const activeCommentRange = activeCommentAnchor ? commentAnchorRangeInState(state, activeCommentAnchor) : null;
 
-		if (activeCommentRange) {
+		if (activeCommentRange && rangeIntersectsLineRanges(state, activeCommentRange.from, activeCommentRange.to, lineRanges)) {
 			ranges.push(Decoration.mark({
 				class: 'annotation-mark composer-selection'
 			}).range(activeCommentRange.from, activeCommentRange.to));
 		}
 
-		return Decoration.set(ranges, true);
+		const decorations = Decoration.set(ranges, true);
+
+		if (profile) {
+			profile.decorationRanges += ranges.length;
+			profile.decorationsMs += performance.now()
+				- decorationStart
+				- (profile.parseMs - parseMsBeforeDecorations)
+				- (profile.modelMs - modelMsBeforeDecorations);
+			profile.totalMs = performance.now() - profile.startedAt;
+		}
+
+		return decorations;
 	}
 
-	function activeSourceBlocksForSelection(
-		state: EditorState,
-		frontmatterBlocks: SourceBlock[],
-		fencedBlocks: SourceBlock[],
-		tableBlocks: SourceBlock[],
-		mathBlocks: SourceBlock[],
-		listModel: MarkdownListModel
+	function livePreviewLineRanges(view: EditorView, model: PartialMarkdownTextModel): MarkdownLineRange[] {
+		const visibleRanges = view.visibleRanges.length > 0
+			? view.visibleRanges
+			: [{ from: 0, to: view.state.doc.length }];
+		const lineRanges: MarkdownLineRange[] = [];
+
+		for (const range of visibleRanges) {
+			const from = Math.min(range.from, view.state.doc.length);
+			const to = Math.min(Math.max(range.from, range.to > range.from ? range.to - 1 : range.from), view.state.doc.length);
+			const startLine = view.state.doc.lineAt(from).number;
+			const endLine = view.state.doc.lineAt(to).number;
+
+			lineRanges.push({
+				startLine: Math.max(1, startLine - livePreviewViewportLineBuffer),
+				endLine: Math.min(view.state.doc.lines, endLine + livePreviewViewportLineBuffer)
+			});
+		}
+
+		for (const range of [...lineRanges]) {
+			addIntersectingBlockLineRanges(lineRanges, range, [
+				...model.frontmatterBlocks,
+				...model.tableBlocks,
+				...model.mathBlocks
+			]);
+		}
+
+		return mergeMarkdownLineRanges(lineRanges);
+	}
+
+	function addIntersectingBlockLineRanges(
+		lineRanges: MarkdownLineRange[],
+		visibleRange: MarkdownLineRange,
+		blocks: SourceBlock[]
 	) {
-		const blocks: SourceBlock[] = [];
+		for (const block of blocks) {
+			if (block.end < visibleRange.startLine || block.start > visibleRange.endLine) continue;
 
-		for (const range of state.selection.ranges) {
-			const from = range.from;
-			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
-			const startLine = state.doc.lineAt(from).number;
-			const endLine = state.doc.lineAt(endPosition).number;
+			lineRanges.push({ startLine: block.start, endLine: block.end });
+		}
+	}
 
-			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-				const block = sourceBlockForLine(state, lineNumber, frontmatterBlocks, fencedBlocks, tableBlocks, mathBlocks, listModel);
+	function mergeMarkdownLineRanges(lineRanges: MarkdownLineRange[]) {
+		const sorted = [...lineRanges]
+			.sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
+		const merged: MarkdownLineRange[] = [];
 
-				if (!blocks.some((existing) => sameSourceBlock(existing, block))) {
-					blocks.push(block);
-				}
+		for (const range of sorted) {
+			const previous = merged[merged.length - 1];
 
-				lineNumber = Math.max(lineNumber, block.end);
+			if (!previous || range.startLine > previous.endLine + 1) {
+				merged.push({ ...range });
+
+				continue;
 			}
+
+			previous.endLine = Math.max(previous.endLine, range.endLine);
 		}
 
-		return blocks;
+		return merged;
 	}
 
-	function sameSourceBlock(left: SourceBlock, right: SourceBlock) {
-		return left.kind === right.kind
-			&& left.start === right.start
-			&& left.end === right.end
-			&& (left.listEditBaseSourceIndent ?? -1) === (right.listEditBaseSourceIndent ?? -1)
-			&& (left.listEditBaseVisualIndent ?? -1) === (right.listEditBaseVisualIndent ?? -1);
-	}
-
-	function sourceBlockForLine(
+	function rangeIntersectsLineRanges(
 		state: EditorState,
-		lineNumber: number,
-		frontmatterBlocks: SourceBlock[],
-		fencedBlocks: SourceBlock[],
-		tableBlocks: SourceBlock[],
-		mathBlocks: SourceBlock[],
-		listModel: MarkdownListModel
-	): SourceBlock {
-		const frontmatterBlock = blockForLine(frontmatterBlocks, lineNumber);
+		from: number,
+		to: number,
+		lineRanges: MarkdownLineRange[]
+	) {
+		const startLine = state.doc.lineAt(Math.min(from, state.doc.length)).number;
+		const endPosition = Math.min(Math.max(from, to > from ? to - 1 : from), state.doc.length);
+		const endLine = state.doc.lineAt(endPosition).number;
 
-		if (frontmatterBlock) return frontmatterBlock;
-
-		const fencedBlock = blockForLine(fencedBlocks, lineNumber);
-
-		if (fencedBlock) return fencedBlock;
-
-		const tableBlock = blockForLine(tableBlocks, lineNumber);
-
-		if (tableBlock) return tableBlock;
-
-		const mathBlock = blockForLine(mathBlocks, lineNumber);
-
-		if (mathBlock) return mathBlock;
-
-		const listBlock = activeListBlockForLine(state, lineNumber, listModel);
-
-		if (listBlock) return listBlock;
-
-		const indentedBlock = indentedBlockForLine(state, lineNumber);
-
-		if (indentedBlock) return indentedBlock;
-
-		return { start: lineNumber, end: lineNumber, kind: 'line' };
+		return lineRanges.some((range) => endLine >= range.startLine && startLine <= range.endLine);
 	}
 
-	function activeListBlockForLine(state: EditorState, lineNumber: number, listModel: MarkdownListModel): SourceBlock | null {
-		const item = listModel.ownerByLine.get(lineNumber);
+	function partialMarkdownTextModelForState(state: EditorState, profile: TypingProfile | null = null) {
+		const parsed = partialMarkdownParseForState(state, profile);
+		const start = profile ? performance.now() : 0;
 
-		if (!item) return null;
-
-		const line = state.doc.line(lineNumber);
-
-		if (!line.text.trim() && leadingMarkdownIndent(line.text) < item.info.contentIndent) return null;
-
-		const itemBlock: SourceBlock = {
-			start: item.lineNumber,
-			end: item.blockEnd,
-			kind: 'list'
-		};
-
-		if (item.info.indent === 0 || item.parentLine === null) return itemBlock;
-
-		const parent = listModel.items.get(item.parentLine);
-
-		if (!parent) return itemBlock;
-
-		const start = parent.lineNumber + 1;
-		const end = parent.blockEnd;
-
-		if (start > end) return itemBlock;
-
-		return {
-			start,
-			end,
-			kind: 'list',
-			listEditBaseSourceIndent: item.info.indent,
-			listEditBaseVisualIndent: parent.layout.textX
-		};
-	}
-
-	function activeListControlLineNumbers(state: EditorState, listModel: MarkdownListModel) {
-		const lines = new Set<number>();
-
-		for (const range of state.selection.ranges) {
-			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
-			const startLine = state.doc.lineAt(range.from).number;
-			const endLine = state.doc.lineAt(endPosition).number;
-
-			for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-				const item = listModel.ownerByLine.get(lineNumber);
-
-				if (!item) continue;
-
-				const root = rootMarkdownListItem(item, listModel);
-
-				for (const candidate of listModel.items.values()) {
-					if (
-						candidate.childLines.length > 0
-						&& candidate.lineNumber >= root.lineNumber
-						&& candidate.lineNumber <= root.blockEnd
-						&& !listModel.collapsedAncestorByLine.has(candidate.lineNumber)
-					) {
-						lines.add(candidate.lineNumber);
-					}
-				}
+		if (
+			partialMarkdownTextModelCache
+			&& partialMarkdownTextModelCache.parsed === parsed
+			&& partialMarkdownTextModelCache.collapsedHeadingKeys === collapsedHeadingKeys
+			&& partialMarkdownTextModelCache.collapsedListItemKeys === collapsedListItemKeys
+			&& partialMarkdownTextModelCache.documentSessionKey === documentSessionKey
+		) {
+			if (profile) {
+				profile.modelCache = 'hit';
+				profile.modelMs += performance.now() - start;
 			}
+
+			return partialMarkdownTextModelCache.model;
 		}
 
-		return lines;
-	}
+		const model = new PartialMarkdownTextModel(parsed, {
+			collapsedHeadingKeys,
+			collapsedListItemKeys,
+			documentSessionKey
+		});
 
-	function activeHeadingControlLineNumbers(state: EditorState, headingModel: MarkdownHeadingModel) {
-		const lines = new Set<number>();
-
-		for (const range of state.selection.ranges) {
-			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
-			const startLine = state.doc.lineAt(range.from).number;
-			const endLine = state.doc.lineAt(endPosition).number;
-
-			for (const heading of headingModel.items.values()) {
-				if (
-					heading.blockEnd <= heading.lineNumber
-					|| heading.blockEnd < startLine
-					|| heading.lineNumber > endLine
-					|| headingModel.collapsedAncestorByLine.has(heading.lineNumber)
-				) {
-					continue;
-				}
-
-				lines.add(heading.lineNumber);
-			}
-		}
-
-		return lines;
-	}
-
-	function rootMarkdownListItem(item: MarkdownListItem, listModel: MarkdownListModel) {
-		let root = item;
-
-		while (root.parentLine !== null) {
-			const parent = listModel.items.get(root.parentLine);
-
-			if (!parent) break;
-
-			root = parent;
-		}
-
-		return root;
-	}
-
-	function activeSourceClass(block: SourceBlock, lineNumber: number) {
-		const listSubtree = typeof block.listEditBaseVisualIndent === 'number'
-			? ' cm-active-list-subtree-line'
-			: '';
-
-		if (block.start === block.end) return `cm-active-source-line${listSubtree}`;
-
-		const edge = lineNumber === block.start
-			? 'cm-active-block-start'
-			: lineNumber === block.end ? 'cm-active-block-end' : 'cm-active-block-middle';
-
-		return `cm-active-source-line cm-active-block-line ${edge}${listSubtree}`;
-	}
-
-	function activeSourceLineAttributes(block: SourceBlock) {
-		if (typeof block.listEditBaseVisualIndent !== 'number') return undefined;
-
-		return {
-			style: `--active-list-base-indent: ${block.listEditBaseVisualIndent}px;`
+		partialMarkdownTextModelCache = {
+			collapsedHeadingKeys,
+			collapsedListItemKeys,
+			documentSessionKey,
+			model,
+			parsed
 		};
+
+		if (profile) {
+			profile.modelCache = 'miss';
+			profile.modelMs += performance.now() - start;
+		}
+
+		return model;
+	}
+
+	function partialMarkdownParseForState(state: EditorState, profile: TypingProfile | null = null) {
+		const cached = state.field(markdownParseField, false);
+
+		if (cached) return cached;
+
+		const start = profile ? performance.now() : 0;
+		const parsed = parsePartialMarkdownTextCore(state.doc.toString());
+
+		if (profile) profile.parseMs += performance.now() - start;
+
+		return parsed;
+	}
+
+	function markdownSourceModeDeciderForState(
+		state: EditorState,
+		model = partialMarkdownTextModelForState(state)
+	) {
+		return new MarkdownSourceModeDecider(model, state.selection.ranges.map((range) => {
+			const endPosition = range.empty ? range.head : Math.max(range.from, range.to - 1);
+
+			return {
+				startLine: state.doc.lineAt(range.from).number,
+				endLine: state.doc.lineAt(endPosition).number
+			};
+		}));
 	}
 
 	function addActiveListBaseIndentHider(ranges: Range<Decoration>[], line: Line, block: SourceBlock) {
@@ -2654,152 +2842,6 @@
 		}
 
 		return offsets;
-	}
-
-	function lineInBlock(lineNumber: number, block: SourceBlock) {
-		return lineNumber >= block.start && lineNumber <= block.end;
-	}
-
-	function blockForLine(blocks: SourceBlock[], lineNumber: number) {
-		return blocks.find((block) => lineInBlock(lineNumber, block)) ?? null;
-	}
-
-	function markdownHeadingLine(text: string): MarkdownHeadingLine | null {
-		const match = (/^(#{1,6})(\s+)(.*)/).exec(text);
-
-		if (!match) return null;
-
-		return {
-			level: match[1].length,
-			text: match[3].trim(),
-			syntaxLength: match[1].length + match[2].length
-		};
-	}
-
-	function markdownHeadingModelForState(state: EditorState) {
-		return markdownHeadingModel(state, [
-			...markdownFrontmatterBlocks(state),
-			...fencedCodeBlocks(state),
-			...markdownTableBlocks(state)
-		]);
-	}
-
-	function markdownHeadingModel(state: EditorState, ignoredBlocks: SourceBlock[] = []): MarkdownHeadingModel {
-		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
-		const headings: MarkdownHeading[] = [];
-		const items = new Map<number, MarkdownHeading>();
-		const collapsedAncestorByLine = new Map<number, number>();
-
-		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-			if (ignoredLines.has(lineNumber)) continue;
-
-			const line = state.doc.line(lineNumber);
-			const heading = markdownHeadingLine(line.text);
-
-			if (!heading) continue;
-
-			headings.push({
-				blockEnd: state.doc.lines,
-				collapseKey: markdownHeadingCollapseKey(state, lineNumber),
-				level: heading.level,
-				lineNumber,
-				text: heading.text
-			});
-		}
-
-		for (let index = 0; index < headings.length; index += 1) {
-			const heading = headings[index];
-
-			for (let nextIndex = index + 1; nextIndex < headings.length; nextIndex += 1) {
-				const nextHeading = headings[nextIndex];
-
-				if (nextHeading.level <= heading.level) {
-					heading.blockEnd = nextHeading.lineNumber - 1;
-					break;
-				}
-			}
-
-			items.set(heading.lineNumber, heading);
-		}
-
-		for (const heading of headings) {
-			if (heading.blockEnd <= heading.lineNumber || !collapsedHeadingKeys.has(heading.collapseKey)) continue;
-
-			for (let lineNumber = heading.lineNumber + 1; lineNumber <= heading.blockEnd; lineNumber += 1) {
-				if (!collapsedAncestorByLine.has(lineNumber)) {
-					collapsedAncestorByLine.set(lineNumber, heading.lineNumber);
-				}
-			}
-		}
-
-		return { collapsedAncestorByLine, items };
-	}
-
-	function fencedCodeBlocks(state: EditorState): SourceBlock[] {
-		const blocks: SourceBlock[] = [];
-		let openFence: { line: number; fence: MarkdownFenceInfo } | null = null;
-
-		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-			const text = state.doc.line(lineNumber).text;
-
-			if (openFence) {
-				if (isClosingMarkdownFence(text, openFence.fence)) {
-					blocks.push({
-						start: openFence.line,
-						end: lineNumber,
-						kind: 'fenced-code',
-						language: openFence.fence.language
-					});
-					openFence = null;
-				}
-
-				continue;
-			}
-
-			const fence = openingMarkdownFence(text);
-
-			if (fence) openFence = { line: lineNumber, fence };
-		}
-
-		if (openFence) {
-			blocks.push({
-				start: openFence.line,
-				end: state.doc.lines,
-				kind: 'fenced-code',
-				language: openFence.fence.language
-			});
-		}
-
-		return blocks;
-	}
-
-	function markdownFrontmatterBlocks(state: EditorState): SourceBlock[] {
-		if (state.doc.lines < 2) return [];
-
-		const opening = state.doc.line(1);
-
-		if (!isFrontmatterBoundaryLine(opening.text)) return [];
-
-		for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
-			const line = state.doc.line(lineNumber);
-
-			if (!isFrontmatterBoundaryLine(line.text) && !isFrontmatterClosingLine(line.text)) continue;
-
-			const rawLines: string[] = [];
-
-			for (let contentLine = 2; contentLine < lineNumber; contentLine += 1) {
-				rawLines.push(state.doc.line(contentLine).text);
-			}
-
-			return [{
-				start: 1,
-				end: lineNumber,
-				kind: 'frontmatter',
-				frontmatter: parseFrontmatter(rawLines)
-			}];
-		}
-
-		return [];
 	}
 
 	function blockImageLineAt(state: EditorState, lineNumber: number) {
@@ -2902,7 +2944,7 @@
 	}
 
 	function preloadMarkdownCodeLanguages(view: EditorView) {
-		for (const block of fencedCodeBlocks(view.state)) {
+		for (const block of partialMarkdownTextModelForState(view.state).fencedBlocks) {
 			if (!block.language) continue;
 
 			const description = markdownCodeLanguage(block.language);
@@ -2932,196 +2974,6 @@
 		}
 	}
 
-	function markdownTableBlocks(state: EditorState): SourceBlock[] {
-		const blocks: SourceBlock[] = [];
-
-		for (let lineNumber = 1; lineNumber < state.doc.lines; lineNumber += 1) {
-			if (blockForLine(blocks, lineNumber)) continue;
-
-			const header = markdownTableCells(state.doc.line(lineNumber).text);
-			const delimiter = markdownTableCells(state.doc.line(lineNumber + 1).text);
-
-			if (!header || !delimiter || !markdownTableDelimiterCells(delimiter)) continue;
-
-			const columnCount = Math.max(header.length, delimiter.length);
-			const rows: string[][] = [];
-			let end = lineNumber + 1;
-
-			for (let rowLine = lineNumber + 2; rowLine <= state.doc.lines; rowLine += 1) {
-				const cells = markdownTableCells(state.doc.line(rowLine).text);
-
-				if (!cells || markdownTableDelimiterCells(cells)) break;
-
-				rows.push(padMarkdownTableCells(cells, columnCount));
-				end = rowLine;
-			}
-
-			blocks.push({
-				start: lineNumber,
-				end,
-				kind: 'table',
-				table: {
-					headers: padMarkdownTableCells(header, columnCount),
-					alignments: padMarkdownTableAlignments(delimiter.map(markdownTableAlignment), columnCount),
-					rows
-				}
-			});
-
-			lineNumber = end;
-		}
-
-		return blocks;
-	}
-
-	function belongsToListContinuation(
-		state: EditorState,
-		startLine: number,
-		endLine: number,
-		info: ListInfo
-	) {
-		for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-			const text = state.doc.line(lineNumber).text;
-
-			if (text.trim() && leadingMarkdownIndent(text) < info.contentIndent) return false;
-		}
-
-		return true;
-	}
-
-	function markdownListModel(
-		state: EditorState,
-		orderedListMarkers: Map<number, string>,
-		ignoredBlocks: SourceBlock[] = []
-	): MarkdownListModel {
-		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
-		const items = new Map<number, MarkdownListItem>();
-		const ownerByLine = new Map<number, MarkdownListItem>();
-		const collapsedAncestorByLine = new Map<number, number>();
-		const stack: MarkdownListItem[] = [];
-
-		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-			const line = state.doc.line(lineNumber);
-			const info = ignoredLines.has(lineNumber) ? null : listInfo(line.text);
-
-			if (!info) {
-				if (line.text.trim()) {
-					const sourceIndent = leadingMarkdownIndent(line.text);
-
-					while (stack.length && sourceIndent < stack[stack.length - 1].info.contentIndent) {
-						stack.pop();
-					}
-				}
-
-				continue;
-			}
-
-			while (
-				stack.length
-				&& (
-					stack[stack.length - 1].info.indent >= info.indent
-					|| !belongsToListContinuation(state, stack[stack.length - 1].lineNumber + 1, lineNumber, stack[stack.length - 1].info)
-				)
-			) {
-				stack.pop();
-			}
-
-			const parent = stack[stack.length - 1] ?? null;
-			const displayMarker = orderedListMarkers.get(lineNumber) ?? info.marker;
-			const item: MarkdownListItem = {
-				blockEnd: lineNumber,
-				childLines: [],
-				collapseKey: markdownListCollapseKey(state, lineNumber),
-				info,
-				layout: markdownListLayoutForItem(info, parent?.layout ?? null, displayMarker),
-				lineNumber,
-				parentLine: parent?.lineNumber ?? null
-			};
-
-			items.set(lineNumber, item);
-			parent?.childLines.push(lineNumber);
-			stack.push(item);
-		}
-
-		for (const item of items.values()) {
-			item.blockEnd = markdownListBlockEndForItem(state, item);
-		}
-
-		for (const item of items.values()) {
-			for (let lineNumber = item.lineNumber; lineNumber <= item.blockEnd; lineNumber += 1) {
-				const owner = ownerByLine.get(lineNumber);
-
-				if (!owner || item.info.indent >= owner.info.indent) {
-					ownerByLine.set(lineNumber, item);
-				}
-			}
-		}
-
-		for (const item of items.values()) {
-			if (item.childLines.length === 0 || !collapsedListItemKeys.has(item.collapseKey)) continue;
-
-			for (let lineNumber = item.lineNumber + 1; lineNumber <= item.blockEnd; lineNumber += 1) {
-				if (!collapsedAncestorByLine.has(lineNumber)) {
-					collapsedAncestorByLine.set(lineNumber, item.lineNumber);
-				}
-			}
-		}
-
-		return { collapsedAncestorByLine, items, ownerByLine };
-	}
-
-	function ignoredLineNumbers(blocks: SourceBlock[]) {
-		const lines = new Set<number>();
-
-		for (const block of blocks) {
-			for (let lineNumber = block.start; lineNumber <= block.end; lineNumber += 1) {
-				lines.add(lineNumber);
-			}
-		}
-
-		return lines;
-	}
-
-	function markdownListBlockEndForItem(state: EditorState, item: MarkdownListItem) {
-		let end = item.lineNumber;
-
-		for (let nextLine = item.lineNumber + 1; nextLine <= state.doc.lines; nextLine += 1) {
-			const text = state.doc.line(nextLine).text;
-
-			if (!text.trim() || leadingMarkdownIndent(text) >= item.info.contentIndent) {
-				end = nextLine;
-
-				continue;
-			}
-
-			break;
-		}
-
-		return end;
-	}
-
-	function listInfo(text: string): ListInfo | null {
-		const match = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)(?:\[([ xX])\]\s+)?/).exec(text);
-
-		if (!match) return null;
-
-		const indent = markdownIndentWidth(match[1]);
-
-		return {
-			indent,
-			contentIndent: indent + markdownIndentWidth(match[2] + match[3]),
-			marker: match[2],
-			task: Boolean(match[4])
-		};
-	}
-
-	function markdownListCollapseKey(state: EditorState, lineNumber: number) {
-		return `${documentSessionKey}:${lineNumber}:${state.doc.line(lineNumber).text}`;
-	}
-
-	function markdownHeadingCollapseKey(state: EditorState, lineNumber: number) {
-		return `${documentSessionKey}:${lineNumber}:${state.doc.line(lineNumber).text}`;
-	}
-
 	function toggleMarkdownHeadingCollapse(view: EditorView, key: string, lineNumber: number) {
 		const next = new Set(collapsedHeadingKeys);
 		const collapsing = !next.has(key);
@@ -3142,7 +2994,7 @@
 	}
 
 	function selectionOutsideCollapsingHeadingSection(state: EditorState, lineNumber: number) {
-		const headingModel = markdownHeadingModelForState(state);
+		const headingModel = partialMarkdownTextModelForState(state).headingModel;
 		const item = headingModel.items.get(lineNumber);
 
 		if (!item || item.blockEnd <= lineNumber) return null;
@@ -3180,7 +3032,7 @@
 	}
 
 	function selectionOutsideCollapsingListSubtree(state: EditorState, lineNumber: number) {
-		const listModel = markdownListModelForState(state);
+		const listModel = partialMarkdownTextModelForState(state).listModel;
 		const item = listModel.items.get(lineNumber);
 
 		if (!item || item.blockEnd <= lineNumber) return null;
@@ -3195,106 +3047,7 @@
 	}
 
 	function markdownListContentPosition(line: Line) {
-		const match = (/^(\s*)((?:[-*+])|(?:\d+[.)]))(\s+)(?:\[([ xX])\]\s+)?/).exec(line.text);
-
-		return line.from + (match?.[0].length ?? 0);
-	}
-
-	function markdownListContinuationInfo(
-		state: EditorState,
-		lineNumber: number,
-		listModel: MarkdownListModel
-	): ListContinuationInfo | null {
-		const line = state.doc.line(lineNumber);
-
-		if (!line.text.trim() || listInfo(line.text)) return null;
-
-		const context = markdownNearestListContainer(state, lineNumber, listModel);
-
-		if (!context || context.sourceIndent >= context.info.contentIndent + 4) return null;
-
-		return {
-			sourceIndentLength: leadingMarkdownWhitespaceLength(line.text),
-			sourceIndentWidth: context.sourceIndent,
-			visualIndent: context.visualIndent
-		};
-	}
-
-	function markdownNearestListContainer(
-		state: EditorState,
-		lineNumber: number,
-		listModel: MarkdownListModel
-	): ListContainerContext | null {
-		const line = state.doc.line(lineNumber);
-		const sourceIndent = leadingMarkdownIndent(line.text);
-		const item = listModel.ownerByLine.get(lineNumber);
-
-		if (!item || lineNumber === item.lineNumber || sourceIndent < item.info.contentIndent) return null;
-
-		return {
-			info: item.info,
-			sourceIndent,
-			visualIndent: item.layout.textX
-		};
-	}
-
-	function markdownIndentedCodeInfo(
-		state: EditorState,
-		lineNumber: number,
-		listModel: MarkdownListModel
-	): ListContinuationInfo | null {
-		const line = state.doc.line(lineNumber);
-
-		if (!line.text.trim()) return null;
-
-		const listCode = markdownListIndentedCodeInfo(state, lineNumber, listModel);
-
-		if (listCode) return listCode;
-		if (leadingMarkdownIndent(line.text) < 4 || listModel.ownerByLine.has(lineNumber)) return null;
-
-		return {
-			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, 4),
-			sourceIndentWidth: 4,
-			visualIndent: 0
-		};
-	}
-
-	function markdownListIndentedCodeInfo(
-		state: EditorState,
-		lineNumber: number,
-		listModel: MarkdownListModel
-	): ListContinuationInfo | null {
-		const line = state.doc.line(lineNumber);
-		const context = markdownNearestListContainer(state, lineNumber, listModel);
-
-		if (!context) return null;
-
-		const codeIndent = context.info.contentIndent + 4;
-
-		if (context.sourceIndent < codeIndent) return null;
-
-		return {
-			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, codeIndent),
-			sourceIndentWidth: codeIndent,
-			visualIndent: context.visualIndent
-		};
-	}
-
-	function markdownListContainerInfo(
-		state: EditorState,
-		lineNumber: number,
-		listModel: MarkdownListModel
-	): ListContinuationInfo | null {
-		const line = state.doc.line(lineNumber);
-		const context = markdownNearestListContainer(state, lineNumber, listModel);
-
-		if (!context) return null;
-
-		return {
-			sourceIndentLength: sourceMarkdownIndentLengthForWidth(line.text, context.info.contentIndent),
-			sourceIndentWidth: context.info.contentIndent,
-			visualIndent: context.visualIndent
-		};
+		return line.from + markdownListContentOffset(line.text);
 	}
 
 	function markdownListLineClass(layout: MarkdownListLayout) {
@@ -3347,117 +3100,6 @@
 		if (styles.length > 0) merged.style = styles.join(' ');
 
 		return Object.keys(merged).length > 0 ? merged : undefined;
-	}
-
-	function markdownListMarkerOffset(info: ListInfo, displayMarker = info.marker) {
-		if (info.task) return 30;
-		if (isOrderedListMarker(displayMarker)) return Math.max(22, displayMarker.length * 9 + 5);
-
-		return 12;
-	}
-
-	function markdownListInfoFallback(indent: string, marker: string): ListInfo {
-		const indentWidthValue = markdownIndentWidth(indent);
-
-		return {
-			indent: indentWidthValue,
-			contentIndent: indentWidthValue + markdownIndentWidth(`${marker} `),
-			marker,
-			task: false
-		};
-	}
-
-	function markdownListLayoutForItem(
-		info: ListInfo,
-		parentLayout: MarkdownListLayout | null,
-		displayMarker = info.marker
-	): MarkdownListLayout {
-		const marker = isOrderedListMarker(info.marker) ? displayMarker : info.marker;
-		const markerX = parentLayout?.textX ?? 0;
-		const markerOffset = markdownListMarkerOffset(info, marker);
-
-		return {
-			depth: parentLayout ? parentLayout.depth + 1 : 0,
-			marker,
-			markerOffset,
-			markerX,
-			textX: markerX + markerOffset
-		};
-	}
-
-	function isOrderedListMarker(marker: string) {
-		return (/^\d+[.)]$/).test(marker);
-	}
-
-	function markdownListModelForState(state: EditorState) {
-		const ignoredBlocks = [
-			...markdownFrontmatterBlocks(state),
-			...fencedCodeBlocks(state),
-			...markdownTableBlocks(state)
-		];
-		const orderedListMarkers = markdownOrderedListMarkers(state, ignoredBlocks);
-
-		return markdownListModel(state, orderedListMarkers, ignoredBlocks);
-	}
-
-	function markdownOrderedListMarkers(state: EditorState, ignoredBlocks: SourceBlock[]) {
-		const lines: string[] = [];
-		const ignoredLines = new Set<number>();
-
-		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-			lines.push(state.doc.line(lineNumber).text);
-		}
-
-		for (const block of ignoredBlocks) {
-			for (let lineNumber = block.start; lineNumber <= block.end; lineNumber += 1) {
-				ignoredLines.add(lineNumber);
-			}
-		}
-
-		return orderedListMarkersForLines(lines, ignoredLines);
-	}
-
-	function markdownMathBlocks(state: EditorState, ignoredBlocks: SourceBlock[] = []): SourceBlock[] {
-		const lines: string[] = [];
-		const ignoredLines = ignoredLineNumbers(ignoredBlocks);
-
-		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-			lines.push(state.doc.line(lineNumber).text);
-		}
-
-		return markdownMathBlocksForLines(lines, ignoredLines).map((block) => ({
-			start: block.start,
-			end: block.end,
-			kind: 'math',
-			math: block
-		}));
-	}
-
-	function indentedBlockForLine(state: EditorState, lineNumber: number): SourceBlock | null {
-		const line = state.doc.line(lineNumber);
-
-		if (!line.text.trim() || leadingMarkdownIndent(line.text) < 4) return null;
-
-		let start = lineNumber;
-		let end = lineNumber;
-
-		for (let previous = lineNumber - 1; previous >= 1; previous -= 1) {
-			const text = state.doc.line(previous).text;
-
-			if (text.trim() && leadingMarkdownIndent(text) < 4) break;
-
-			start = previous;
-		}
-
-		for (let next = lineNumber + 1; next <= state.doc.lines; next += 1) {
-			const text = state.doc.line(next).text;
-
-			if (text.trim() && leadingMarkdownIndent(text) < 4) break;
-
-			end = next;
-		}
-
-		return { start, end, kind: 'indented' };
 	}
 
 	function addInlineMarkdownPreview(ranges: Range<Decoration>[], line: Line, contentOffset = 0) {
@@ -4010,11 +3652,14 @@
 				EditorState.tabSize.of(4),
 				indentUnit.of('    '),
 				markdown({ codeLanguages: markdownCodeLanguage }),
+				markdownParseField,
 				marginDropCursor,
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
 				search({ top: true, createPanel: marginSearchPanel }),
 				livePreviewField,
+				livePreviewBlockDecorationField,
+				livePreviewPlugin,
 				Prec.highest(keymap.of([
 					{ key: 'Enter', run: smartMarkdownEnter },
 					{ key: 'Backspace', run: smartMarkdownBackspace }
@@ -4983,11 +4628,7 @@
 
 	function markdownBlockWidgetBlocks(state: EditorState): SourceBlock[] {
 		const imageBlocks: SourceBlock[] = [];
-		const ignoredBlocks = [
-			...markdownFrontmatterBlocks(state),
-			...fencedCodeBlocks(state),
-			...markdownTableBlocks(state)
-		];
+		const markdownModel = partialMarkdownTextModelForState(state);
 
 		for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
 			if (isMarkdownImageOnlyLine(state, lineNumber)) {
@@ -4997,7 +4638,7 @@
 
 		return [
 			...imageBlocks,
-			...markdownMathBlocks(state, ignoredBlocks)
+			...markdownModel.mathBlocks
 		];
 	}
 
@@ -5183,25 +4824,7 @@
 	}
 
 	function listModelForEnterState(state: EditorState) {
-		const frontmatterBlocks = markdownFrontmatterBlocks(state);
-		const fencedBlocks = fencedCodeBlocks(state);
-		const tableBlocks = markdownTableBlocks(state);
-		const ignoredBlocks = [
-			...frontmatterBlocks,
-			...fencedBlocks,
-			...tableBlocks,
-			...markdownMathBlocks(state, [
-				...frontmatterBlocks,
-				...fencedBlocks,
-				...tableBlocks
-			])
-		];
-
-		return markdownListModel(
-			state,
-			markdownOrderedListMarkers(state, ignoredBlocks),
-			ignoredBlocks
-		);
+		return partialMarkdownTextModelForState(state).listModel;
 	}
 
 	function indentStringForWidth(sourceIndent: string, targetWidth: number) {
