@@ -185,11 +185,15 @@
 	let lineTops: Record<number, number> = {};
 	let annotationTops: Record<string, number> = {};
 	let cardHeights: Record<string, number> = {};
+	let documentViewport: DocumentViewport = { top: 0, bottom: Number.POSITIVE_INFINITY };
 	let persistedThreads: ThreadView[] = [];
 	let threads: ThreadView[] = [];
 	let marginItems: MarginItem[] = [];
 	let stageHeight = 720;
 	let activeThreadId = '';
+	let hoveredThreadId = '';
+	let selectedThreadId = '';
+	let resolvingThreadIds = new Set<string>();
 	let draftBaseMarkdown = '';
 	let draftChanges = ChangeSet.empty(0);
 	let documentSessionKey = 'sample';
@@ -259,12 +263,15 @@
 	let fileTreeResizeActive = false;
 	let fileTreeLoading = false;
 	let fileTreeError = '';
+	let anchorPositionFrame: number | null = null;
 	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
 	const anchorContextCharacters = 96;
+	const commentResolveAnimationMs = 320;
 	const gutterCardGap = 14;
 	const gutterReservedTop = 86;
+	const marginViewportPadding = 180;
 	const recentDocumentsStorageKey = 'margin:recent-documents:v1';
 	const settingsStorageKey = 'margin:settings:v1';
 	const localAutosaveDelayMs = 900;
@@ -515,6 +522,11 @@
 			thread: ThreadView
 		 }
 	;
+
+	type DocumentViewport = {
+		top: number;
+		bottom: number
+	 };
 
 	type SuggestionSurfaceKind = 'add' | 'replace' | 'remove';
 
@@ -1760,9 +1772,12 @@
 		? 'Unsaved'
 		: '');
 	$: selectionReady = selectedQuote.trim().length > 0 && annotations;
-	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights);
+	$: marginItems = layoutMarginItems(threads, selectedQuote, selectedLineTop, lineTops, annotationTops, cardHeights, documentViewport);
 	$: stageHeight = Math.max(documentHeight, ...marginItems.map((item) => item.top + item.height + 24), 240);
-	$: marginRailOpen = marginItems.length > 0;
+	$: marginRailOpen = threads.length > 0 || selectedQuote.trim().length > 0;
+	$: if (selectedThreadId && !threads.some((thread) => thread.id === selectedThreadId)) selectedThreadId = '';
+	$: if (hoveredThreadId && !threads.some((thread) => thread.id === hoveredThreadId)) hoveredThreadId = '';
+	$: activeThreadId = selectedThreadId || hoveredThreadId;
 	$: updateSaveProgressIndicator(saveState);
 	$: localAuthor = appSettings.localUserName;
 
@@ -1798,14 +1813,19 @@
 		}
 
 		bootstrapStandaloneDocument(settingsReady, nativeListenersReady, recentDocumentsReady);
-		window.addEventListener('resize', updateAnchorPositions);
+		window.addEventListener('resize', scheduleAnchorPositionUpdate);
+		window.addEventListener('scroll', scheduleAnchorPositionUpdate, { passive: true });
+		window.addEventListener('pointerdown', handleGlobalPointerDown);
 		window.addEventListener('keydown', handleGlobalShortcut);
 		window.addEventListener('beforeunload', handleBeforeUnload);
 
 		return () => {
-			window.removeEventListener('resize', updateAnchorPositions);
+			window.removeEventListener('resize', scheduleAnchorPositionUpdate);
+			window.removeEventListener('scroll', scheduleAnchorPositionUpdate);
+			window.removeEventListener('pointerdown', handleGlobalPointerDown);
 			window.removeEventListener('keydown', handleGlobalShortcut);
 			window.removeEventListener('beforeunload', handleBeforeUnload);
+			clearAnchorPositionFrame();
 			clearLocalAutosaveTimer();
 			clearSaveProgressTimers();
 			clearUpdateAutoCheckTimer();
@@ -2042,7 +2062,7 @@
 		saveState = nextTab.saveState;
 		saveMessage = nextTab.saveMessage;
 		documentSessionKey = nextTab.documentSessionKey;
-		activeThreadId = '';
+		clearThreadFocus();
 		selectedQuote = '';
 		selectionQuote = '';
 		selectedCommentAnchor = null;
@@ -3835,6 +3855,10 @@
 
 				EditorView.domEventHandlers({
 					mousedown(event, view) {
+						const threadId = threadAnchorFromEvent(event);
+
+						if (threadId) selectThread(threadId);
+
 						return maybeJumpToFootnote(event, view);
 					},
 
@@ -3855,13 +3879,13 @@
 
 						const threadId = threadAnchorFromEvent(event);
 
-						if (activeThreadId !== threadId) activeThreadId = threadId;
+						previewThread(threadId);
 					},
 
 					mouseleave(event, view) {
 						updateFootnoteJumpArmed(view, false);
 
-						if (activeThreadId) activeThreadId = '';
+						clearThreadPreview();
 					},
 
 					dragover(event) {
@@ -4524,37 +4548,67 @@
 		if (!documentSurface) return;
 
 		const nextLineTops: Record<number, number> = {};
+		const nextAnnotationTops: Record<string, number> = {};
+		const documentRect = documentSurface.getBoundingClientRect();
 
 		if (mainEditor) {
-			const documentRect = documentSurface.getBoundingClientRect();
-
 			for (let lineNumber = 1; lineNumber <= mainEditor.state.doc.lines; lineNumber += 1) {
 				const line = mainEditor.state.doc.line(lineNumber);
-				const coords = mainEditor.coordsAtPos(line.from);
 
-				if (coords) nextLineTops[lineNumber] = Math.max(0, coords.top - documentRect.top);
+				nextLineTops[lineNumber] = editorBlockCenterTop(mainEditor, line.from, documentRect);
+			}
+
+			for (const thread of threads) {
+				const range = threadRangeInState(mainEditor.state, thread);
+
+				if (range) nextAnnotationTops[thread.id] = editorAnchorCenterTop(mainEditor, range.from, documentRect);
 			}
 		}
 
 		lineTops = nextLineTops;
-
-		const nextAnnotationTops: Record<string, number> = {};
-
-		for (const element of documentSurface.querySelectorAll<HTMLElement>('[data-thread-anchor]')) {
-			const id = element.dataset.threadAnchor;
-
-			if (id) nextAnnotationTops[id] = annotationTop(element);
-		}
-
 		annotationTops = nextAnnotationTops;
+		documentViewport = documentViewportForRect(documentRect);
 		documentHeight = Math.max(documentSurface.offsetHeight, mainEditor?.dom.offsetHeight ?? 0);
 	}
 
-	function annotationTop(element: HTMLElement) {
-		const documentRect = documentSurface.getBoundingClientRect();
-		const rect = element.getBoundingClientRect();
+	function scheduleAnchorPositionUpdate() {
+		if (anchorPositionFrame !== null) return;
 
-		return Math.max(0, rect.top - documentRect.top + rect.height / 2);
+		anchorPositionFrame = requestAnimationFrame(() => {
+			anchorPositionFrame = null;
+			updateAnchorPositions();
+		});
+	}
+
+	function clearAnchorPositionFrame() {
+		if (anchorPositionFrame === null) return;
+
+		cancelAnimationFrame(anchorPositionFrame);
+		anchorPositionFrame = null;
+	}
+
+	function documentViewportForRect(documentRect: DOMRect): DocumentViewport {
+		return {
+			top: -documentRect.top - marginViewportPadding,
+			bottom: window.innerHeight - documentRect.top + marginViewportPadding
+		};
+	}
+
+	function editorBlockCenterTop(view: EditorView, position: number, documentRect: DOMRect) {
+		const block = view.lineBlockAt(position);
+		const documentTop = view.documentTop - documentRect.top;
+
+		return Math.max(0, documentTop + block.top + block.height / 2);
+	}
+
+	function editorAnchorCenterTop(view: EditorView, position: number, documentRect: DOMRect) {
+		const coords = view.coordsForChar(position) ?? view.coordsAtPos(position, 1);
+
+		if (coords && coords.bottom >= 0 && coords.top <= window.innerHeight) {
+			return Math.max(0, coords.top - documentRect.top + (coords.bottom - coords.top) / 2);
+		}
+
+		return editorBlockCenterTop(view, position, documentRect);
 	}
 
 	function composeDraftChanges(currentDraftChanges: ChangeSet, update: ViewUpdate) {
@@ -4924,16 +4978,23 @@
 		activeLineTop: number,
 		anchorTops: Record<number, number>,
 		annotationAnchors: Record<string, number>,
-		measuredHeights: Record<string, number>
+		measuredHeights: Record<string, number>,
+		viewport: DocumentViewport
 	): MarginItem[] {
-		const rawItems: Array<Omit<MarginItem, 'top'>> = items.map((thread) => ({
-			type: 'thread' as const,
-			id: thread.id,
-			anchorTop: annotationAnchors[thread.id] ?? anchorTops[anchorLineForThread(thread)] ?? gutterReservedTop,
-			height: measuredHeights[thread.id] ?? estimateThreadHeight(thread),
-			connectorKind: thread.kind,
-			thread
-		}));
+		const rawItems: Array<Omit<MarginItem, 'top'>> = items.flatMap((thread) => {
+			const anchorTop = annotationAnchors[thread.id] ?? anchorTops[anchorLineForThread(thread)];
+
+			if (anchorTop == null || !anchorIsNearViewport(anchorTop, viewport)) return [];
+
+			return [{
+				type: 'thread' as const,
+				id: thread.id,
+				anchorTop,
+				height: measuredHeights[thread.id] ?? estimateThreadHeight(thread),
+				connectorKind: thread.kind,
+				thread
+			}];
+		});
 
 		if (activeQuote) {
 			rawItems.push({
@@ -4961,6 +5022,10 @@
 		);
 	}
 
+	function anchorIsNearViewport(anchorTop: number, viewport: DocumentViewport) {
+		return anchorTop >= viewport.top && anchorTop <= viewport.bottom;
+	}
+
 	function estimateThreadHeight(thread: ThreadView) {
 		const quoteLines = Math.min(4, Math.ceil(thread.quote.length / 48));
 		const bodyLines = Math.min(5, Math.ceil(thread.body.length / 52));
@@ -4976,11 +5041,28 @@
 		return 214 + quoteLines * 18;
 	}
 
-	function connectorPath(anchorTop: number, cardTop: number) {
-		const anchorY = Math.max(12, anchorTop);
-		const cardY = cardTop + 24;
+	function connectorSourceRadius(item: MarginItem, focused = false) {
+		return focused || item.type === 'composer' ? 2.2 : 1.8;
+	}
 
-		return `M 0 ${anchorY} C 12 ${anchorY}, 14 ${cardY}, 38 ${cardY}`;
+	function connectorStrokeWidth(item: MarginItem, focused = false) {
+		if (focused) return 1;
+		if (item.type === 'composer') return 0.62;
+
+		return 0.92;
+	}
+
+	function connectorCoordinate(value: number) {
+		return Number(value.toFixed(2));
+	}
+
+	function connectorPath(item: MarginItem, focused = false) {
+		const anchorY = Math.max(12, item.anchorTop);
+		const cardY = item.top + 24;
+		const sourceX = connectorCoordinate(connectorSourceRadius(item, focused) + connectorStrokeWidth(item, focused) / 2);
+		const connectorEndX = focused ? 35.6 : 37.6;
+
+		return `M ${sourceX} ${anchorY} C ${connectorCoordinate(sourceX + 12)} ${anchorY}, 14 ${cardY}, ${connectorEndX} ${cardY}`;
 	}
 
 	function measureHeight(node: HTMLElement, id: string) {
@@ -5020,11 +5102,61 @@
 		mainEditor?.dispatch({ selection: { anchor: mainEditor.state.selection.main.head } });
 	}
 
+	function selectThread(threadId: string) {
+		if (!threadId) return;
+
+		selectedThreadId = threadId;
+		hoveredThreadId = '';
+	}
+
+	function previewThread(threadId: string) {
+		if (selectedThreadId) return;
+		if (hoveredThreadId !== threadId) hoveredThreadId = threadId;
+	}
+
+	function clearThreadPreview() {
+		if (hoveredThreadId) hoveredThreadId = '';
+	}
+
+	function clearThreadFocus() {
+		selectedThreadId = '';
+		hoveredThreadId = '';
+	}
+
+	function setThreadResolving(threadId: string, resolving: boolean) {
+		const nextThreadIds = new Set(resolvingThreadIds);
+
+		if (resolving) {
+			nextThreadIds.add(threadId);
+		} else {
+			nextThreadIds.delete(threadId);
+		}
+
+		resolvingThreadIds = nextThreadIds;
+	}
+
+	function threadIsResolving(threadId: string) {
+		return resolvingThreadIds.has(threadId);
+	}
+
+	function waitForCommentResolveAnimation(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, commentResolveAnimationMs));
+	}
+
+	function handleGlobalPointerDown(event: PointerEvent) {
+		const target = event.target;
+
+		if (!(target instanceof Element)) return;
+		if (target.closest('.margin-rail, [data-thread-anchor]')) return;
+
+		clearThreadFocus();
+	}
+
 	function startEditingComment(thread: ThreadView) {
 		if (thread.kind !== 'comment') return;
 
 		clearSelection();
-		activeThreadId = thread.id;
+		selectThread(thread.id);
 		editingCommentId = thread.id;
 		editingCommentBody = thread.body;
 		focusCommentEditTextarea();
@@ -7175,7 +7307,7 @@
 			markLocalDocumentDirty('Unsaved annotations');
 		}
 
-		activeThreadId = commentId;
+		selectThread(commentId);
 		clearCommentEdit();
 		await tick();
 		updateAnchorPositions();
@@ -7184,7 +7316,7 @@
 	async function acceptSuggestion(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'suggestion') return;
 
-		activeThreadId = thread.id;
+		selectThread(thread.id);
 		replaceInEditor(thread.quote, thread.body);
 
 		if (thread.pending) {
@@ -7202,7 +7334,7 @@
 	async function rejectSuggestion(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'suggestion') return;
 
-		activeThreadId = thread.id;
+		selectThread(thread.id);
 		replaceInEditor(thread.body, thread.quote);
 
 		if (thread.pending) {
@@ -7219,7 +7351,7 @@
 	async function resolveSuggestion(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'suggestion') return;
 
-		activeThreadId = thread.id;
+		selectThread(thread.id);
 
 		if (thread.pending) {
 			syncedEditKeys.add(suggestionKey(thread.line, thread.endLine, thread.quote, thread.body));
@@ -7324,7 +7456,7 @@
 	function goToThread(thread: ThreadView) {
 		if (!mainEditor) return;
 
-		activeThreadId = thread.id;
+		selectThread(thread.id);
 
 		const range = threadRangeInState(mainEditor.state, thread);
 
@@ -7336,14 +7468,25 @@
 
 	async function resolveComment(thread: ThreadView) {
 		if (!annotations || thread.kind !== 'comment') return;
+		if (threadIsResolving(thread.id)) return;
+
+		const resolvingDocumentSessionKey = documentSessionKey;
 
 		if (editingCommentId === thread.id) clearCommentEdit();
+
+		selectThread(thread.id);
+		setThreadResolving(thread.id, true);
+		await waitForCommentResolveAnimation();
+		setThreadResolving(thread.id, false);
+
+		if (!annotations || documentSessionKey !== resolvingDocumentSessionKey) return;
 
 		annotations = {
 			...annotations,
 			comments: annotations.comments.map((comment) => comment.id === thread.id ? { ...comment, resolved: true } : comment)
 		};
 
+		if (selectedThreadId === thread.id) clearThreadFocus();
 		markLocalDocumentDirty('Unsaved annotations');
 		await tick();
 		updateAnchorPositions();
@@ -7673,24 +7816,31 @@
 						{#if marginItems.length > 0}
 							<svg
 								class="connector-layer"
+								class:has-selected-thread={Boolean(selectedThreadId)}
 								viewBox={`0 0 340 ${stageHeight}`}
 								preserveAspectRatio="none"
 								aria-hidden="true"
 							>
-								{#each marginItems as item}
+								{#each marginItems as item, index (item.id)}
 									<path
 										class="connector-shadow"
 										class:connector-suggestion={item.connectorKind === 'suggestion'}
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
-										d={connectorPath(item.anchorTop, item.top)}
+										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
+										d={connectorPath(item, activeThreadId === item.id)}
+										style={`--thread-index: ${index};`}
 									></path>
 
 									<path
 										class:connector-suggestion={item.connectorKind === 'suggestion'}
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
-										d={connectorPath(item.anchorTop, item.top)}
+										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
+										d={connectorPath(item, activeThreadId === item.id)}
+										style={`--thread-index: ${index};`}
 									></path>
 
 									<circle
@@ -7698,22 +7848,25 @@
 										class:connector-suggestion={item.connectorKind === 'suggestion'}
 										class:connector-composer={item.type === 'composer'}
 										class:connector-active={activeThreadId === item.id}
+										class:connector-selected={selectedThreadId === item.id}
+										class:connector-resolving={threadIsResolving(item.id)}
 										cx="0"
 										cy={Math.max(12, item.anchorTop)}
-										r="3"
+										r={connectorSourceRadius(item, activeThreadId === item.id)}
+										style={`--thread-index: ${index}; --connector-source-radius: ${connectorSourceRadius(item, activeThreadId === item.id)}px;`}
 									></circle>
 
 								{/each}
 							</svg>
 						{/if}
 
-						{#each marginItems as item}
+						{#each marginItems as item, index (item.id)}
 					{#if item.type === 'composer'}
 						<section
 							class="inline-composer"
 							class:needs-attention={commentComposerAttention}
 							aria-label="New comment"
-							style={`top: ${item.top}px;`}
+							style={`--thread-index: ${index}; top: ${item.top}px;`}
 							use:measureHeight={item.id}
 						>
 							<div class="composer-author">
@@ -7755,11 +7908,13 @@
 							class:rejected={item.thread.status === 'rejected'}
 							class:resolved={item.thread.status === 'resolved'}
 							class:focused={activeThreadId === item.thread.id}
+							class:selected={selectedThreadId === item.thread.id}
+							class:resolving-comment={threadIsResolving(item.thread.id)}
 							class:editing-comment={item.thread.kind === 'comment' && editingCommentId === item.thread.id}
 							role="button"
 							aria-label={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? 'Edit comment' : `Go to ${item.thread.kind}`}
 							tabindex={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? -1 : 0}
-							style={`top: ${item.top}px;`}
+							style={`--thread-index: ${index}; top: ${item.top}px;`}
 							on:click={() => {
 								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
 
@@ -7769,8 +7924,8 @@
 								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
 								if (event.key === 'Enter') goToThread(item.thread);
 							}}
-							on:mouseenter={() => activeThreadId = item.thread.id}
-							on:mouseleave={() => activeThreadId = ''}
+							on:mouseenter={() => previewThread(item.thread.id)}
+							on:mouseleave={clearThreadPreview}
 							use:measureHeight={item.id}
 						>
 							{#if item.thread.kind === 'comment' && editingCommentId === item.thread.id}
@@ -7852,6 +8007,7 @@
 													class="thread-icon-button thread-resolve-button"
 													aria-label="Resolve comment"
 													title="Resolve comment"
+													disabled={threadIsResolving(item.thread.id)}
 													onclick={(event) => {
 														event.stopPropagation();
 														resolveComment(item.thread);

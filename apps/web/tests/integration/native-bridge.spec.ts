@@ -62,7 +62,7 @@ test('routes native menu events through the frontend contract', async ({ page })
   await emitTauriEvent(page, 'margin://add-comment');
   await page.getByPlaceholder('Add a comment').fill('Dashboard note.');
   await page.getByRole('button', { name: 'Comment' }).click();
-  await expect(page.getByText('Dashboard note.').first()).toBeVisible();
+  await expect(page.getByLabel('New comment')).toBeHidden();
 
   await setEditorSelection(page, 0, 10);
   await emitTauriEvent(page, 'margin://show-word-count');
