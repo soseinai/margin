@@ -164,6 +164,8 @@
 	let localAuthor = defaultLocalUserName();
 	let settingsDialogOpen = false;
 	let printOptionsDialogOpen = false;
+	let wordCountDialogOpen = false;
+	let wordCountStats: WordCountStats = emptyWordCountStats();
 	let includeMarginNotesAppendix = true;
 	let settingsSaving = false;
 	let settingsError = '';
@@ -226,6 +228,7 @@
 	let unlistenNativeSaveMenu: (() => void) | null = null;
 	let unlistenNativeSaveAsMenu: (() => void) | null = null;
 	let unlistenNativePrintMenu: (() => void) | null = null;
+	let unlistenNativeWordCountMenu: (() => void) | null = null;
 	let unlistenNativeCloseTabMenu: (() => void) | null = null;
 	let unlistenNativePreviousTabMenu: (() => void) | null = null;
 	let unlistenNativeNextTabMenu: (() => void) | null = null;
@@ -339,6 +342,15 @@
 	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
 	type PrintDocumentOptions = { includeMarginNotesAppendix?: boolean };
+	type WordCountMetrics = { words: number; characters: number; lines: number };
+	type ReviewCountStats = { open: number; closed: number };
+	type TaskCountStats = { open: number; total: number };
+	type WordCountStats = {
+		document: WordCountMetrics;
+		selection: WordCountMetrics | null;
+		review: ReviewCountStats;
+		tasks: TaskCountStats
+	};
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type FindPanelMode = 'compact' | 'expanded';
 	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
@@ -1625,6 +1637,7 @@
 			unlistenNativeSaveMenu?.();
 			unlistenNativeSaveAsMenu?.();
 			unlistenNativePrintMenu?.();
+			unlistenNativeWordCountMenu?.();
 			unlistenNativeCloseTabMenu?.();
 			unlistenNativePreviousTabMenu?.();
 			unlistenNativeNextTabMenu?.();
@@ -5506,6 +5519,10 @@
 				requestPrintDocument();
 			});
 
+			unlistenNativeWordCountMenu = await listen('margin://show-word-count', () => {
+				openWordCountDialog();
+			});
+
 			unlistenNativeCloseTabMenu = await listen('margin://close-tab', () => {
 				closeActiveDocumentTab();
 			});
@@ -5788,6 +5805,7 @@
 	function openSearchDialog(mode: FindPanelMode, view: EditorView | null = mainEditor) {
 		if (!view) return;
 		printOptionsDialogOpen = false;
+		wordCountDialogOpen = false;
 		if (settingsDialogOpen) {
 			closeSettingsDialog();
 			if (settingsDialogOpen) return;
@@ -5872,6 +5890,7 @@
 	function openSettingsDialog() {
 		closeFindPanel();
 		printOptionsDialogOpen = false;
+		wordCountDialogOpen = false;
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
@@ -5885,6 +5904,127 @@
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
+	}
+
+	function openWordCountDialog() {
+		if (!documentData && !mainEditor) return;
+
+		closeFindPanel();
+		printOptionsDialogOpen = false;
+		if (settingsDialogOpen) closeSettingsDialog();
+		if (settingsDialogOpen) return;
+
+		wordCountStats = buildWordCountStats(
+			activeEditorMarkdown(),
+			activeEditorSelectionMarkdown(),
+			annotations,
+			pendingEditThreads
+		);
+		wordCountDialogOpen = true;
+	}
+
+	function closeWordCountDialog() {
+		wordCountDialogOpen = false;
+	}
+
+	function activeEditorSelectionMarkdown() {
+		if (!mainEditor) return '';
+
+		const selection = mainEditor.state.selection.main;
+
+		return selection.empty ? '' : mainEditor.state.sliceDoc(selection.from, selection.to);
+	}
+
+	function buildWordCountStats(
+		markdown: string,
+		selectionMarkdown: string,
+		currentAnnotations: LocalAnnotations | null,
+		pendingThreads: ThreadView[]
+	): WordCountStats {
+		const trimmedSelection = selectionMarkdown.trim();
+
+		return {
+			document: textMetrics(markdown),
+			selection: trimmedSelection ? textMetrics(selectionMarkdown) : null,
+			review: reviewCountStats(currentAnnotations, pendingThreads),
+			tasks: taskCountStats(markdown)
+		};
+	}
+
+	function emptyWordCountStats(): WordCountStats {
+		return {
+			document: textMetrics(''),
+			selection: null,
+			review: { open: 0, closed: 0 },
+			tasks: { open: 0, total: 0 }
+		};
+	}
+
+	function textMetrics(markdown: string): WordCountMetrics {
+		return {
+			words: markdown.match(/[\p{L}\p{N}]+(?:['’._-][\p{L}\p{N}]+)*/gu)?.length ?? 0,
+			characters: Array.from(markdown).length,
+			lines: markdown.length === 0 ? 0 : markdown.split(/\r\n|\r|\n/).length
+		};
+	}
+
+	function reviewCountStats(currentAnnotations: LocalAnnotations | null, pendingThreads: ThreadView[]): ReviewCountStats {
+		const comments = currentAnnotations?.comments ?? [];
+		const suggestions = currentAnnotations?.suggestions ?? [];
+		const open = comments.filter((comment) => !comment.resolved).length
+			+ suggestions.filter((suggestion) => !suggestion.resolved).length
+			+ pendingThreads.filter((thread) => !thread.resolved).length;
+		const closed = comments.filter((comment) => comment.resolved).length
+			+ suggestions.filter((suggestion) => suggestion.resolved).length
+			+ pendingThreads.filter((thread) => thread.resolved).length;
+
+		return { open, closed };
+	}
+
+	function taskCountStats(markdown: string): TaskCountStats {
+		let open = 0;
+		let total = 0;
+
+		for (const line of markdown.split(/\r\n|\r|\n/)) {
+			const task = (/^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s+/).exec(line);
+
+			if (!task) continue;
+
+			total += 1;
+			if (task[1] === ' ') open += 1;
+		}
+
+		return { open, total };
+	}
+
+	function formatCount(count: number) {
+		return count.toLocaleString();
+	}
+
+	function formatReadingTime(words: number) {
+		if (words === 0) return '0 min';
+		if (words < 225) return '< 1 min';
+
+		const minutes = Math.ceil(words / 225);
+		const hours = Math.floor(minutes / 60);
+		const remainingMinutes = minutes % 60;
+
+		if (hours === 0) return `${formatCount(minutes)} min`;
+
+		const hourLabel = hours === 1 ? 'hr' : 'hrs';
+		if (remainingMinutes === 0) return `${formatCount(hours)} ${hourLabel}`;
+
+		return `${formatCount(hours)} ${hourLabel} ${remainingMinutes} min`;
+	}
+
+	function formatReviewProgress(stats: ReviewCountStats) {
+		return `${formatCount(stats.open)} open / ${formatCount(stats.closed)} closed`;
+	}
+
+	function formatTaskProgress(stats: TaskCountStats) {
+		const taskLabel = stats.total === 1 ? 'task' : 'tasks';
+
+		return `${formatCount(stats.open)} open / ${formatCount(stats.total)} ${taskLabel}`;
 	}
 
 	async function saveSettings() {
@@ -7169,6 +7309,7 @@
 		if (!documentData) return;
 
 		closeFindPanel();
+		wordCountDialogOpen = false;
 		if (settingsDialogOpen) closeSettingsDialog();
 		if (settingsDialogOpen) return;
 
@@ -8307,6 +8448,88 @@
 			</Button>
 		</div>
 	{/if}
+
+		<Dialog.Root bind:open={wordCountDialogOpen}>
+			<Dialog.Content
+				class="settings-dialog word-count-dialog"
+				aria-labelledby="word-count-title"
+				showCloseButton={false}
+			>
+				<Dialog.Header class="settings-dialog-header">
+					<div>
+						<p class="eyebrow">Margin</p>
+						<Dialog.Title id="word-count-title">Word Count</Dialog.Title>
+					</div>
+
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						class="icon-button"
+						aria-label="Close word count"
+						onclick={closeWordCountDialog}
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				</Dialog.Header>
+
+				<section class="word-count-dashboard" aria-label="Document counts">
+					<div class="word-count-hero">
+						<div class="word-count-hero-copy">
+							<span class="word-count-kicker">Document</span>
+							<span class="word-count-primary-label">Words</span>
+						</div>
+						<strong data-word-count-value="document-words">{formatCount(wordCountStats.document.words)}</strong>
+					</div>
+
+					<dl class="word-count-grid">
+						<div class="word-count-metric reading-time">
+							<dt>Reading time</dt>
+							<dd data-word-count-value="reading-time">{formatReadingTime(wordCountStats.document.words)}</dd>
+						</div>
+						<div class="word-count-metric characters">
+							<dt>Characters</dt>
+							<dd data-word-count-value="document-characters">{formatCount(wordCountStats.document.characters)}</dd>
+						</div>
+						<div class="word-count-metric lines">
+							<dt>Lines</dt>
+							<dd data-word-count-value="document-lines">{formatCount(wordCountStats.document.lines)}</dd>
+						</div>
+						<div class="word-count-metric review">
+							<dt>Comments / suggestions</dt>
+							<dd data-word-count-value="review-progress">{formatReviewProgress(wordCountStats.review)}</dd>
+						</div>
+						<div class="word-count-metric tasks">
+							<dt>Tasks</dt>
+							<dd data-word-count-value="task-progress">{formatTaskProgress(wordCountStats.tasks)}</dd>
+						</div>
+					</dl>
+				</section>
+
+				{#if wordCountStats.selection}
+					<section class="word-count-panel word-count-selection" aria-label="Selection counts">
+						<Label>Selection</Label>
+						<dl class="word-count-grid compact">
+							<div class="word-count-metric selection-words">
+								<dt>Words</dt>
+								<dd data-word-count-value="selection-words">{formatCount(wordCountStats.selection.words)}</dd>
+							</div>
+							<div class="word-count-metric selection-characters">
+								<dt>Characters</dt>
+								<dd data-word-count-value="selection-characters">{formatCount(wordCountStats.selection.characters)}</dd>
+							</div>
+						</dl>
+					</section>
+				{/if}
+
+				<Dialog.Footer class="settings-actions">
+					<Button
+						size="sm"
+						class="primary"
+						onclick={closeWordCountDialog}
+					>Done</Button>
+				</Dialog.Footer>
+			</Dialog.Content>
+		</Dialog.Root>
 
 		<Dialog.Root bind:open={printOptionsDialogOpen}>
 			<Dialog.Content

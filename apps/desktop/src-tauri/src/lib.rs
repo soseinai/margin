@@ -1864,6 +1864,11 @@ fn insert_menu_position() -> usize {
     }
 }
 
+#[cfg(not(target_os = "ios"))]
+fn tools_menu_position() -> usize {
+    insert_menu_position() + 1
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -1905,13 +1910,6 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
-            let install_cli_item = MenuItem::with_id(
-                app,
-                "app_install_cli",
-                "Install 'margin' Command...",
-                true,
-                None::<&str>,
-            )?;
             let settings_separator = PredefinedMenuItem::separator(app)?;
             #[cfg(target_os = "macos")]
             let mut settings_item_added = false;
@@ -1924,8 +1922,7 @@ pub fn run() {
                 .first()
                 .and_then(|item| item.as_submenu().cloned())
             {
-                app_menu
-                    .insert_items(&[&settings_item, &check_updates_item, &install_cli_item], 1)?;
+                app_menu.insert_items(&[&settings_item, &check_updates_item], 1)?;
                 settings_item_added = true;
             }
 
@@ -2004,12 +2001,7 @@ pub fn run() {
 
                 if !settings_item_added {
                     file_menu.insert_items(
-                        &[
-                            &settings_item,
-                            &check_updates_item,
-                            &install_cli_item,
-                            &settings_separator,
-                        ],
+                        &[&settings_item, &check_updates_item, &settings_separator],
                         0,
                     )?;
                 }
@@ -2104,6 +2096,26 @@ pub fn run() {
             )?;
 
             menu.insert(&insert_menu, insert_menu_position())?;
+
+            let word_count =
+                MenuItem::with_id(app, "tools_word_count", "Word Count...", true, None::<&str>)?;
+            let install_cli_item = MenuItem::with_id(
+                app,
+                "tools_install_cli",
+                "Install 'margin' Command...",
+                true,
+                None::<&str>,
+            )?;
+            let tools_separator = PredefinedMenuItem::separator(app)?;
+            let tools_menu = Submenu::with_id_and_items(
+                app,
+                "tools",
+                "Tools",
+                true,
+                &[&word_count, &tools_separator, &install_cli_item],
+            )?;
+
+            menu.insert(&tools_menu, tools_menu_position())?;
 
             let toggle_file_tree = MenuItem::with_id(
                 app,
@@ -2201,7 +2213,9 @@ pub fn run() {
             let _ = app.emit("margin://open-settings", ());
         } else if menu_id.as_ref() == "app_check_updates" {
             let _ = app.emit("margin://check-for-updates", ());
-        } else if menu_id.as_ref() == "app_install_cli" {
+        } else if menu_id.as_ref() == "tools_word_count" {
+            let _ = app.emit("margin://show-word-count", ());
+        } else if menu_id.as_ref() == "tools_install_cli" {
             show_cli_install_result(install_margin_cli());
         } else if menu_id.as_ref() == "file_new" {
             let _ = app.emit("margin://new-document", ());
