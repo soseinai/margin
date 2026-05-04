@@ -1927,6 +1927,13 @@ pub fn run() {
             }
 
             let new_file = MenuItem::with_id(app, "file_new", "New", true, Some("CmdOrCtrl+N"))?;
+            let quick_open = MenuItem::with_id(
+                app,
+                "file_quick_open",
+                "Quick Open...",
+                true,
+                Some("CmdOrCtrl+P"),
+            )?;
             let open_file =
                 MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
             let open_folder = MenuItem::with_id(
@@ -1958,8 +1965,7 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+S"),
             )?;
-            let print_file =
-                MenuItem::with_id(app, "file_print", "Print...", true, Some("CmdOrCtrl+P"))?;
+            let print_file = MenuItem::with_id(app, "file_print", "Print...", true, None::<&str>)?;
             let file_open_separator = PredefinedMenuItem::separator(app)?;
             let file_save_separator = PredefinedMenuItem::separator(app)?;
             let close_tab = MenuItem::with_id(
@@ -1987,6 +1993,7 @@ pub fn run() {
                 }
                 file_menu.append_items(&[
                     &new_file,
+                    &quick_open,
                     &open_file,
                     &open_folder,
                     &open_recent,
@@ -2008,6 +2015,13 @@ pub fn run() {
             }
 
             let find_separator = PredefinedMenuItem::separator(app)?;
+            let command_palette = MenuItem::with_id(
+                app,
+                "edit_command_palette",
+                "Command Palette...",
+                true,
+                Some("CmdOrCtrl+Shift+P"),
+            )?;
             let find = MenuItem::with_id(app, "edit_find", "Find", true, Some("CmdOrCtrl+F"))?;
             let find_and_replace = MenuItem::with_id(
                 app,
@@ -2036,6 +2050,7 @@ pub fn run() {
                     .filter(|submenu| submenu.text().map(|text| text == "Edit").unwrap_or(false))
             }) {
                 edit_menu.append_items(&[
+                    &command_palette,
                     &find_separator,
                     &find,
                     &find_and_replace,
@@ -2219,6 +2234,8 @@ pub fn run() {
             show_cli_install_result(install_margin_cli());
         } else if menu_id.as_ref() == "file_new" {
             let _ = app.emit("margin://new-document", ());
+        } else if menu_id.as_ref() == "file_quick_open" {
+            let _ = app.emit("margin://quick-open-document", ());
         } else if menu_id.as_ref() == "file_open" {
             let _ = app.emit("margin://open-document", ());
         } else if menu_id.as_ref() == "file_open_folder" {
@@ -2243,6 +2260,8 @@ pub fn run() {
             let _ = app.emit("margin://previous-tab", ());
         } else if menu_id.as_ref() == "window_next_tab" {
             let _ = app.emit("margin://next-tab", ());
+        } else if menu_id.as_ref() == "edit_command_palette" {
+            let _ = app.emit("margin://open-command-palette", ());
         } else if menu_id.as_ref() == "edit_find" {
             let _ = app.emit("margin://open-find", ());
         } else if menu_id.as_ref() == "edit_find_and_replace" {
