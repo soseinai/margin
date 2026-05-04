@@ -58,9 +58,17 @@
 	import katex from 'katex';
 
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
+	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
+	import ListIcon from '@lucide/svelte/icons/list';
+	import ListOrderedIcon from '@lucide/svelte/icons/list-ordered';
+	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
+	import CommandIcon from '@lucide/svelte/icons/command';
+	import ClockIcon from '@lucide/svelte/icons/clock';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -68,6 +76,7 @@
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import SaveIcon from '@lucide/svelte/icons/save';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import TableIcon from '@lucide/svelte/icons/table';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount, tick } from 'svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -92,6 +101,7 @@
 		markdownImageReference,
 		normalizePathSeparators,
 		normalizeRecentDocuments,
+		relativeLocalPath,
 		type RecentDocument
 	} from './lib/local-documents';
 	import {
@@ -223,6 +233,8 @@
 	let unlistenNativeCommentMenu: (() => void) | null = null;
 	let unlistenNativeNewMenu: (() => void) | null = null;
 	let unlistenNativeOpenUrls: (() => void) | null = null;
+	let unlistenNativeCommandPaletteMenu: (() => void) | null = null;
+	let unlistenNativeQuickOpenMenu: (() => void) | null = null;
 	let unlistenNativeOpenMenu: (() => void) | null = null;
 	let unlistenNativeOpenFolderMenu: (() => void) | null = null;
 	let unlistenNativeOpenRecentMenu: (() => void) | null = null;
@@ -264,6 +276,25 @@
 	let fileTreeLoading = false;
 	let fileTreeError = '';
 	let anchorPositionFrame: number | null = null;
+	let commandPaletteOpen = false;
+	let commandPaletteMode: CommandPaletteMode = 'commands';
+	let commandPaletteEffectiveMode: CommandPaletteMode = 'commands';
+	let commandPaletteQuery = '';
+	let commandPaletteSearchQuery = '';
+	let commandPaletteTitleLabel = 'Command Palette';
+	let commandPalettePlaceholderLabel = 'Search commands';
+	let commandPaletteSearchAriaLabel = 'Command palette search';
+	let commandPaletteShortcutLabel = '';
+	let commandPaletteActiveIndex = 0;
+	let commandPaletteWindowStart = 0;
+	let commandPaletteWindowed = false;
+	let commandPaletteListHeight = '';
+	let commandPaletteEntries: CommandPaletteEntry[] = [];
+	let commandPaletteRows: CommandPaletteRow[] = [];
+	let commandPaletteInput: HTMLInputElement | null = null;
+	let commandPaletteInputMode: CommandPaletteInputMode = 'keyboard';
+	let commandPaletteLastPointerX = Number.NaN;
+	let commandPaletteLastPointerY = Number.NaN;
 	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
@@ -283,6 +314,10 @@
 	const fileTreePanelMaxWidth = 520;
 	const typingProfilerStorageKey = 'margin:typing-profiler';
 	const typingProfilerThresholdStorageKey = 'margin:typing-profiler-threshold-ms';
+	const commandPaletteVisibleEntryLimit = 10;
+	const commandPaletteWindowEdgeBuffer = 2;
+	const commandPaletteFileTitleMaxLength = 34;
+	const commandPaletteFileDetailMaxLength = 54;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	let pendingTypingProfile: TypingProfile | null = null;
@@ -372,6 +407,53 @@
 	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
 	type FindPanelPosition = { left: number; top: number };
 	type FindPanelModeOptions = { resetPosition?: boolean };
+	type CommandPaletteMode = 'commands' | 'files';
+	type CommandPaletteInputMode = 'keyboard' | 'pointer';
+	type CommandPaletteEntryKind = 'command' | 'file' | 'recent' | 'tab' | 'empty';
+	type CommandPaletteIconName =
+		| 'clock'
+		| 'command'
+		| 'file-plus'
+		| 'file-text'
+		| 'folder-open'
+		| 'folder-tree'
+		| 'list'
+		| 'list-checks'
+		| 'list-ordered'
+		| 'message-square-plus'
+		| 'panel-left-close'
+		| 'pencil'
+		| 'printer'
+		| 'refresh'
+		| 'save'
+		| 'search'
+		| 'settings'
+		| 'table'
+		| 'x';
+	type CommandPaletteEntry = {
+		id: string;
+		kind: CommandPaletteEntryKind;
+		title: string;
+		subtitle?: string;
+		detail?: string;
+		group?: string;
+		shortcut?: string;
+		keywords?: string[];
+		disabled?: boolean;
+		action: () => void | Promise<void>
+	};
+	type CommandPaletteHeadingRow = {
+		type: 'heading';
+		id: string;
+		title: string
+	};
+	type CommandPaletteEntryRow = {
+		type: 'entry';
+		id: string;
+		entry: CommandPaletteEntry;
+		index: number
+	};
+	type CommandPaletteRow = CommandPaletteHeadingRow | CommandPaletteEntryRow;
 	type FindPanelHandle = {
 		setMode: (mode: FindPanelMode, options?: FindPanelModeOptions) => void;
 		focus: () => void;
@@ -1760,6 +1842,37 @@
 		externalChange,
 		documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab)
 	);
+	$: commandPaletteEffectiveMode = commandPaletteModeForQuery(commandPaletteMode, commandPaletteQuery);
+	$: commandPaletteSearchQuery = commandPaletteQueryForMode(commandPaletteMode, commandPaletteQuery);
+	$: commandPaletteTitleLabel = commandPaletteEffectiveMode === 'commands' ? 'Command Palette' : 'Quick Open';
+	$: commandPalettePlaceholderLabel = commandPaletteEffectiveMode === 'commands'
+		? 'Type command'
+		: 'Search files';
+	$: commandPaletteSearchAriaLabel = commandPaletteEffectiveMode === 'commands'
+		? 'Command palette search'
+		: 'Quick open search';
+	$: commandPaletteShortcutLabel = commandPaletteEffectiveMode === 'commands'
+		? shortcutLabel('Shift+P')
+		: shortcutLabel('P');
+	$: commandPaletteEntries = commandPaletteOpen
+		? commandPaletteFilteredEntries(commandPaletteEffectiveMode, commandPaletteSearchQuery)
+		: [];
+	$: commandPaletteActiveIndex = normalizedCommandPaletteIndex(commandPaletteEntries, commandPaletteActiveIndex);
+	$: commandPaletteWindowed = commandPaletteEntries.length > commandPaletteVisibleEntryLimit;
+	$: commandPaletteListHeight = commandPaletteWindowed
+		? `${commandPaletteStableListHeight(commandPaletteEntries, commandPaletteSearchQuery)}px`
+		: '';
+	$: commandPaletteWindowStart = normalizedCommandPaletteWindowStart(
+		commandPaletteEntries,
+		commandPaletteActiveIndex,
+		commandPaletteWindowStart,
+		commandPaletteInputMode
+	);
+	$: commandPaletteRows = commandPaletteDisplayRows(
+		commandPaletteVisibleEntries(commandPaletteEntries, commandPaletteWindowStart),
+		commandPaletteSearchQuery,
+		commandPaletteWindowStart
+	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
 	$: printAppendixCandidateThreads = threads.filter((thread) => !thread.resolved && thread.body.trim().length > 0);
@@ -1834,6 +1947,8 @@
 			unlistenNativeCommentMenu?.();
 			unlistenNativeNewMenu?.();
 			unlistenNativeOpenUrls?.();
+			unlistenNativeCommandPaletteMenu?.();
+			unlistenNativeQuickOpenMenu?.();
 			unlistenNativeOpenMenu?.();
 			unlistenNativeOpenFolderMenu?.();
 			unlistenNativeOpenRecentMenu?.();
@@ -3708,7 +3823,16 @@
 					{
 						key: 'Mod-p',
 						run() {
-							requestPrintDocument();
+							openCommandPalette('files');
+
+							return true;
+						}
+					},
+
+					{
+						key: 'Mod-Shift-p',
+						run() {
+							openCommandPalette('commands');
 
 							return true;
 						}
@@ -5246,6 +5370,14 @@
 				handleNativeDocumentChanged(event.payload);
 			});
 
+			unlistenNativeCommandPaletteMenu = await listen('margin://open-command-palette', () => {
+				openCommandPalette('commands');
+			});
+
+			unlistenNativeQuickOpenMenu = await listen('margin://quick-open-document', () => {
+				openCommandPalette('files');
+			});
+
 			unlistenNativeOpenMenu = await listen('margin://open-document', () => {
 				openLocalMarkdown();
 			});
@@ -5547,6 +5679,814 @@
 
 	function shouldHandleWebNativeShortcut() {
 		return desktopShell && !nativeMenuBridgeReady;
+	}
+
+	async function openCommandPalette(mode: CommandPaletteMode) {
+		closeFindPanel();
+		printOptionsDialogOpen = false;
+		if (settingsDialogOpen) {
+			closeSettingsDialog();
+			if (settingsDialogOpen) return;
+		}
+
+		commandPaletteMode = mode;
+		commandPaletteQuery = '';
+		commandPaletteActiveIndex = 0;
+		commandPaletteWindowStart = 0;
+		resetCommandPalettePointerTracking();
+		commandPaletteOpen = true;
+		await tick();
+		commandPaletteInput?.focus();
+	}
+
+	function closeCommandPalette() {
+		commandPaletteOpen = false;
+		commandPaletteQuery = '';
+		commandPaletteActiveIndex = 0;
+		commandPaletteWindowStart = 0;
+		resetCommandPalettePointerTracking();
+	}
+
+	function commandPaletteModeForQuery(mode: CommandPaletteMode, query: string): CommandPaletteMode {
+		return mode === 'files' && query.trimStart().startsWith('>') ? 'commands' : mode;
+	}
+
+	function commandPaletteQueryForMode(mode: CommandPaletteMode, query: string) {
+		if (mode !== 'files') return query;
+
+		const trimmedStart = query.trimStart();
+		if (!trimmedStart.startsWith('>')) return query;
+
+		return trimmedStart.slice(1).trimStart();
+	}
+
+	function updateCommandPaletteQuery(event: Event) {
+		commandPaletteQuery = (event.currentTarget as HTMLInputElement).value;
+		commandPaletteActiveIndex = 0;
+		commandPaletteWindowStart = 0;
+		resetCommandPalettePointerTracking();
+	}
+
+	function handleCommandPaletteKeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented) return;
+
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeCommandPalette();
+
+			return;
+		}
+
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			moveCommandPaletteSelection(1);
+
+			return;
+		}
+
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			moveCommandPaletteSelection(-1);
+
+			return;
+		}
+
+		if (event.key === 'Home') {
+			event.preventDefault();
+			setCommandPaletteKeyboardIndex(firstEnabledCommandPaletteIndex(commandPaletteEntries));
+
+			return;
+		}
+
+		if (event.key === 'End') {
+			event.preventDefault();
+			setCommandPaletteKeyboardIndex(lastEnabledCommandPaletteIndex(commandPaletteEntries));
+
+			return;
+		}
+
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void runCommandPaletteEntry(commandPaletteEntries[commandPaletteActiveIndex]);
+		}
+	}
+
+	function moveCommandPaletteSelection(direction: -1 | 1) {
+		if (commandPaletteEntries.length === 0) return;
+
+		let nextIndex = commandPaletteActiveIndex;
+
+		for (let step = 0; step < commandPaletteEntries.length; step += 1) {
+			nextIndex = (nextIndex + direction + commandPaletteEntries.length) % commandPaletteEntries.length;
+
+			if (!commandPaletteEntries[nextIndex]?.disabled) {
+				setCommandPaletteKeyboardIndex(nextIndex);
+
+				return;
+			}
+		}
+	}
+
+	function setCommandPaletteKeyboardIndex(index: number) {
+		if (index < 0) return;
+
+		commandPaletteInputMode = 'keyboard';
+		commandPaletteActiveIndex = index;
+	}
+
+	function resetCommandPalettePointerTracking() {
+		commandPaletteInputMode = 'keyboard';
+		commandPaletteLastPointerX = Number.NaN;
+		commandPaletteLastPointerY = Number.NaN;
+	}
+
+	function handleCommandPaletteOptionPointerMove(event: PointerEvent, index: number, disabled?: boolean) {
+		if (disabled) return;
+
+		const hasPreviousPointerPosition = Number.isFinite(commandPaletteLastPointerX)
+			&& Number.isFinite(commandPaletteLastPointerY);
+		const coordinateMoved = hasPreviousPointerPosition
+			&& (event.clientX !== commandPaletteLastPointerX || event.clientY !== commandPaletteLastPointerY);
+		const pointerActuallyMoved = event.movementX !== 0 || event.movementY !== 0 || coordinateMoved;
+
+		commandPaletteLastPointerX = event.clientX;
+		commandPaletteLastPointerY = event.clientY;
+
+		if (commandPaletteInputMode === 'keyboard' && !pointerActuallyMoved) return;
+		if (!pointerActuallyMoved) return;
+
+		commandPaletteInputMode = 'pointer';
+		commandPaletteActiveIndex = index;
+	}
+
+	async function runCommandPaletteEntry(entry: CommandPaletteEntry | undefined) {
+		if (!entry || entry.disabled) return;
+
+		closeCommandPalette();
+		await tick();
+		await entry.action();
+	}
+
+	function normalizedCommandPaletteIndex(entries: CommandPaletteEntry[], index: number) {
+		if (entries.length === 0) return 0;
+		if (entries[index] && !entries[index].disabled) return index;
+
+		const firstEnabled = firstEnabledCommandPaletteIndex(entries);
+		if (firstEnabled >= 0) return firstEnabled;
+
+		return Math.min(Math.max(0, index), entries.length - 1);
+	}
+
+	function normalizedCommandPaletteWindowStart(
+		entries: CommandPaletteEntry[],
+		activeIndex: number,
+		currentStart: number,
+		inputMode: CommandPaletteInputMode
+	) {
+		if (entries.length <= commandPaletteVisibleEntryLimit) return 0;
+
+		const maxStart = entries.length - commandPaletteVisibleEntryLimit;
+		const start = clampNumber(currentStart, 0, maxStart);
+
+		if (activeIndex < start) {
+			return clampNumber(activeIndex - commandPaletteWindowEdgeBuffer, 0, maxStart);
+		}
+
+		if (activeIndex >= start + commandPaletteVisibleEntryLimit) {
+			return clampNumber(
+				activeIndex - commandPaletteVisibleEntryLimit + commandPaletteWindowEdgeBuffer + 1,
+				0,
+				maxStart
+			);
+		}
+
+		if (inputMode === 'pointer') return start;
+
+		if (activeIndex < start + commandPaletteWindowEdgeBuffer) {
+			return clampNumber(activeIndex - commandPaletteWindowEdgeBuffer, 0, maxStart);
+		}
+
+		if (activeIndex >= start + commandPaletteVisibleEntryLimit - commandPaletteWindowEdgeBuffer) {
+			return clampNumber(
+				activeIndex - commandPaletteVisibleEntryLimit + commandPaletteWindowEdgeBuffer + 1,
+				0,
+				maxStart
+			);
+		}
+
+		return start;
+	}
+
+	function commandPaletteVisibleEntries(entries: CommandPaletteEntry[], start: number) {
+		return entries.slice(start, start + commandPaletteVisibleEntryLimit);
+	}
+
+	function firstEnabledCommandPaletteIndex(entries: CommandPaletteEntry[]) {
+		return entries.findIndex((entry) => !entry.disabled);
+	}
+
+	function lastEnabledCommandPaletteIndex(entries: CommandPaletteEntry[]) {
+		for (let index = entries.length - 1; index >= 0; index -= 1) {
+			if (!entries[index].disabled) return index;
+		}
+
+		return 0;
+	}
+
+	function commandPaletteFilteredEntries(mode: CommandPaletteMode, query: string) {
+		const entries = mode === 'commands'
+			? commandPaletteCommandEntries()
+			: quickOpenPaletteEntries();
+		const normalizedQuery = normalizePaletteSearchValue(query);
+
+		if (!normalizedQuery) return entries.slice(0, 60);
+
+		const matches = entries
+			.map((entry, index) => ({
+				entry,
+				index,
+				score: commandPaletteEntryScore(entry, normalizedQuery)
+			}))
+			.filter((match) => Number.isFinite(match.score))
+			.sort((a, b) => a.score - b.score || a.index - b.index)
+			.map((match) => match.entry)
+			.slice(0, 60);
+
+		return matches.length > 0
+			? matches
+			: [{
+				id: 'empty:no-matches',
+				kind: 'empty' as const,
+				title: 'No matches',
+				subtitle: 'Try another search',
+				group: 'Suggested',
+				disabled: true,
+				action: () => {}
+			}];
+	}
+
+	function commandPaletteDisplayRows(
+		entries: CommandPaletteEntry[],
+		query: string,
+		entryOffset = 0
+	): CommandPaletteRow[] {
+		const showHeadings = !normalizePaletteSearchValue(query);
+		const rows: CommandPaletteRow[] = [];
+		let previousGroup = '';
+
+		entries.forEach((entry, localIndex) => {
+			const index = entryOffset + localIndex;
+			const group = showHeadings ? commandPaletteEntryGroup(entry) : '';
+
+			if (group && group !== previousGroup) {
+				rows.push({
+					type: 'heading',
+					id: `command-palette-heading:${group}:${index}`,
+					title: group
+				});
+				previousGroup = group;
+			}
+
+			rows.push({
+				type: 'entry',
+				id: `command-palette-entry:${entry.id}`,
+				entry,
+				index
+			});
+		});
+
+		return rows;
+	}
+
+	function commandPaletteStableListHeight(entries: CommandPaletteEntry[], query: string) {
+		if (entries.length === 0) return 0;
+
+		const lastWindowStart = Math.max(0, entries.length - commandPaletteVisibleEntryLimit);
+		let height = 0;
+
+		for (let start = 0; start <= lastWindowStart; start += 1) {
+			const rows = commandPaletteDisplayRows(commandPaletteVisibleEntries(entries, start), query, start);
+			height = Math.max(height, commandPaletteRowsHeight(rows));
+		}
+
+		return height;
+	}
+
+	function commandPaletteRowsHeight(rows: CommandPaletteRow[]) {
+		const optionHeight = 32;
+		const optionWithSubtitleHeight = 38;
+		const firstHeadingHeight = 17;
+		const headingHeight = 22;
+		const rowGap = 1;
+		const listPaddingBottom = 8;
+		let height = listPaddingBottom + Math.max(0, rows.length - 1) * rowGap;
+
+		rows.forEach((row, index) => {
+			if (row.type === 'entry') {
+				height += commandPaletteShowsSubtitle(row.entry) ? optionWithSubtitleHeight : optionHeight;
+			} else {
+				height += index === 0 ? firstHeadingHeight : headingHeight;
+			}
+		});
+
+		return height;
+	}
+
+	function commandPaletteEntryGroup(entry: CommandPaletteEntry) {
+		if (entry.group) return entry.group;
+		if (entry.kind === 'tab') return 'Open Tabs';
+		if (entry.kind === 'file') return 'Files';
+		if (entry.kind === 'recent') return 'Recent';
+		if (entry.kind === 'empty') return '';
+
+		return 'Suggested';
+	}
+
+	function commandPaletteCommandEntries(): CommandPaletteEntry[] {
+		const commands: CommandPaletteEntry[] = [
+			{
+				id: 'command:new-document',
+				kind: 'command',
+				title: 'New Document',
+				subtitle: 'File',
+				group: 'Suggested',
+				shortcut: shortcutLabel('N'),
+				keywords: ['file', 'untitled'],
+				action: createNewDocument
+			},
+			{
+				id: 'command:open-document',
+				kind: 'command',
+				title: 'Open Document...',
+				subtitle: 'File',
+				group: 'Suggested',
+				shortcut: shortcutLabel('O'),
+				keywords: ['file', 'markdown'],
+				action: openLocalMarkdown
+			},
+			{
+				id: 'command:open-folder',
+				kind: 'command',
+				title: 'Open Folder...',
+				subtitle: 'File',
+				group: 'Suggested',
+				shortcut: shortcutLabel('Shift+O'),
+				keywords: ['workspace', 'files'],
+				action: openLocalFolder
+			},
+			{
+				id: 'command:quick-open',
+				kind: 'command',
+				title: 'Quick Open File',
+				subtitle: 'File',
+				group: 'Suggested',
+				shortcut: shortcutLabel('P'),
+				keywords: ['file', 'search', 'open'],
+				action: () => openCommandPalette('files')
+			},
+			{
+				id: 'command:settings',
+				kind: 'command',
+				title: 'Settings',
+				subtitle: 'Application',
+				group: 'Suggested',
+				shortcut: shortcutLabel(','),
+				keywords: ['preferences'],
+				action: openSettingsDialog
+			},
+			{
+				id: 'command:save',
+				kind: 'command',
+				title: 'Save Document',
+				subtitle: 'File',
+				group: 'File',
+				shortcut: shortcutLabel('S'),
+				keywords: ['write'],
+				action: () => saveLocalMarkdown()
+			},
+			{
+				id: 'command:save-as',
+				kind: 'command',
+				title: 'Save Document As...',
+				subtitle: 'File',
+				group: 'File',
+				shortcut: shortcutLabel('Shift+S'),
+				keywords: ['write', 'copy'],
+				action: saveLocalMarkdownAs
+			},
+			{
+				id: 'command:print',
+				kind: 'command',
+				title: 'Print Document',
+				subtitle: 'File',
+				group: 'File',
+				keywords: ['export'],
+				disabled: !documentData,
+				action: requestPrintDocument
+			},
+			{
+				id: 'command:close-tab',
+				kind: 'command',
+				title: 'Close Tab',
+				subtitle: 'File',
+				group: 'File',
+				shortcut: shortcutLabel('W'),
+				keywords: ['document'],
+				action: closeActiveDocumentTab
+			},
+			{
+				id: 'command:previous-tab',
+				kind: 'command',
+				title: 'Show Previous Tab',
+				subtitle: 'Window',
+				group: 'Navigation',
+				shortcut: shortcutLabel('Shift+['),
+				keywords: ['tabs'],
+				disabled: documentTabs.length <= 1,
+				action: () => activateAdjacentDocumentTab(-1)
+			},
+			{
+				id: 'command:next-tab',
+				kind: 'command',
+				title: 'Show Next Tab',
+				subtitle: 'Window',
+				group: 'Navigation',
+				shortcut: shortcutLabel('Shift+]'),
+				keywords: ['tabs'],
+				disabled: documentTabs.length <= 1,
+				action: () => activateAdjacentDocumentTab(1)
+			},
+			{
+				id: 'command:toggle-file-tree',
+				kind: 'command',
+				title: fileTreePanelOpen ? 'Hide File Tree' : 'Show File Tree',
+				subtitle: 'View',
+				group: 'Navigation',
+				shortcut: shortcutLabel('B'),
+				keywords: ['folder', 'sidebar', 'explorer'],
+				action: toggleFileTreePanel
+			},
+			{
+				id: 'command:find',
+				kind: 'command',
+				title: 'Find',
+				subtitle: 'Edit',
+				group: 'Edit',
+				shortcut: shortcutLabel('F'),
+				keywords: ['search'],
+				action: () => openFindPanel()
+			},
+			{
+				id: 'command:find-replace',
+				kind: 'command',
+				title: 'Find and Replace',
+				subtitle: 'Edit',
+				group: 'Edit',
+				shortcut: shortcutLabel('Alt+F'),
+				keywords: ['search'],
+				action: () => openFindAndReplacePanel()
+			},
+			{
+				id: 'command:edit-mode',
+				kind: 'command',
+				title: 'Edit Directly',
+				subtitle: 'Editing Mode',
+				group: 'Editing Mode',
+				keywords: ['mode', 'write'],
+				disabled: editMode === 'edit',
+				action: () => setEditingMode('edit')
+			},
+			{
+				id: 'command:suggest-mode',
+				kind: 'command',
+				title: 'Suggest Edits',
+				subtitle: 'Editing Mode',
+				group: 'Editing Mode',
+				keywords: ['mode', 'track changes'],
+				disabled: editMode === 'suggest',
+				action: () => setEditingMode('suggest')
+			},
+			{
+				id: 'command:add-comment',
+				kind: 'command',
+				title: 'Add Comment',
+				subtitle: selectedQuote.trim() ? 'Insert' : 'Select text first',
+				group: 'Insert',
+				shortcut: shortcutLabel('Alt+M'),
+				keywords: ['annotation', 'note'],
+				disabled: !selectedQuote.trim(),
+				action: () => {
+					openCommentComposerForSelection();
+				}
+			},
+			{
+				id: 'command:insert-table',
+				kind: 'command',
+				title: 'Insert Table',
+				subtitle: 'Insert',
+				group: 'Insert',
+				shortcut: shortcutLabel('Shift+T'),
+				keywords: ['markdown'],
+				action: () => insertMarkdownBlock('table')
+			},
+			{
+				id: 'command:insert-tasks',
+				kind: 'command',
+				title: 'Insert Task List',
+				subtitle: 'Insert',
+				group: 'Insert',
+				shortcut: shortcutLabel('Shift+X'),
+				keywords: ['markdown', 'checkbox'],
+				action: () => insertMarkdownBlock('tasks')
+			},
+			{
+				id: 'command:insert-bullets',
+				kind: 'command',
+				title: 'Insert Bulleted List',
+				subtitle: 'Insert',
+				group: 'Insert',
+				shortcut: shortcutLabel('Shift+8'),
+				keywords: ['markdown'],
+				action: () => insertMarkdownBlock('bullets')
+			},
+			{
+				id: 'command:insert-numbers',
+				kind: 'command',
+				title: 'Insert Numbered List',
+				subtitle: 'Insert',
+				group: 'Insert',
+				shortcut: shortcutLabel('Shift+7'),
+				keywords: ['markdown'],
+				action: () => insertMarkdownBlock('numbers')
+			}
+		];
+
+		if (desktopShell) {
+			commands.push({
+				id: 'command:check-updates',
+				kind: 'command',
+				title: 'Check for Updates',
+				subtitle: 'Application',
+				group: 'Application',
+				keywords: ['version'],
+				action: () => {
+					openSettingsDialog();
+					checkForDesktopUpdate(true);
+				}
+			});
+		}
+
+		return commands;
+	}
+
+	function quickOpenPaletteEntries(): CommandPaletteEntry[] {
+		const entries: CommandPaletteEntry[] = [];
+		const seenPaths = new Set<string>();
+
+		for (const tab of visibleDocumentTabs) {
+			const path = tab.nativeFilePath;
+
+			entries.push({
+				id: `quick-open:tab:${tab.id}`,
+				kind: 'tab',
+				title: tab.title,
+				subtitle: path ? undefined : 'Open tab',
+				detail: path
+					? compactLocalPath(path)
+					: tab.id === activeDocumentTabId ? 'Current tab' : 'Tab',
+				group: 'Open Tabs',
+				keywords: ['tab', path || '', tab.localFileName || ''],
+				action: () => activateDocumentTab(tab.id)
+			});
+
+			if (path) seenPaths.add(path);
+		}
+
+		if (fileTreeRoot) {
+			for (const entry of markdownFileTreeEntries(fileTreeRoot.entries)) {
+				if (seenPaths.has(entry.path)) continue;
+				seenPaths.add(entry.path);
+
+				const relativePath = relativeLocalPath(fileTreeRoot.path, entry.path);
+
+				entries.push({
+					id: `quick-open:file:${entry.path}`,
+					kind: 'file',
+					title: entry.name,
+					detail: relativePath || compactLocalPath(entry.path),
+					group: 'Files',
+					keywords: ['markdown', entry.path, relativePath],
+					action: () => openNativeMarkdownPath(entry.path)
+				});
+			}
+		}
+
+		for (const recentDocument of recentDocuments) {
+			if (seenPaths.has(recentDocument.path)) continue;
+			seenPaths.add(recentDocument.path);
+
+			entries.push({
+				id: `quick-open:recent:${recentDocument.path}`,
+				kind: 'recent',
+				title: recentDocument.title || fileNameFromPath(recentDocument.path),
+				detail: compactLocalPath(recentDocument.path),
+				group: 'Recent',
+				keywords: ['recent', recentDocument.path],
+				action: () => openNativeMarkdownPath(recentDocument.path, { removeRecentOnFailure: true })
+			});
+		}
+
+		if (entries.length > 0) return entries;
+
+		return [
+			{
+				id: 'quick-open:open-folder',
+				kind: 'command',
+				title: 'Open Folder...',
+				subtitle: 'Choose a folder to search Markdown files',
+				group: 'Suggested',
+				keywords: ['workspace'],
+				action: openLocalFolder
+			},
+			{
+				id: 'quick-open:open-document',
+				kind: 'command',
+				title: 'Open Document...',
+				subtitle: 'Choose a Markdown file',
+				group: 'Suggested',
+				keywords: ['file'],
+				action: openLocalMarkdown
+			}
+		];
+	}
+
+	function markdownFileTreeEntries(entries: NativeDirectoryEntry[]): NativeDirectoryEntry[] {
+		const markdownEntries: NativeDirectoryEntry[] = [];
+
+		for (const entry of entries) {
+			if (entry.kind === 'markdown') {
+				markdownEntries.push(entry);
+			}
+
+			if (entry.children.length > 0) {
+				markdownEntries.push(...markdownFileTreeEntries(entry.children));
+			}
+		}
+
+		return markdownEntries;
+	}
+
+	function commandPaletteEntryScore(entry: CommandPaletteEntry, query: string) {
+		const terms = query.split(/\s+/).filter(Boolean);
+		let score = 0;
+
+		for (const term of terms) {
+			const termScore = Math.min(
+				paletteTextScore(entry.title, term, 0),
+				paletteTextScore(entry.subtitle || '', term, 24),
+				paletteTextScore(entry.detail || '', term, 40),
+				paletteTextScore((entry.keywords || []).join(' '), term, 46)
+			);
+
+			if (!Number.isFinite(termScore)) return Number.POSITIVE_INFINITY;
+
+			score += termScore;
+		}
+
+		return score + (entry.disabled ? 200 : 0);
+	}
+
+	function paletteTextScore(value: string, term: string, offset: number) {
+		const text = normalizePaletteSearchValue(value);
+
+		if (!text) return Number.POSITIVE_INFINITY;
+		if (text.startsWith(term)) return offset;
+
+		const exactIndex = text.indexOf(term);
+		if (exactIndex >= 0) return offset + 10 + exactIndex;
+
+		const fuzzyScore = fuzzyPaletteScore(term, text);
+		return Number.isFinite(fuzzyScore)
+			? offset + 80 + fuzzyScore
+			: Number.POSITIVE_INFINITY;
+	}
+
+	function fuzzyPaletteScore(term: string, text: string) {
+		let previousIndex = -1;
+		let score = 0;
+
+		for (const character of term) {
+			const nextIndex = text.indexOf(character, previousIndex + 1);
+
+			if (nextIndex < 0) return Number.POSITIVE_INFINITY;
+
+			score += nextIndex;
+			if (previousIndex >= 0) score += Math.max(0, nextIndex - previousIndex - 1);
+			previousIndex = nextIndex;
+		}
+
+		return score;
+	}
+
+	function normalizePaletteSearchValue(value: string) {
+		return value.trim().toLowerCase().replace(/[_-]+/g, ' ');
+	}
+
+	function shortcutLabel(keys: string) {
+		if (isApplePlatform()) {
+			return `${platformCommandKeyLabel()}${keys.split('+').map(macShortcutPartLabel).join('')}`;
+		}
+
+		return `${platformCommandKeyLabel()}+${keys}`;
+	}
+
+	function platformCommandKeyLabel() {
+		return isApplePlatform() ? '⌘' : 'Ctrl';
+	}
+
+	function isApplePlatform() {
+		return typeof navigator !== 'undefined' && (/Mac|iPhone|iPad|iPod/).test(navigator.platform);
+	}
+
+	function macShortcutPartLabel(part: string) {
+		if (part === 'Shift') return '⇧';
+		if (part === 'Alt') return '⌥';
+		if (part === 'Ctrl') return '⌃';
+		if (part === 'Cmd') return '⌘';
+
+		return part.toUpperCase();
+	}
+
+	function commandPaletteEntryIcon(entry: CommandPaletteEntry): CommandPaletteIconName {
+		if (entry.kind === 'file' || entry.kind === 'tab') return 'file-text';
+		if (entry.kind === 'recent') return 'clock';
+		if (entry.kind === 'empty') return 'search';
+
+		if (entry.id === 'command:new-document') return 'file-plus';
+		if (entry.id === 'command:open-document' || entry.id === 'quick-open:open-document') return 'file-text';
+		if (entry.id === 'command:open-folder' || entry.id === 'quick-open:open-folder') return 'folder-open';
+		if (entry.id === 'command:quick-open') return 'search';
+		if (entry.id === 'command:settings') return 'settings';
+		if (entry.id === 'command:save' || entry.id === 'command:save-as') return 'save';
+		if (entry.id === 'command:print') return 'printer';
+		if (entry.id === 'command:close-tab') return 'x';
+		if (
+			entry.id === 'command:previous-tab'
+			|| entry.id === 'command:next-tab'
+			|| entry.id === 'command:toggle-file-tree'
+		) return 'panel-left-close';
+		if (entry.id === 'command:find' || entry.id === 'command:find-replace') return 'search';
+		if (entry.id === 'command:edit-mode' || entry.id === 'command:suggest-mode') return 'pencil';
+		if (entry.id === 'command:add-comment') return 'message-square-plus';
+		if (entry.id === 'command:insert-table') return 'table';
+		if (entry.id === 'command:insert-tasks') return 'list-checks';
+		if (entry.id === 'command:insert-bullets') return 'list';
+		if (entry.id === 'command:insert-numbers') return 'list-ordered';
+		if (entry.id === 'command:check-updates') return 'refresh';
+
+		return 'command';
+	}
+
+	function commandPaletteShowsSubtitle(entry: CommandPaletteEntry) {
+		if (!entry.subtitle) return false;
+		if (entry.kind === 'empty') return true;
+		if (entry.kind !== 'command') return true;
+
+		return Boolean(entry.disabled);
+	}
+
+	function commandPaletteDisplayTitle(entry: CommandPaletteEntry) {
+		return commandPaletteIsFileLikeEntry(entry)
+			? middleTruncateText(entry.title, commandPaletteFileTitleMaxLength)
+			: entry.title;
+	}
+
+	function commandPaletteDisplayDetail(entry: CommandPaletteEntry) {
+		if (!entry.detail) return '';
+
+		return commandPaletteIsFileLikeEntry(entry)
+			? middleTruncateText(entry.detail, commandPaletteFileDetailMaxLength)
+			: entry.detail;
+	}
+
+	function commandPaletteOptionTooltip(entry: CommandPaletteEntry) {
+		return [entry.title, entry.subtitle, entry.detail].filter(Boolean).join(' - ');
+	}
+
+	function commandPaletteIsFileLikeEntry(entry: CommandPaletteEntry) {
+		return entry.kind === 'file' || entry.kind === 'recent' || entry.kind === 'tab';
+	}
+
+	function middleTruncateText(value: string, maxLength: number) {
+		if (value.length <= maxLength) return value;
+		if (maxLength <= 3) return value.slice(0, maxLength);
+
+		const separator = '...';
+		const remainingLength = maxLength - separator.length;
+		const startLength = Math.ceil(remainingLength * 0.45);
+		const endLength = Math.floor(remainingLength * 0.55);
+
+		return `${value.slice(0, startLength)}${separator}${value.slice(value.length - endLength)}`;
 	}
 
 	function openFindPanel(view: EditorView | null = mainEditor) {
@@ -7132,8 +8072,22 @@
 		};
 	}
 
+	function handleCommandPaletteShortcut(event: KeyboardEvent) {
+		const mod = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+
+		if (!mod || event.altKey || key !== 'p') return false;
+
+		event.preventDefault();
+		openCommandPalette(event.shiftKey ? 'commands' : 'files');
+
+		return true;
+	}
+
 	function handleGlobalShortcut(event: KeyboardEvent) {
 		if (event.defaultPrevented) return;
+		if (handleCommandPaletteShortcut(event)) return;
+		if (commandPaletteOpen) return;
 		if (handleFindShortcut(event)) return;
 		if (!shouldHandleWebNativeShortcut()) return;
 
@@ -7161,7 +8115,7 @@
 
 		if (!event.shiftKey && key === 'p') {
 			event.preventDefault();
-			requestPrintDocument();
+			openCommandPalette('files');
 		}
 
 		if (!event.shiftKey && key === 'n') {
@@ -7544,6 +8498,17 @@
 			aria-hidden="true"
 		></div>
 
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			class="titlebar-command-button"
+			aria-label="Open command palette"
+			title="Command palette"
+			onclick={() => openCommandPalette('commands')}
+		>
+			<CommandIcon aria-hidden="true" />
+		</Button>
+
 		<ToggleGroup.Root
 			class="titlebar-mode-toggle"
 			aria-label="Editing mode"
@@ -7595,7 +8560,7 @@
 				bind:this={fileInput}
 				type="file"
 				accept=".md,.markdown,text/markdown,text/plain"
-				on:change={handleLocalFileSelected}
+				onchange={handleLocalFileSelected}
 			/>
 
 			<div class="brand-cluster" data-tauri-drag-region>
@@ -7621,6 +8586,17 @@
 			></div>
 
 			<div class="topbar-actions" aria-label="Document actions">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="topbar-icon-button"
+					aria-label="Open command palette"
+					title="Command palette"
+					onclick={() => openCommandPalette('commands')}
+				>
+					<CommandIcon aria-hidden="true" />
+				</Button>
+
 				<Button
 					variant="ghost"
 					size="icon-sm"
@@ -7915,17 +8891,17 @@
 							aria-label={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? 'Edit comment' : `Go to ${item.thread.kind}`}
 							tabindex={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? -1 : 0}
 							style={`--thread-index: ${index}; top: ${item.top}px;`}
-							on:click={() => {
+							onclick={() => {
 								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
 
 								goToThread(item.thread);
 							}}
-							on:keydown={(event) => {
+							onkeydown={(event) => {
 								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
 								if (event.key === 'Enter') goToThread(item.thread);
 							}}
-							on:mouseenter={() => previewThread(item.thread.id)}
-							on:mouseleave={clearThreadPreview}
+							onmouseenter={() => previewThread(item.thread.id)}
+							onmouseleave={clearThreadPreview}
 							use:measureHeight={item.id}
 						>
 							{#if item.thread.kind === 'comment' && editingCommentId === item.thread.id}
@@ -8099,8 +9075,8 @@
 					class="file-tree-resizer"
 					type="button"
 					aria-label="Resize file tree"
-					on:pointerdown={startFileTreeResize}
-					on:keydown={handleFileTreeResizeKeydown}
+					onpointerdown={startFileTreeResize}
+					onkeydown={handleFileTreeResizeKeydown}
 				></button>
 
 				<div class="file-tree-content">
@@ -8193,6 +9169,140 @@
 			aria-live="polite"
 		>
 			<span>Saving</span><span class="save-progress-dots" aria-hidden="true"></span>
+		</div>
+	{/if}
+
+	{#if commandPaletteOpen}
+		<div
+			class="command-palette-backdrop"
+			role="presentation"
+			onpointerdown={(event) => {
+				if (event.target === event.currentTarget) closeCommandPalette();
+			}}
+		>
+			<div
+				class="command-palette"
+				class:keyboard-input={commandPaletteInputMode === 'keyboard'}
+				class:pointer-input={commandPaletteInputMode === 'pointer'}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="command-palette-title"
+				tabindex="-1"
+				onkeydown={handleCommandPaletteKeydown}
+			>
+				<header class="command-palette-search">
+					<SearchIcon aria-hidden="true" />
+
+					<div class="command-palette-field">
+						<h2 id="command-palette-title">{commandPaletteTitleLabel}</h2>
+						<input
+							bind:this={commandPaletteInput}
+							value={commandPaletteQuery}
+							type="text"
+							role="combobox"
+							aria-label={commandPaletteSearchAriaLabel}
+							aria-expanded="true"
+							aria-controls="command-palette-listbox"
+							aria-activedescendant={commandPaletteEntries[commandPaletteActiveIndex] ? `command-palette-option-${commandPaletteActiveIndex}` : undefined}
+							autocomplete="off"
+							autocapitalize="off"
+							autocorrect="off"
+							spellcheck="false"
+							placeholder={commandPalettePlaceholderLabel}
+							oninput={updateCommandPaletteQuery}
+							onkeydown={handleCommandPaletteKeydown}
+						/>
+					</div>
+
+					<kbd class="command-palette-shortcut">{commandPaletteShortcutLabel}</kbd>
+				</header>
+
+				<div
+					id="command-palette-listbox"
+					class="command-palette-list"
+					class:windowed={commandPaletteWindowed}
+					style={commandPaletteWindowed ? `--command-palette-list-height: ${commandPaletteListHeight};` : ''}
+					role="listbox"
+					aria-label={commandPaletteTitleLabel}
+				>
+					{#each commandPaletteRows as row (row.id)}
+						{#if row.type === 'heading'}
+							<div class="command-palette-section-label" role="presentation">{row.title}</div>
+						{:else}
+							<button
+								id={`command-palette-option-${row.index}`}
+								class="command-palette-option"
+								class:active={row.index === commandPaletteActiveIndex}
+								class:empty={row.entry.kind === 'empty'}
+								type="button"
+								role="option"
+								aria-selected={row.index === commandPaletteActiveIndex}
+								disabled={row.entry.disabled}
+								title={commandPaletteOptionTooltip(row.entry)}
+								onpointermove={(event) => handleCommandPaletteOptionPointerMove(event, row.index, row.entry.disabled)}
+								onclick={() => runCommandPaletteEntry(row.entry)}
+							>
+								<span class={`command-palette-icon ${row.entry.kind}`} aria-hidden="true">
+									{#if commandPaletteEntryIcon(row.entry) === 'clock'}
+										<ClockIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'file-plus'}
+										<FilePlusIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'file-text'}
+										<FileTextIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'folder-open'}
+										<FolderOpenIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'folder-tree'}
+										<FolderTreeIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'list'}
+										<ListIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'list-checks'}
+										<ListChecksIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'list-ordered'}
+										<ListOrderedIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'message-square-plus'}
+										<MessageSquarePlusIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left-close'}
+										<PanelLeftCloseIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'pencil'}
+										<PencilIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'printer'}
+										<PrinterIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'refresh'}
+										<RefreshCwIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'save'}
+										<SaveIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'search'}
+										<SearchIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'settings'}
+										<SettingsIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'table'}
+										<TableIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'x'}
+										<XIcon />
+									{:else}
+										<CommandIcon />
+									{/if}
+								</span>
+
+								<span class="command-palette-copy">
+									<span class="command-palette-name">{commandPaletteDisplayTitle(row.entry)}</span>
+									{#if commandPaletteShowsSubtitle(row.entry)}
+										<span class="command-palette-subtitle">{row.entry.subtitle}</span>
+									{/if}
+								</span>
+
+								{#if row.entry.detail}
+									<span class="command-palette-detail">{commandPaletteDisplayDetail(row.entry)}</span>
+								{/if}
+
+								{#if row.entry.shortcut}
+									<kbd>{row.entry.shortcut}</kbd>
+								{/if}
+							</button>
+						{/if}
+					{/each}
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -8316,7 +9426,10 @@
 				aria-labelledby="print-options-title"
 				showCloseButton={false}
 			>
-				<form on:submit|preventDefault={confirmPrintDocument}>
+				<form onsubmit={(event) => {
+					event.preventDefault();
+					confirmPrintDocument();
+				}}>
 					<Dialog.Header class="settings-dialog-header">
 						<div>
 							<p class="eyebrow">Margin</p>
@@ -8370,7 +9483,10 @@
 				aria-labelledby="settings-title"
 				showCloseButton={false}
 			>
-				<form on:submit|preventDefault={saveSettings}>
+				<form onsubmit={(event) => {
+					event.preventDefault();
+					saveSettings();
+				}}>
 					<Dialog.Header class="settings-dialog-header">
 						<div>
 							<p class="eyebrow">Margin</p>
