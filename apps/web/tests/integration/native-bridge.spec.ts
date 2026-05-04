@@ -7,6 +7,7 @@ import {
   openCleanApp,
   replaceEditorMarkdown,
   selectAllEditorText,
+  setEditorSelection,
   setTauriDocument,
   tauriCalls
 } from './helpers';
@@ -53,6 +54,27 @@ test('routes native menu events through the frontend contract', async ({ page })
     page.evaluate(() => (window as typeof window & { __marginPrintCalls: number }).__marginPrintCalls)
   ).toBe(0);
   await expect(page.locator('.print-document-body')).toContainText('Column');
+
+  const longReadingBody = Array.from({ length: 13500 }, (_, index) => `word${index}`).join(' ');
+  const wordCountBody = `${longReadingBody}\n- [ ] Open task\n- [x] Done task`;
+  await replaceEditorMarkdown(page, wordCountBody);
+  await setEditorSelection(page, 0, 10);
+  await emitTauriEvent(page, 'margin://add-comment');
+  await page.getByPlaceholder('Add a comment').fill('Dashboard note.');
+  await page.getByRole('button', { name: 'Comment' }).click();
+  await expect(page.getByText('Dashboard note.').first()).toBeVisible();
+
+  await setEditorSelection(page, 0, 10);
+  await emitTauriEvent(page, 'margin://show-word-count');
+  const wordCountDialog = page.getByRole('dialog', { name: 'Word Count' });
+  await expect(wordCountDialog).toBeVisible();
+  await expect(wordCountDialog.locator('[data-word-count-value="document-words"]')).toHaveText('13,505');
+  await expect(wordCountDialog.locator('[data-word-count-value="reading-time"]')).toHaveText('1 hr 1 min');
+  await expect(wordCountDialog.locator('[data-word-count-value="document-lines"]')).toHaveText('3');
+  await expect(wordCountDialog.locator('[data-word-count-value="review-progress"]')).toHaveText('1 open / 0 closed');
+  await expect(wordCountDialog.locator('[data-word-count-value="task-progress"]')).toHaveText('1 open / 2 tasks');
+  await expect(wordCountDialog.locator('[data-word-count-value="selection-characters"]')).toHaveText('10');
+  await wordCountDialog.getByRole('button', { name: 'Done' }).click();
 
   await emitTauriEvent(page, 'margin://next-tab');
   await expect(page.getByRole('heading', { name: 'Untitled 2.md' })).toBeVisible();
