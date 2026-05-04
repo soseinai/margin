@@ -3392,6 +3392,8 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
 }
 
 .inline-composer {
+  animation: thread-card-enter 240ms var(--ease-out) backwards;
+  animation-delay: calc(20ms + var(--thread-index, 0) * 16ms);
   background: var(--paper-raised);
   border: 1px solid color-mix(in srgb, var(--ink) 14%, var(--rule));
   border-radius: 8px;
@@ -3406,7 +3408,9 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
   position: absolute;
   transition:
     border-color var(--dur-base) var(--ease-out),
-    outline-color var(--dur-base) var(--ease-out);
+    outline-color var(--dur-base) var(--ease-out),
+    top var(--dur-slow) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
   width: 100%;
   z-index: 3;
 }
@@ -3551,24 +3555,43 @@ blockquote {
 .connector-layer {
   height: 100%;
   left: -38px;
+  opacity: 0;
   overflow: visible;
   pointer-events: none;
   position: absolute;
   top: 0;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    visibility var(--dur-base) var(--ease-out);
+  visibility: hidden;
   width: 340px;
   z-index: 0;
 }
 
+.margin-rail:hover .connector-layer {
+  opacity: 1;
+  visibility: visible;
+}
+
+.connector-layer.has-selected-thread {
+  opacity: 1;
+  visibility: visible;
+}
+
 .connector-layer path {
+  animation: connector-fade-in 220ms var(--ease-out) backwards;
+  animation-delay: calc(var(--thread-index, 0) * 14ms);
   fill: none;
-  opacity: 0.72;
-  stroke: var(--connector);
-  stroke-linecap: butt;
+  opacity: 0.66;
+  stroke: color-mix(in srgb, var(--ink) 60%, var(--connector));
+  stroke-dasharray: 0.1 3.2;
+  stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 0.9;
+  stroke-width: 1;
   transition:
     opacity var(--dur-base) var(--ease-out),
     stroke var(--dur-base) var(--ease-out),
+    stroke-dasharray var(--dur-base) var(--ease-out),
     stroke-width var(--dur-base) var(--ease-out);
   vector-effect: non-scaling-stroke;
 }
@@ -3578,15 +3601,20 @@ blockquote {
 }
 
 .connector-layer circle {
+  animation: connector-dot-in 180ms var(--ease-out) backwards;
+  animation-delay: calc(40ms + var(--thread-index, 0) * 14ms);
   fill: var(--paper);
-  opacity: 1;
+  opacity: 0.72;
   stroke: var(--connector);
+  transform-box: fill-box;
+  transform-origin: center;
   stroke-width: 1;
   transition:
     fill var(--dur-base) var(--ease-out),
     opacity var(--dur-base) var(--ease-out),
     r var(--dur-base) var(--ease-out),
-    stroke var(--dur-base) var(--ease-out);
+    stroke var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
   vector-effect: non-scaling-stroke;
 }
 
@@ -3596,6 +3624,7 @@ blockquote {
 
 .connector-layer .connector-composer {
   opacity: 0.68;
+  stroke-dasharray: none;
   stroke: color-mix(in srgb, var(--ink) 58%, var(--connector));
 }
 
@@ -3635,14 +3664,14 @@ blockquote {
 }
 
 .connector-layer .connector-active {
-  opacity: 1;
+  opacity: 0.82;
 }
 
 .connector-layer path.connector-active:not(.connector-shadow) {
   stroke: var(--ink);
-  stroke-width: 1.5;
-  stroke-dasharray: 9 5;
-  animation: connector-flow 1100ms linear infinite;
+  stroke-dasharray: 0.1 3.2;
+  stroke-linecap: round;
+  stroke-width: 1;
 }
 
 .connector-layer .connector-shadow.connector-active {
@@ -3650,14 +3679,22 @@ blockquote {
 }
 
 .connector-layer circle.connector-active {
+  fill: var(--paper);
   stroke: var(--ink);
-  opacity: 1;
-  r: 4;
+  opacity: 0.86;
+  r: 3.1;
 }
 
-@keyframes connector-flow {
-  to {
-    stroke-dashoffset: -14;
+@keyframes connector-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes connector-dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.45);
   }
 }
 
@@ -3670,13 +3707,11 @@ blockquote {
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
   }
-
-  .connector-layer path.connector-active:not(.connector-shadow) {
-    animation: none;
-  }
 }
 
 .thread-card {
+  animation: thread-card-enter 240ms var(--ease-out) backwards;
+  animation-delay: calc(20ms + var(--thread-index, 0) * 16ms);
   cursor: pointer;
   display: grid;
   gap: 10px;
@@ -3686,7 +3721,9 @@ blockquote {
     border-color var(--dur-base) var(--ease-out),
     background-color var(--dur-base) var(--ease-out),
     opacity var(--dur-base) var(--ease-out),
-    outline-color var(--dur-base) var(--ease-out);
+    outline-color var(--dur-base) var(--ease-out),
+    top var(--dur-slow) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
   width: 100%;
   z-index: 1;
 }
@@ -3734,7 +3771,15 @@ blockquote {
 }
 
 .thread-card.focused {
+  transform: translateX(-2px);
   z-index: 4;
+}
+
+@keyframes thread-card-enter {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
 }
 
 .thread-card.suggestion.focused {
@@ -3867,14 +3912,17 @@ blockquote {
 }
 
 .connector-layer path {
-  opacity: 0.34;
-  stroke-width: 0.65;
+  opacity: 0.48;
+  stroke: color-mix(in srgb, var(--ink) 58%, var(--connector));
+  stroke-dasharray: 0.1 3.2;
+  stroke-linecap: round;
+  stroke-width: 0.88;
 }
 
 .connector-layer circle {
   fill: transparent;
-  opacity: 0.56;
-  r: 2.2;
+  opacity: 0.34;
+  r: 1.8;
 }
 
 .connector-layer circle:not(.connector-source) {
@@ -3882,25 +3930,56 @@ blockquote {
 }
 
 .connector-layer path.connector-composer:not(.connector-shadow) {
-  opacity: 0.62;
-  stroke-width: 0.85;
+  opacity: 0.42;
+  stroke-dasharray: none;
+  stroke-width: 0.62;
 }
 
 .connector-layer circle.connector-source.connector-composer {
-  opacity: 0.9;
-  r: 3;
+  opacity: 0.64;
+  r: 2.2;
 }
 
 .connector-layer path.connector-active:not(.connector-shadow) {
   animation: none;
-  opacity: 0.78;
-  stroke-dasharray: none;
-  stroke-width: 0.95;
+  opacity: 0.66;
+  stroke: color-mix(in srgb, var(--ink) 86%, var(--connector));
+  stroke-dasharray: 0.1 3.2;
+  stroke-linecap: round;
+  stroke-width: 0.96;
 }
 
 .connector-layer circle.connector-active {
-  opacity: 0.86;
-  r: 3;
+  fill: transparent;
+  opacity: 0.58;
+  r: 2.2;
+  transform: none;
+}
+
+.connector-layer circle.connector-source,
+.connector-layer circle.connector-source.connector-suggestion,
+.connector-layer circle.connector-source.connector-composer,
+.connector-layer circle.connector-source.connector-active {
+  fill: transparent;
+  r: var(--connector-source-radius, 1.8px);
+}
+
+.margin-rail:not(:hover) .connector-layer.has-selected-thread path:not(.connector-selected),
+.margin-rail:not(:hover) .connector-layer.has-selected-thread circle.connector-source:not(.connector-selected) {
+  opacity: 0;
+}
+
+.margin-rail:not(:hover) .connector-layer.has-selected-thread path.connector-selected:not(.connector-shadow) {
+  opacity: 0.58;
+  stroke: color-mix(in srgb, var(--ink) 84%, var(--connector));
+  stroke-dasharray: 0.1 3.2;
+  stroke-linecap: round;
+  stroke-width: 0.96;
+}
+
+.margin-rail:not(:hover) .connector-layer.has-selected-thread circle.connector-source.connector-selected {
+  opacity: 0.6;
+  stroke: color-mix(in srgb, var(--ink) 86%, var(--connector));
 }
 
 .thread-card {
@@ -3923,11 +4002,25 @@ blockquote {
   background: color-mix(in srgb, var(--quote-rule) 70%, transparent);
   content: "";
   inset: 2px auto 2px 0;
+  opacity: 0;
   position: absolute;
+  transform-origin: center;
   transition:
     background var(--dur-base) var(--ease-out),
-    opacity var(--dur-base) var(--ease-out);
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out),
+    width var(--dur-base) var(--ease-out);
   width: 1px;
+}
+
+.margin-rail:hover .thread-card::before {
+  opacity: 0.62;
+}
+
+.thread-card.selected::before {
+  background: color-mix(in srgb, var(--ink) 88%, var(--quote-rule));
+  opacity: 0.68;
+  transform: scaleY(1.04);
 }
 
 .thread-card.editing-comment::before {
@@ -3947,6 +4040,7 @@ blockquote {
   background: transparent;
   border-color: transparent;
   outline: 0;
+  transform: translateX(-2px);
 }
 
 .thread-card:hover::before,
@@ -3954,6 +4048,27 @@ blockquote {
 .thread-card:focus-visible::before,
 .thread-card:focus-within::before {
   background: var(--ink);
+  width: 1px;
+}
+
+.margin-rail:hover .thread-card:hover::before,
+.margin-rail:hover .thread-card.focused::before {
+  opacity: 0.86;
+  transform: scaleY(1.04);
+}
+
+.margin-rail:not(:hover) .thread-card.focused {
+  transform: none;
+}
+
+.margin-rail:not(:hover) .thread-card.selected {
+  transform: translateX(-1px);
+}
+
+.margin-rail:not(:hover) .thread-card.focused .thread-actions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
 }
 
 .thread-header {
@@ -4004,6 +4119,17 @@ blockquote {
   letter-spacing: 0.06em;
   line-height: 1.2;
   text-transform: uppercase;
+}
+
+.thread-card.focused .thread-header strong,
+.thread-card.selected .thread-header strong {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.thread-card.focused p,
+.thread-card.selected p {
+  color: var(--fg);
 }
 
 .status-pill {
