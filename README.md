@@ -68,6 +68,16 @@ npm run test:web:e2e
 
 `test:web:e2e` is intentionally empty until Margin has automated coverage against the real desktop shell, filesystem/native commands, or a cloud backend. Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
 
+### Performance Profiling
+
+Use the typing profiler when editor input feels slow or when changing live preview, parser, or decoration code:
+
+```sh
+just profile
+```
+
+The profiler launches the web app in desktop-preview mode, types into generated Markdown documents, and prints parse/model/decoration timing summaries. It accepts environment overrides such as `MARGIN_TYPING_PROFILE_SECTIONS=320,800` and `MARGIN_TYPING_PROFILE_TEXT=abcdef`.
+
 ## Desktop
 
 ```sh

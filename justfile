@@ -22,6 +22,10 @@ dev-web:
 dev-desktop: setup
     npm run dev:desktop
 
+# Profile rich-editor typing performance against generated Markdown documents.
+profile:
+    npm run profile:typing
+
 # Initialize the Tauri iOS target files and dependencies.
 ios-init:
     npm run ios:init

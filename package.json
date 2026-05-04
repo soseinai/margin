@@ -7,6 +7,9 @@
     "apps/desktop"
   ],
   "scripts": {
+    "build:markdown-core": "node scripts/build-markdown-core-wasm.mjs",
+    "benchmark:markdown": "npm --workspace @margin/web run benchmark:markdown",
+    "profile:typing": "node scripts/profile-typing-performance.mjs",
     "dev:web": "node scripts/dev-web-or-reuse.mjs",
     "build:web": "npm --workspace @margin/web run build",
     "dev:desktop": "npm --workspace @margin/desktop run tauri dev",
