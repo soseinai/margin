@@ -119,6 +119,7 @@
   --border-strong: var(--rule-strong);
   --primary-button-bg: rgb(0 0 0);
   --primary-button-hover-bg: rgb(0 0 0 / 82%);
+  --brand-mark-border: rgb(17 17 17 / 14%);
   --on-primary: var(--paper);
   --comment-mark: color-mix(in srgb, var(--ink) 9%, transparent);
   --quote-rule: var(--gray-20);
@@ -198,6 +199,7 @@
     --native-panel-shadow: none;
     --primary-button-bg: color-mix(in srgb, var(--ink) 92%, transparent);
     --primary-button-hover-bg: color-mix(in srgb, var(--ink) 84%, transparent);
+    --brand-mark-border: rgb(245 242 236 / 18%);
     --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
     --note-focus-outline: var(--gray-20);
     --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -250,6 +252,7 @@
     0 12px 28px color-mix(in srgb, var(--ink) 7%, transparent);
   --primary-button-bg: rgb(0 0 0);
   --primary-button-hover-bg: rgb(0 0 0 / 82%);
+  --brand-mark-border: rgb(17 17 17 / 14%);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
   --note-focus-outline: var(--rule);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 9%, var(--paper));
@@ -299,6 +302,7 @@
   --native-panel-shadow: none;
   --primary-button-bg: color-mix(in srgb, var(--ink) 92%, transparent);
   --primary-button-hover-bg: color-mix(in srgb, var(--ink) 84%, transparent);
+  --brand-mark-border: rgb(245 242 236 / 18%);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
   --note-focus-outline: var(--gray-20);
   --error-bg: color-mix(in srgb, var(--sosein-danger) 14%, var(--paper));
@@ -901,9 +905,9 @@ textarea:not([data-slot]):focus {
 }
 
 .desktop-shell .brand-mark {
-  height: 28px;
-  opacity: 0.72;
-  width: 28px;
+  height: 34px;
+  opacity: 1;
+  width: 34px;
 }
 
 .brand-cluster,
@@ -962,22 +966,50 @@ textarea:not([data-slot]):focus {
 
 .brand-mark {
   align-items: center;
-  backdrop-filter: blur(14px) saturate(1.35);
-  -webkit-backdrop-filter: blur(14px) saturate(1.35);
-  background: var(--glass-control-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 9px;
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--brand-mark-border);
+  border-radius: 0;
+  box-shadow: none;
   display: flex;
   flex: 0 0 auto;
-  font-family: var(--font-ui);
-  font-size: 16px;
-  font-weight: 400;
   height: 34px;
   justify-content: center;
-  opacity: 0.9;
+  opacity: 1;
+  overflow: hidden;
+  position: relative;
   width: 34px;
+}
+
+.brand-mark-image {
+  display: block;
+  height: 100%;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  user-select: none;
+  width: 100%;
+}
+
+.brand-mark-image-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .brand-mark-image-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .brand-mark-image-dark {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-mark-image-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .brand-mark-image-dark {
+    display: block;
+  }
 }
 
 .eyebrow {

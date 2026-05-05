@@ -80,6 +80,8 @@
 	import TableIcon from '@lucide/svelte/icons/table';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount, tick } from 'svelte';
+	import brandMarkUrl from '../../../assets/margin-icon.svg';
+	import brandMarkDarkUrl from '../../../assets/margin-icon-dk.svg';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -8592,7 +8594,10 @@
 			/>
 
 			<div class="brand-cluster" data-tauri-drag-region>
-				<div class="brand-mark">M</div>
+				<div class="brand-mark" aria-hidden="true">
+					<img class="brand-mark-image brand-mark-image-light" src={brandMarkUrl} alt="" draggable="false" />
+					<img class="brand-mark-image brand-mark-image-dark" src={brandMarkDarkUrl} alt="" draggable="false" />
+				</div>
 
 				<div class="brand-title" data-tauri-drag-region>
 					<p
