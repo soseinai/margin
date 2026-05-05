@@ -2989,12 +2989,12 @@ button.settings-sidebar-item.active:not([data-slot]) {
   display: block;
   fill: none;
   flex: 0 0 auto;
-  height: 13px;
+  height: 14px;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
-  width: 13px;
+  width: 14px;
 }
 
 .live-preview-editor .margin-find-panel :is(
