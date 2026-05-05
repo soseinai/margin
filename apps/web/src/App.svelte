@@ -64,6 +64,7 @@
 	import ListOrderedIcon from '@lucide/svelte/icons/list-ordered';
 	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
+	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
 	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
 	import CommandIcon from '@lucide/svelte/icons/command';
 	import ClockIcon from '@lucide/svelte/icons/clock';
@@ -79,6 +80,8 @@
 	import TableIcon from '@lucide/svelte/icons/table';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount, tick } from 'svelte';
+	import brandMarkUrl from '../../../assets/margin-icon.svg';
+	import brandMarkDarkUrl from '../../../assets/margin-icon-dk.svg';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -176,6 +179,7 @@
 	let wordCountStats: WordCountStats = emptyWordCountStats();
 	let includeMarginNotesAppendix = true;
 	let settingsSaving = false;
+	let settingsSaveQueued = false;
 	let settingsError = '';
 	let availableAppUpdate: AppUpdateMetadata | null = null;
 	let updateCheckState: AppUpdateCheckState = 'idle';
@@ -404,7 +408,7 @@
 	};
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type FindPanelMode = 'compact' | 'expanded';
-	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
+	type FindPanelIconName = 'up' | 'down' | 'x' | 'scaling' | 'scaling-contract';
 	type FindPanelPosition = { left: number; top: number };
 	type FindPanelModeOptions = { resetPosition?: boolean };
 	type CommandPaletteMode = 'commands' | 'files';
@@ -421,6 +425,7 @@
 		| 'list-checks'
 		| 'list-ordered'
 		| 'message-square-plus'
+		| 'panel-left'
 		| 'panel-left-close'
 		| 'pencil'
 		| 'printer'
@@ -4079,7 +4084,7 @@
 
 		const title = document.createElement('span');
 		title.className = 'margin-find-title';
-		title.textContent = 'Find and replace';
+		title.textContent = 'Find and Replace';
 
 		titleDragHandle.append(title);
 		titleBar.append(
@@ -4089,14 +4094,14 @@
 
 				return true;
 			}, undefined, 'scaling-contract'),
-			findPanelButton('close-expanded', 'x', 'Close find and replace', () => closeSearchPanel(view))
+			findPanelButton('close-expanded', 'Close', 'Close find and replace', () => closeSearchPanel(view), undefined, 'x')
 		);
 		titleBar.addEventListener('pointerdown', startFindPanelDrag);
 
 		const topRow = document.createElement('div');
 		topRow.className = 'margin-find-row find-primary';
 		topRow.append(
-			findPanelField(searchInput),
+			findPanelField(searchInput, 'Find'),
 			findPanelButton('previous', 'Prev', 'Previous match', () => findPrevious(view), commandButtons, 'up'),
 			findPanelButton('next', 'Next', 'Next match', () => findNext(view), commandButtons, 'down'),
 			status,
@@ -4105,26 +4110,38 @@
 
 				return true;
 			}, undefined, 'scaling'),
-			findPanelButton('close-compact', 'x', 'Close find and replace', () => closeSearchPanel(view))
+			findPanelButton('close-compact', 'Close', 'Close find and replace', () => closeSearchPanel(view), undefined, 'x')
 		);
 
 		const replaceRow = document.createElement('div');
 		replaceRow.className = 'margin-find-row replace';
 		replaceRow.append(
-			findPanelField(replaceInput),
+			findPanelField(replaceInput, 'Replace'),
 			findPanelButton('replace', 'Replace', 'Replace current match', () => replaceNext(view), replaceButtons),
 			findPanelButton('replaceAll', 'All', 'Replace all matches', () => replaceAll(view), replaceButtons)
 		);
 
 		const optionsRow = document.createElement('div');
 		optionsRow.className = 'margin-find-row options';
-		optionsRow.append(
+		const optionsLabel = document.createElement('span');
+		optionsLabel.className = 'margin-find-row-label';
+		optionsLabel.textContent = 'Options';
+
+		const optionsGroup = document.createElement('div');
+		optionsGroup.className = 'margin-find-option-group';
+		optionsGroup.append(
 			findPanelOption('Case', caseInput),
 			findPanelOption('Word', wordInput),
 			findPanelOption('Regex', regexInput)
 		);
 
-		dom.append(titleBar, topRow, replaceRow, optionsRow);
+		optionsRow.append(optionsLabel, optionsGroup);
+
+		const findGroup = document.createElement('div');
+		findGroup.className = 'margin-find-group';
+		findGroup.append(topRow, replaceRow, optionsRow);
+
+		dom.append(titleBar, findGroup);
 		dom.addEventListener('keydown', handleFindPanelKeydown);
 
 		searchInput.addEventListener('input', commit);
@@ -4344,11 +4361,14 @@
 		return input;
 	}
 
-	function findPanelField(input: HTMLInputElement) {
+	function findPanelField(input: HTMLInputElement, labelText: string) {
 		const field = document.createElement('div');
+		const label = document.createElement('span');
 
 		field.className = 'margin-find-field';
-		field.append(input);
+		label.className = 'margin-find-field-label';
+		label.textContent = labelText;
+		field.append(label, input);
 
 		return field;
 	}
@@ -4399,6 +4419,7 @@
 		const paths: Record<FindPanelIconName, string[]> = {
 			up: ['M6 15l6-6 6 6'],
 			down: ['M6 9l6 6 6-6'],
+			x: ['M18 6 6 18', 'M6 6l12 12'],
 			scaling: [
 				'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7',
 				'M14 15H9v-5',
@@ -6430,10 +6451,10 @@
 		if (entry.id === 'command:save' || entry.id === 'command:save-as') return 'save';
 		if (entry.id === 'command:print') return 'printer';
 		if (entry.id === 'command:close-tab') return 'x';
+		if (entry.id === 'command:toggle-file-tree') return fileTreePanelOpen ? 'panel-left-close' : 'panel-left';
 		if (
 			entry.id === 'command:previous-tab'
 			|| entry.id === 'command:next-tab'
-			|| entry.id === 'command:toggle-file-tree'
 		) return 'panel-left-close';
 		if (entry.id === 'command:find' || entry.id === 'command:find-replace') return 'search';
 		if (entry.id === 'command:edit-mode' || entry.id === 'command:suggest-mode') return 'pencil';
@@ -6593,8 +6614,6 @@
 	}
 
 	function closeSettingsDialog() {
-		if (settingsSaving) return;
-
 		settingsDialogOpen = false;
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
@@ -6722,33 +6741,52 @@
 		return `${formatCount(stats.open)} open / ${formatCount(stats.total)} ${taskLabel}`;
 	}
 
-	async function saveSettings() {
+	function updateSettingsTheme(theme: ThemeSetting) {
+		if (theme === settingsDraftTheme) return;
+
+		settingsDraftTheme = theme;
+		applyTheme(theme);
+		void saveSettingsDraft();
+	}
+
+	function updateSettingsLocalUserName(value: string) {
+		settingsDraftLocalUserName = value;
+		void saveSettingsDraft();
+	}
+
+	async function saveSettingsDraft() {
+		settingsSaveQueued = true;
+		if (settingsSaving) return;
+
 		settingsSaving = true;
-		settingsError = '';
-
-		const nextSettings: AppSettings = {
-			theme: settingsDraftTheme,
-			localUserName: settingsDraftLocalUserName.trim()
-		};
-
-		const request = desktopShell
-			? tauriInvoke<AppSettings>('write_settings', { settings: nextSettings })
-			: null;
 
 		try {
-			const savedSettings = request ? await request : nextSettings;
+			while (settingsSaveQueued) {
+				settingsSaveQueued = false;
+				settingsError = '';
 
-			appSettings = normalizeSettings(savedSettings);
-			settingsDraftLocalUserName = appSettings.localUserName;
+				const nextSettings: AppSettings = {
+					theme: settingsDraftTheme,
+					localUserName: settingsDraftLocalUserName.trim()
+				};
 
-			if (!request) localStorage.setItem(settingsStorageKey, JSON.stringify(appSettings));
+				const request = desktopShell
+					? tauriInvoke<AppSettings>('write_settings', { settings: nextSettings })
+					: null;
 
-			applyTheme(appSettings.theme);
-			settingsDialogOpen = false;
+				const savedSettings = request ? await request : nextSettings;
+
+				appSettings = normalizeSettings(savedSettings);
+
+				if (!request) localStorage.setItem(settingsStorageKey, JSON.stringify(appSettings));
+
+				applyTheme(appSettings.theme);
+			}
 		} catch(err) {
 			settingsError = err instanceof Error ? err.message : 'Unable to save settings';
 		} finally {
 			settingsSaving = false;
+			if (settingsSaveQueued) void saveSettingsDraft();
 		}
 	}
 
@@ -7155,16 +7193,6 @@
 		if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
 		return { x, y };
-	}
-
-	function fileTreeRootLabel() {
-		if (!fileTreeRoot) return 'No folder open';
-
-		return compactLocalPath(fileTreeRoot.path);
-	}
-
-	function fileTreeEntryCount(entries: NativeDirectoryEntry[]): number {
-		return entries.reduce((count, entry) => count + 1 + fileTreeEntryCount(entry.children), 0);
 	}
 
 	async function openFileTreeEntry(entry: NativeDirectoryEntry) {
@@ -8452,8 +8480,26 @@
 	class:desktop-shell={desktopShell}
 	class:mobile-shell={mobileShell}
 	class:drag-active={dragActive}
+	class:file-tree-open={fileTreePanelOpen}
 	class:file-tree-resizing={fileTreeResizeActive}
+	style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 >
+	<Button
+		variant="ghost"
+		size="icon-sm"
+		class="titlebar-file-tree-toggle"
+		aria-label={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+		aria-pressed={fileTreePanelOpen}
+		title={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+		onclick={toggleFileTreePanel}
+	>
+		{#if fileTreePanelOpen}
+			<PanelLeftCloseIcon aria-hidden="true" />
+		{:else}
+			<PanelLeftIcon aria-hidden="true" />
+		{/if}
+	</Button>
+
 	<div class="window-tabbar" aria-label="Open documents">
 		{#each visibleDocumentTabs as tab (tab.id)}
 			<div
@@ -8564,7 +8610,10 @@
 			/>
 
 			<div class="brand-cluster" data-tauri-drag-region>
-				<div class="brand-mark">M</div>
+				<div class="brand-mark" aria-hidden="true">
+					<img class="brand-mark-image brand-mark-image-light" src={brandMarkUrl} alt="" draggable="false" />
+					<img class="brand-mark-image brand-mark-image-dark" src={brandMarkDarkUrl} alt="" draggable="false" />
+				</div>
 
 				<div class="brand-title" data-tauri-drag-region>
 					<p
@@ -8735,12 +8784,63 @@
 		</section>
 	{/if}
 
+	{#if fileTreePanelOpen}
+		<aside
+			class="file-tree-panel"
+			aria-label="Open folder"
+		>
+			<button
+				class="file-tree-resizer"
+				type="button"
+				aria-label="Resize file tree"
+				onpointerdown={startFileTreeResize}
+				onkeydown={handleFileTreeResizeKeydown}
+			></button>
+
+			<div class="file-tree-content">
+				<header class="file-tree-header">
+					<div class="file-tree-heading">
+						<p class="file-tree-eyebrow">Folder</p>
+						<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
+					</div>
+				</header>
+
+				<div class="file-tree-scroll">
+					{#if fileTreeRoot}
+						{#if fileTreeRoot.entries.length > 0}
+							<ul class="file-tree-list root">
+								{#each fileTreeRoot.entries as entry (entry.path)}
+									<li>
+										<FileTreeEntry
+											{entry}
+											activePath={nativeFilePath}
+											onOpen={openFileTreeEntry}
+										/>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="file-tree-empty">This folder is empty.</p>
+						{/if}
+					{:else if fileTreeLoading}
+						<p class="file-tree-empty">Opening folder...</p>
+					{:else}
+						<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
+					{/if}
+
+					{#if fileTreeError}
+						<p class="file-tree-error">{fileTreeError}</p>
+					{/if}
+				</div>
+			</div>
+		</aside>
+	{/if}
+
 	<div
 		class="workspace-layout"
 		class:file-tree-visible={fileTreePanelOpen}
-		style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 	>
-		{#if !fileTreePanelOpen}
+		{#if !fileTreePanelOpen && !desktopShell}
 			<nav class="activity-rail workspace-activity-rail" aria-label="Workspace views">
 				<Button
 					variant="ghost"
@@ -9066,72 +9166,6 @@
 			</aside>
 		</div>
 
-		{#if fileTreePanelOpen}
-			<aside
-				class="file-tree-panel"
-				aria-label="Open folder"
-			>
-				<button
-					class="file-tree-resizer"
-					type="button"
-					aria-label="Resize file tree"
-					onpointerdown={startFileTreeResize}
-					onkeydown={handleFileTreeResizeKeydown}
-				></button>
-
-				<div class="file-tree-content">
-					<header class="file-tree-header">
-						<div class="file-tree-heading">
-							<p class="file-tree-eyebrow">Folder</p>
-							<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
-						</div>
-
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							class="activity-icon-button file-tree-close-button active"
-							aria-label="Hide file tree"
-							aria-pressed="true"
-							title="Hide file tree"
-							onclick={toggleFileTreePanel}
-						>
-							<PanelLeftCloseIcon aria-hidden="true" />
-						</Button>
-					</header>
-
-					<div class="file-tree-scroll">
-						{#if fileTreeRoot}
-							<p class="file-tree-root-path" title={fileTreeRoot.path}>{fileTreeRootLabel()}</p>
-							<p class="file-tree-count">{fileTreeEntryCount(fileTreeRoot.entries)} items</p>
-
-							{#if fileTreeRoot.entries.length > 0}
-								<ul class="file-tree-list root">
-									{#each fileTreeRoot.entries as entry (entry.path)}
-										<li>
-											<FileTreeEntry
-												{entry}
-												activePath={nativeFilePath}
-												onOpen={openFileTreeEntry}
-											/>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<p class="file-tree-empty">This folder is empty.</p>
-							{/if}
-						{:else if fileTreeLoading}
-							<p class="file-tree-empty">Opening folder...</p>
-						{:else}
-							<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
-						{/if}
-
-						{#if fileTreeError}
-							<p class="file-tree-error">{fileTreeError}</p>
-						{/if}
-					</div>
-				</div>
-			</aside>
-		{/if}
 	</div>
 
 	<section class="print-document" aria-hidden="true">
@@ -9261,6 +9295,8 @@
 										<ListOrderedIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'message-square-plus'}
 										<MessageSquarePlusIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left'}
+										<PanelLeftIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left-close'}
 										<PanelLeftCloseIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'pencil'}
@@ -9479,130 +9515,147 @@
 
 		<Dialog.Root bind:open={settingsDialogOpen}>
 			<Dialog.Content
-				class="settings-dialog"
+				class="settings-dialog app-settings-dialog"
 				aria-labelledby="settings-title"
 				showCloseButton={false}
 			>
-				<form onsubmit={(event) => {
-					event.preventDefault();
-					saveSettings();
-				}}>
-					<Dialog.Header class="settings-dialog-header">
-						<div>
-							<p class="eyebrow">Margin</p>
-							<Dialog.Title id="settings-title">Settings</Dialog.Title>
+				<div class="settings-window-layout">
+					<aside class="settings-sidebar" aria-label="Settings areas">
+						<div class="settings-sidebar-list">
+							<button class="settings-sidebar-item active" type="button" aria-current="page">
+								<span class="settings-sidebar-icon">
+									<SettingsIcon aria-hidden="true" />
+								</span>
+								<span>General</span>
+							</button>
 						</div>
+					</aside>
 
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							class="icon-button"
-							aria-label="Close settings"
-							onclick={closeSettingsDialog}
-						>
-							<XIcon aria-hidden="true" />
-						</Button>
-					</Dialog.Header>
-
-					<fieldset class="settings-fieldset">
-						<Label>Theme</Label>
-
-						<ToggleGroup.Root
-							class="theme-segmented-control"
-							type="single"
-							bind:value={settingsDraftTheme}
-						>
-							{#each themeOptions as theme}
-								<ToggleGroup.Item
-									class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
-									value={theme}
-								>
-									<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
-								</ToggleGroup.Item>
-							{/each}
-						</ToggleGroup.Root>
-					</fieldset>
-
-					<fieldset class="settings-fieldset">
-						<Label for="settings-local-user-name">Local name</Label>
-
-						<div class="settings-user-control">
-							<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
-							<input
-								id="settings-local-user-name"
-								class="settings-text-input"
-								bind:value={settingsDraftLocalUserName}
-								autocomplete="name"
-								maxlength="80"
-							/>
-						</div>
-					</fieldset>
-
-					{#if desktopShell}
-						<section class="settings-fieldset settings-update-fieldset" aria-labelledby="settings-updates-title">
-							<div class="settings-update-header">
-								<div>
-									<Label id="settings-updates-title">Updates</Label>
-									{#if updateStatusMessage}
-										<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
-											{updateStatusMessage}
-										</p>
-									{/if}
-								</div>
-
-								<Button
-									variant="outline"
-									size="sm"
-									class="ghost-button settings-update-check"
-									onclick={() => checkForDesktopUpdate(true)}
-									disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
-								>
-									<RefreshCwIcon aria-hidden="true" />
-									<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
-								</Button>
+					<section class="settings-pane" aria-labelledby="settings-title">
+						<Dialog.Header class="settings-dialog-header settings-pane-header">
+							<div>
+								<p class="eyebrow">Margin</p>
+								<Dialog.Title id="settings-title">General</Dialog.Title>
 							</div>
 
-							{#if availableAppUpdate}
-								<div class="settings-update-available">
-									<p>Version {availableAppUpdate.version} is available</p>
-									{#if availableAppUpdate.notes}
-										<p>{availableAppUpdate.notes}</p>
-									{/if}
-									<Button
-										size="sm"
-										class="primary settings-update-install"
-										onclick={installDesktopUpdate}
-										disabled={updateCheckState === 'installing'}
-									>
-										<DownloadIcon aria-hidden="true" />
-										<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
-									</Button>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="icon-button"
+								aria-label="Close settings"
+								onclick={closeSettingsDialog}
+							>
+								<XIcon aria-hidden="true" />
+							</Button>
+						</Dialog.Header>
+
+						<div class="settings-pane-body">
+							<section class="settings-group" aria-label="General settings">
+								<div class="settings-row">
+									<div class="settings-row-copy">
+										<Label>Theme</Label>
+									</div>
+
+									<div class="settings-row-control">
+										<ToggleGroup.Root
+											class="theme-segmented-control"
+											type="single"
+											aria-label="Theme"
+											value={settingsDraftTheme}
+										>
+											{#each themeOptions as theme}
+												<ToggleGroup.Item
+													class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
+													value={theme}
+													onclick={() => updateSettingsTheme(theme)}
+												>
+													<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
+												</ToggleGroup.Item>
+											{/each}
+										</ToggleGroup.Root>
+									</div>
 								</div>
+
+								<div class="settings-row">
+									<div class="settings-row-copy">
+										<Label for="settings-local-user-name">Local name</Label>
+										<p>Shown on local comments and suggestions.</p>
+									</div>
+
+									<div class="settings-row-control">
+										<div class="settings-user-control">
+											<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
+											<input
+												id="settings-local-user-name"
+												class="settings-text-input"
+												value={settingsDraftLocalUserName}
+												oninput={(event) => updateSettingsLocalUserName((event.currentTarget as HTMLInputElement).value)}
+												autocomplete="name"
+												maxlength="80"
+											/>
+										</div>
+									</div>
+								</div>
+							</section>
+
+							{#if desktopShell}
+								<section class="settings-group" aria-label="Application updates">
+									<div class="settings-row">
+										<div class="settings-row-copy">
+											<Label id="settings-updates-title">Updates</Label>
+											<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
+												{updateStatusMessage || 'Check for newer desktop builds.'}
+											</p>
+										</div>
+
+										<div class="settings-row-control">
+											<Button
+												variant="outline"
+												size="sm"
+												class="ghost-button settings-update-check"
+												onclick={() => checkForDesktopUpdate(true)}
+												disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
+											>
+												<RefreshCwIcon aria-hidden="true" />
+												<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
+											</Button>
+										</div>
+									</div>
+
+									{#if availableAppUpdate}
+										<div class="settings-row">
+											<div class="settings-row-copy">
+												<Label>Available update</Label>
+												<p>Version {availableAppUpdate.version} is available.</p>
+											</div>
+
+											<div class="settings-row-control">
+												<div class="settings-update-available">
+													{#if availableAppUpdate.notes}
+														<p>{availableAppUpdate.notes}</p>
+													{/if}
+													<Button
+														size="sm"
+														class="primary settings-update-install"
+														onclick={installDesktopUpdate}
+														disabled={updateCheckState === 'installing'}
+													>
+														<DownloadIcon aria-hidden="true" />
+														<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
+													</Button>
+												</div>
+											</div>
+										</div>
+									{/if}
+								</section>
 							{/if}
-						</section>
-					{/if}
 
-					{#if settingsError}
-						<p class="settings-error">{settingsError}</p>
-					{/if}
-
-					<Dialog.Footer class="settings-actions">
-						<Button
-							variant="outline"
-							size="sm"
-							class="ghost-button"
-							onclick={closeSettingsDialog}
-							disabled={settingsSaving}
-						>Cancel</Button>
-
-						<Button
-							size="sm"
-							class="primary"
-							type="submit"
-							disabled={settingsSaving}
-						>{settingsSaving ? 'Saving' : 'Save'}</Button>
-					</Dialog.Footer>
-				</form>
+							{#if settingsError}
+								<p class="settings-error">{settingsError}</p>
+							{/if}
+						</div>
+					</section>
+				</div>
 			</Dialog.Content>
 		</Dialog.Root>
 	</main>

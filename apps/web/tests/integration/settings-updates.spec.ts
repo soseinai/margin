@@ -17,9 +17,11 @@ test('persists browser theme and local author name across reloads', async ({ pag
   await page.getByLabel('Settings', { exact: true }).click();
   await page.getByText('Dark').click();
   await page.getByLabel('Local name').fill('Ada Lovelace');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect.poll(async () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem('margin:settings:v1') ?? '{}').localUserName)
+  ).toBe('Ada Lovelace');
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -43,14 +45,20 @@ test('keeps native settings dialog open when save fails', async ({ page }) => {
   await emitTauriEvent(page, 'margin://open-settings');
   await page.getByText('Light').click();
   await page.getByLabel('Local name').fill('Grace Hopper');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   await expect(page.getByText('Settings disk is read-only')).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'General' })).toBeVisible();
 
   await setTauriWriteSettingsError(page, '');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeHidden();
+  await page.getByLabel('Local name').fill('Grace Hopper Jr.');
+  await expect(page.getByText('Settings disk is read-only')).toBeHidden();
+  await expect.poll(async () =>
+    (await tauriCalls(page)).some((call) =>
+      call.command === 'write_settings' &&
+      (call.args?.settings as { localUserName?: string } | undefined)?.localUserName === 'Grace Hopper Jr.'
+    )
+  ).toBe(true);
+  await expect(page.getByRole('dialog', { name: 'General' })).toBeVisible();
 });
 
 test('covers native update available, install, current, error, and dismiss states', async ({ page }) => {

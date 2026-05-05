@@ -229,14 +229,14 @@ test('keeps find and settings dialogs mutually exclusive', async ({ page }) => {
     .locator('button[aria-label="Settings"]')
     .evaluate((button: HTMLButtonElement) => button.click());
 
-  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  const settingsDialog = page.getByRole('dialog', { name: 'General' });
   await expect(settingsDialog).toBeVisible();
   await expect(findDialog).toBeHidden();
 
   const settingsClose = page.getByRole('button', { name: 'Close settings' });
   const settingsCloseBox = await settingsClose.boundingBox();
-  expect(settingsCloseBox?.width).toBe(20);
-  expect(settingsCloseBox?.height).toBe(20);
+  expect(settingsCloseBox?.width).toBe(28);
+  expect(settingsCloseBox?.height).toBe(28);
   const settingsIconDesign = await iconButtonDesign(settingsClose);
 
   await page.keyboard.press(`${modifier}+F`);
@@ -246,7 +246,7 @@ test('keeps find and settings dialogs mutually exclusive', async ({ page }) => {
 
   const findMoreButton = page.getByRole('button', { name: 'Show more options' });
   const findMoreBox = await findMoreButton.boundingBox();
-  expect(findMoreBox?.width).toBe(20);
-  expect(findMoreBox?.height).toBe(20);
+  expect(findMoreBox?.width).toBe(28);
+  expect(findMoreBox?.height).toBe(28);
   expect(await iconButtonDesign(findMoreButton)).toEqual(settingsIconDesign);
 });

@@ -80,7 +80,7 @@ test('routes native menu events through the frontend contract', async ({ page })
   await expect(page.getByRole('heading', { name: 'Untitled 2.md' })).toBeVisible();
 
   await emitTauriEvent(page, 'margin://open-settings');
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'General' })).toBeVisible();
 });
 
 test('can omit the margin notes appendix from native print', async ({ page }) => {
