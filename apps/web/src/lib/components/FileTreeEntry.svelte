@@ -8,6 +8,7 @@
 	import FileLockIcon from '@lucide/svelte/icons/file-lock';
 	import FileSpreadsheetIcon from '@lucide/svelte/icons/file-spreadsheet';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
+	import FolderIcon from '@lucide/svelte/icons/folder';
 
 	type NativeDirectoryEntry = {
 		path: string;
@@ -132,6 +133,9 @@
 			title={entry.path}
 		>
 			<span class="file-tree-twist" aria-hidden="true"></span>
+			<span class="file-tree-file-icon folder" aria-hidden="true">
+				<FolderIcon />
+			</span>
 			<span class="file-tree-entry-name">{entry.name}</span>
 		</summary>
 
@@ -159,7 +163,9 @@
 		onclick={() => openEntry(entry)}
 		onkeydown={(event) => handleEntryKeydown(event, entry)}
 	>
-		<span class="file-tree-md-icon" aria-hidden="true">MD</span>
+		<span class="file-tree-file-icon markdown" aria-hidden="true">
+			<FileTextIcon />
+		</span>
 		<span class="file-tree-entry-name">{entry.name}</span>
 	</button>
 {:else}

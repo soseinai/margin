@@ -47,6 +47,9 @@
   --paper: #f5f2ec;
   --paper-raised: #fbf9f5;
   --paper-sunk: #ede9e0;
+  --chrome-bg: var(--paper-raised);
+  --chrome-raised: var(--paper-raised);
+  --chrome-sunk: var(--paper-sunk);
   --ink: #111111;
   --ink-pure: #000000;
   --gray-05: #eae5d9;
@@ -74,26 +77,33 @@
   --dur-slow: 300ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --sheet-bg: var(--paper-raised);
+  --sheet-bg: var(--chrome-bg);
   --sheet-border: var(--gray-20);
   --sheet-radius: 0;
   --app-bg: var(--sheet-bg);
-  --surface: var(--paper-raised);
-  --surface-muted: var(--paper-sunk);
-  --surface-soft: var(--gray-05);
+  --surface: var(--chrome-raised);
+  --surface-muted: var(--chrome-sunk);
+  --surface-soft: color-mix(in srgb, var(--chrome-sunk) 72%, var(--chrome-raised));
   --glass-bg: color-mix(in srgb, var(--sheet-bg) 74%, transparent);
-  --glass-bg-strong: color-mix(in srgb, var(--paper-raised) 88%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--chrome-raised) 88%, transparent);
   --glass-border: color-mix(in srgb, var(--ink) 12%, transparent);
   --glass-control-bg: color-mix(in srgb, var(--ink) 5%, transparent);
   --glass-control-hover: color-mix(in srgb, var(--ink) 9%, transparent);
   --glass-highlight: color-mix(in srgb, var(--ink-pure) 10%, transparent);
-  --dialog-bg: color-mix(in srgb, var(--paper-raised) 92%, transparent);
-  --dialog-bg-strong: color-mix(in srgb, var(--paper-raised) 96%, var(--paper-sunk));
+  --dialog-bg: color-mix(in srgb, var(--chrome-raised) 92%, transparent);
+  --dialog-bg-strong: color-mix(in srgb, var(--chrome-raised) 96%, var(--chrome-sunk));
   --dialog-border: color-mix(in srgb, var(--ink) 12%, transparent);
   --dialog-control-bg: color-mix(in srgb, var(--ink) 5%, transparent);
   --dialog-control-hover: color-mix(in srgb, var(--ink) 9%, transparent);
-  --dialog-field-bg: color-mix(in srgb, var(--paper-sunk) 56%, transparent);
-  --dialog-overlay: color-mix(in srgb, var(--paper-sunk) 62%, transparent);
+  --dialog-field-bg: color-mix(in srgb, var(--chrome-sunk) 56%, transparent);
+  --dialog-overlay: color-mix(in srgb, var(--chrome-sunk) 62%, transparent);
+  --native-panel-bg: color-mix(in srgb, #fff 34%, var(--paper-raised));
+  --native-panel-border: color-mix(in srgb, var(--ink) 7%, transparent);
+  --file-tree-panel-border: var(--native-panel-border);
+  --native-panel-selection-bg: color-mix(in srgb, var(--ink) 8%, transparent);
+  --native-panel-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent),
+    0 12px 28px color-mix(in srgb, var(--ink) 7%, transparent);
   --document-bg: transparent;
   --active-source-bg: transparent;
   --active-heading-bg: transparent;
@@ -160,6 +170,9 @@
     --paper: #191919;
     --paper-raised: #232325;
     --paper-sunk: #141414;
+    --chrome-bg: #191919;
+    --chrome-raised: #232325;
+    --chrome-sunk: #141414;
     --ink: #f0f0f0;
     --ink-pure: #ffffff;
     --gray-05: #29292b;
@@ -178,6 +191,11 @@
     --active-heading-bg: transparent;
     --selection-bg: #3b3b3f;
     --selection-fg: var(--ink-pure);
+    --native-panel-bg: color-mix(in srgb, var(--paper-sunk) 84%, var(--paper-raised));
+    --native-panel-border: color-mix(in srgb, var(--ink) 16%, transparent);
+    --file-tree-panel-border: var(--native-panel-border);
+    --native-panel-selection-bg: color-mix(in srgb, var(--paper-raised) 42%, transparent);
+    --native-panel-shadow: none;
     --primary-button-bg: color-mix(in srgb, var(--ink) 92%, transparent);
     --primary-button-hover-bg: color-mix(in srgb, var(--ink) 84%, transparent);
     --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
@@ -202,6 +220,9 @@
   --paper: #f5f2ec;
   --paper-raised: #fbf9f5;
   --paper-sunk: #ede9e0;
+  --chrome-bg: var(--paper-raised);
+  --chrome-raised: var(--paper-raised);
+  --chrome-sunk: var(--paper-sunk);
   --ink: #111111;
   --ink-pure: #000000;
   --gray-05: #eae5d9;
@@ -212,7 +233,7 @@
   --gray-80: #2f2d28;
   --sosein-success: #1f5c2e;
   --sosein-danger: #7a1f1f;
-  --sheet-bg: var(--paper-raised);
+  --sheet-bg: var(--chrome-bg);
   --sheet-border: var(--gray-20);
   --sheet-radius: 0;
   --document-bg: transparent;
@@ -220,6 +241,13 @@
   --active-heading-bg: transparent;
   --selection-bg: #d2e3fc;
   --selection-fg: var(--ink);
+  --native-panel-bg: color-mix(in srgb, #fff 34%, var(--paper-raised));
+  --native-panel-border: color-mix(in srgb, var(--ink) 7%, transparent);
+  --file-tree-panel-border: var(--native-panel-border);
+  --native-panel-selection-bg: color-mix(in srgb, var(--ink) 8%, transparent);
+  --native-panel-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent),
+    0 12px 28px color-mix(in srgb, var(--ink) 7%, transparent);
   --primary-button-bg: rgb(0 0 0);
   --primary-button-hover-bg: rgb(0 0 0 / 82%);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 60%, transparent);
@@ -243,6 +271,9 @@
   --paper: #191919;
   --paper-raised: #232325;
   --paper-sunk: #141414;
+  --chrome-bg: #191919;
+  --chrome-raised: #232325;
+  --chrome-sunk: #141414;
   --ink: #f0f0f0;
   --ink-pure: #ffffff;
   --gray-05: #29292b;
@@ -261,6 +292,11 @@
   --active-heading-bg: transparent;
   --selection-bg: #3b3b3f;
   --selection-fg: var(--ink-pure);
+  --native-panel-bg: color-mix(in srgb, var(--paper-sunk) 84%, var(--paper-raised));
+  --native-panel-border: color-mix(in srgb, var(--ink) 16%, transparent);
+  --file-tree-panel-border: var(--native-panel-border);
+  --native-panel-selection-bg: color-mix(in srgb, var(--paper-raised) 42%, transparent);
+  --native-panel-shadow: none;
   --primary-button-bg: color-mix(in srgb, var(--ink) 92%, transparent);
   --primary-button-hover-bg: color-mix(in srgb, var(--ink) 84%, transparent);
   --note-hover-bg: color-mix(in srgb, var(--paper-raised) 72%, transparent);
@@ -435,6 +471,10 @@ textarea:not([data-slot]):focus {
 
 .desktop-shell.doc-app {
   --doc-titlebar-height: 92px;
+  --file-tree-panel-inset: 8px;
+  --file-tree-panel-top-inset: 8px;
+  --file-tree-panel-bottom-inset: 8px;
+  --file-tree-panel-content-top: 52px;
 }
 
 .local-file-input {
@@ -461,6 +501,11 @@ textarea:not([data-slot]):focus {
   transform: translate3d(0, 0, 0);
   will-change: transform;
   z-index: 70;
+}
+
+.desktop-shell.file-tree-open .window-tabbar {
+  left: calc(var(--file-tree-panel-width) + var(--file-tree-panel-inset));
+  padding-left: 8px;
 }
 
 .document-tab-shell {
@@ -777,6 +822,11 @@ textarea:not([data-slot]):focus {
   z-index: 65;
 }
 
+.desktop-shell.file-tree-open .doc-titlebar-shell {
+  margin-left: calc(var(--file-tree-panel-width) + var(--file-tree-panel-inset));
+  width: calc(100% - var(--file-tree-panel-width) - var(--file-tree-panel-inset));
+}
+
 .doc-topbar {
   align-items: center;
   background: transparent;
@@ -793,6 +843,10 @@ textarea:not([data-slot]):focus {
   min-height: 92px;
   overflow: hidden;
   padding: 48px 28px 8px;
+}
+
+.desktop-shell.file-tree-open .doc-topbar {
+  padding-left: 18px;
 }
 
 .desktop-shell .doc-topbar .eyebrow {
@@ -1370,7 +1424,7 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .app-settings-dialog {
-  background: color-mix(in srgb, var(--paper-sunk) 28%, var(--paper-raised));
+  background: color-mix(in srgb, var(--chrome-sunk) 28%, var(--chrome-raised));
   border-radius: 21px;
   max-width: 760px;
   min-width: 680px;
@@ -1415,10 +1469,10 @@ button.command-palette-option.empty:not([data-slot]) {
 }
 
 .settings-sidebar {
-  background: color-mix(in srgb, var(--paper-sunk) 84%, var(--paper-raised));
-  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  background: var(--native-panel-bg);
+  border: 1px solid var(--native-panel-border);
   border-radius: 16px;
-  box-shadow: none;
+  box-shadow: var(--native-panel-shadow);
   display: flex;
   flex-direction: column;
   isolation: isolate;
@@ -1468,7 +1522,7 @@ button.settings-sidebar-item:not([data-slot]):focus-visible {
 }
 
 button.settings-sidebar-item.active:not([data-slot]) {
-  background: color-mix(in srgb, var(--paper-raised) 42%, transparent);
+  background: var(--native-panel-selection-bg);
   color: var(--fg);
 }
 
@@ -1567,7 +1621,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .settings-group {
-  background: color-mix(in srgb, var(--paper-raised) 82%, var(--ink) 4%);
+  background: color-mix(in srgb, var(--chrome-raised) 88%, var(--ink) 3%);
   border: 1px solid var(--dialog-border);
   border-radius: 8px;
   box-shadow: none;
@@ -2069,6 +2123,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .workspace-layout {
   align-items: stretch;
+  background: var(--paper);
   display: flex;
   min-width: 0;
   position: relative;
@@ -2080,9 +2135,14 @@ button.settings-sidebar-item.active:not([data-slot]) {
   min-width: 0;
 }
 
+.desktop-shell.file-tree-open .workspace-layout {
+  margin-left: calc(var(--file-tree-panel-width) + var(--file-tree-panel-inset));
+  width: calc(100% - var(--file-tree-panel-width) - var(--file-tree-panel-inset));
+}
+
 .activity-rail {
   align-items: center;
-  background: color-mix(in srgb, var(--paper-raised) 72%, var(--paper-sunk));
+  background: var(--native-panel-bg);
   display: flex;
   flex-direction: column;
   flex: 0 0 38px;
@@ -2154,24 +2214,46 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .file-tree-panel {
-  background: color-mix(in srgb, var(--paper-raised) 82%, var(--paper-sunk));
-  border-right: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  background: var(--native-panel-bg);
+  border: 1px solid var(--file-tree-panel-border);
+  border-left: 0;
+  border-radius: 0 16px 16px 0;
   color: var(--fg-2);
   flex: 0 0 var(--file-tree-panel-width);
   min-height: calc(100vh - 98px);
   min-width: 0;
   order: -1;
   position: relative;
+  box-shadow: var(--native-panel-shadow);
   width: var(--file-tree-panel-width);
 }
 
 .desktop-shell .file-tree-panel {
   align-self: flex-start;
-  height: calc(100vh - var(--doc-titlebar-offset));
+  border-left: 1px solid var(--file-tree-panel-border);
+  border-radius: 16px;
+  height: calc(100vh - var(--file-tree-panel-top-inset) - var(--file-tree-panel-bottom-inset));
+  left: var(--file-tree-panel-inset);
+  margin: 0;
+  max-height: calc(100vh - var(--file-tree-panel-top-inset) - var(--file-tree-panel-bottom-inset));
   min-height: 0;
-  position: sticky;
-  top: var(--doc-titlebar-offset);
-  z-index: 20;
+  position: fixed;
+  top: var(--file-tree-panel-top-inset);
+  z-index: 80;
+}
+
+:root[data-theme="dark"] .file-tree-panel {
+  background: var(--native-panel-bg);
+  border-color: var(--native-panel-border);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .file-tree-panel {
+    background: var(--native-panel-bg);
+    border-color: var(--native-panel-border);
+  }
 }
 
 .file-tree-content {
@@ -2180,14 +2262,15 @@ button.settings-sidebar-item.active:not([data-slot]) {
   max-height: 100vh;
   min-height: 0;
   overflow: hidden;
-  padding: 20px 0 0 14px;
+  padding: 7px;
   position: sticky;
   top: 0;
 }
 
 .desktop-shell .file-tree-content {
   height: 100%;
-  max-height: calc(100vh - var(--doc-titlebar-offset));
+  max-height: 100%;
+  padding: var(--file-tree-panel-content-top) 10px 10px;
   position: static;
   top: auto;
 }
@@ -2247,21 +2330,22 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .file-tree-header {
   align-items: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-bottom: 0;
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
   justify-content: space-between;
-  margin: -4px 16px 0 -2px;
+  margin: 0;
+  min-height: 36px;
   min-width: 0;
-  padding: 0 0 10px;
+  padding: 2px 3px 4px 8px;
 }
 
 .file-tree-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 14px 18px 76px 0;
+  padding: 0 0 10px;
 }
 
 .file-tree-heading {
@@ -2272,6 +2356,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
 .file-tree-eyebrow,
 .file-tree-count {
   color: var(--fg-4);
+  display: none;
   font-family: var(--font-ui);
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -2282,10 +2367,10 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .file-tree-header h2 {
   color: var(--fg);
-  font-size: 15px;
-  font-weight: 400;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.2;
-  margin: 4px 0 0;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2295,32 +2380,19 @@ button.settings-sidebar-item.active:not([data-slot]) {
   border-color: transparent;
   color: var(--fg-3);
   flex: 0 0 auto;
-}
-
-.file-tree-root-path {
-  color: var(--fg-3);
-  font-size: 12px;
-  line-height: 1.35;
-  margin: 0 0 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-count {
-  margin-bottom: 14px;
+  opacity: 0.82;
 }
 
 .file-tree-list {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   list-style: none;
   margin: 0;
-  padding: 0 0 0 12px;
+  padding: 2px 0 0 12px;
 }
 
 .file-tree-list.root {
-  padding-left: 0;
+  padding: 0;
 }
 
 .file-tree-directory {
@@ -2338,21 +2410,25 @@ button.settings-sidebar-item.active:not([data-slot]) {
 .file-tree-row {
   align-items: center;
   border: 0;
-  border-radius: 4px;
-  color: var(--fg-3);
+  border-radius: 8px;
+  color: var(--fg-2);
   display: grid;
+  font-family: var(--font-ui);
   font-size: 12.5px;
-  gap: 7px;
-  grid-template-columns: 14px minmax(0, 1fr);
+  font-weight: 450;
+  gap: 6px;
+  grid-template-columns: 16px minmax(0, 1fr);
   line-height: 1.2;
-  min-height: 24px;
+  min-height: 25px;
   min-width: 0;
-  padding: 3px 6px 3px 4px;
+  padding: 3px 7px 3px 6px;
   width: 100%;
 }
 
 .file-tree-row.directory {
   cursor: pointer;
+  grid-template-columns: 12px 16px minmax(0, 1fr);
+  padding-left: 3px;
 }
 
 .file-tree-panel button.file-tree-row.document:not([data-slot]) {
@@ -2360,19 +2436,20 @@ button.settings-sidebar-item.active:not([data-slot]) {
   background: transparent;
   border: 0;
   box-shadow: none;
-  color: var(--fg-3);
+  color: var(--fg-2);
   cursor: pointer;
   display: grid;
   font: inherit;
+  font-family: var(--font-ui);
   font-size: 12.5px;
-  font-weight: 400;
-  gap: 7px;
-  grid-template-columns: 14px minmax(0, 1fr);
+  font-weight: 450;
+  gap: 6px;
+  grid-template-columns: 16px minmax(0, 1fr);
   justify-content: normal;
   line-height: 1.2;
-  min-height: 24px;
+  min-height: 25px;
   min-width: 0;
-  padding: 3px 6px 3px 4px;
+  padding: 3px 7px 3px 21px;
   text-align: left;
   transform: none;
   white-space: normal;
@@ -2381,41 +2458,46 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .file-tree-panel button.file-tree-row.document:not([data-slot]):hover,
 .file-tree-panel button.file-tree-row.document:not([data-slot]):focus-visible,
-.file-tree-panel button.file-tree-row.document.active:not([data-slot]),
 .file-tree-row.directory:hover {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 0;
+  box-shadow: none;
+  color: var(--fg);
+}
+
+.file-tree-panel button.file-tree-row.document.active:not([data-slot]) {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
   border: 0;
   box-shadow: none;
   color: var(--fg);
 }
 
 .file-tree-panel button.file-tree-row.document:not([data-slot]):active {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   border: 0;
   box-shadow: none;
   transform: none;
 }
 
 .file-tree-twist,
-.file-tree-file-icon,
-.file-tree-md-icon {
+.file-tree-file-icon {
   color: var(--fg-4);
   display: inline-flex;
-  height: 14px;
+  height: 15px;
   align-items: center;
   justify-content: center;
   position: relative;
-  width: 14px;
+  width: 15px;
 }
 
 .file-tree-twist::before {
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
   content: "";
-  left: 4px;
+  left: 3px;
   position: absolute;
-  top: 2px;
+  top: 4.5px;
   transform: rotate(90deg);
   transition: transform var(--dur-fast) var(--ease-out);
 }
@@ -2425,23 +2507,20 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .file-tree-file-icon svg {
-  height: 14px;
-  stroke-width: 1.8;
-  width: 14px;
+  height: 15px;
+  stroke-width: 1.9;
+  width: 15px;
+}
+
+.file-tree-file-icon.folder,
+.file-tree-file-icon.markdown {
+  color: var(--fg-3);
+  opacity: 0.94;
 }
 
 .file-tree-file-icon.image,
 .file-tree-file-icon.text {
   opacity: 0.88;
-}
-
-.file-tree-md-icon {
-  color: var(--fg);
-  font-family: var(--font-ui);
-  font-size: 9.5px;
-  font-weight: 500;
-  line-height: 1;
-  opacity: 1;
 }
 
 .file-tree-file-icon.archive,
@@ -2454,11 +2533,13 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .file-tree-row.file {
-  opacity: 0.66;
+  opacity: 0.58;
+  padding-left: 21px;
 }
 
 .file-tree-row.file:hover {
-  opacity: 0.86;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  opacity: 0.82;
 }
 
 .file-tree-entry-name {
@@ -5074,11 +5155,22 @@ blockquote {
   }
 
   .file-tree-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border-left: 0;
     border-right: 0;
     border-top: 1px solid color-mix(in srgb, var(--rule) 76%, transparent);
+    border-bottom: 0;
+    border-radius: 0;
+    bottom: auto;
+    height: auto;
+    left: auto;
+    margin: 0;
     min-height: 0;
+    position: relative;
+    top: auto;
     width: 100%;
+    z-index: auto;
   }
 
   .file-tree-content {

@@ -7175,16 +7175,6 @@
 		return { x, y };
 	}
 
-	function fileTreeRootLabel() {
-		if (!fileTreeRoot) return 'No folder open';
-
-		return compactLocalPath(fileTreeRoot.path);
-	}
-
-	function fileTreeEntryCount(entries: NativeDirectoryEntry[]): number {
-		return entries.reduce((count, entry) => count + 1 + fileTreeEntryCount(entry.children), 0);
-	}
-
 	async function openFileTreeEntry(entry: NativeDirectoryEntry) {
 		if (entry.kind !== 'markdown') return;
 
@@ -8470,7 +8460,9 @@
 	class:desktop-shell={desktopShell}
 	class:mobile-shell={mobileShell}
 	class:drag-active={dragActive}
+	class:file-tree-open={fileTreePanelOpen}
 	class:file-tree-resizing={fileTreeResizeActive}
+	style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 >
 	<div class="window-tabbar" aria-label="Open documents">
 		{#each visibleDocumentTabs as tab (tab.id)}
@@ -8753,10 +8745,73 @@
 		</section>
 	{/if}
 
+	{#if fileTreePanelOpen}
+		<aside
+			class="file-tree-panel"
+			aria-label="Open folder"
+		>
+			<button
+				class="file-tree-resizer"
+				type="button"
+				aria-label="Resize file tree"
+				onpointerdown={startFileTreeResize}
+				onkeydown={handleFileTreeResizeKeydown}
+			></button>
+
+			<div class="file-tree-content">
+				<header class="file-tree-header">
+					<div class="file-tree-heading">
+						<p class="file-tree-eyebrow">Folder</p>
+						<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
+					</div>
+
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						class="activity-icon-button file-tree-close-button active"
+						aria-label="Hide file tree"
+						aria-pressed="true"
+						title="Hide file tree"
+						onclick={toggleFileTreePanel}
+					>
+						<PanelLeftCloseIcon aria-hidden="true" />
+					</Button>
+				</header>
+
+				<div class="file-tree-scroll">
+					{#if fileTreeRoot}
+						{#if fileTreeRoot.entries.length > 0}
+							<ul class="file-tree-list root">
+								{#each fileTreeRoot.entries as entry (entry.path)}
+									<li>
+										<FileTreeEntry
+											{entry}
+											activePath={nativeFilePath}
+											onOpen={openFileTreeEntry}
+										/>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="file-tree-empty">This folder is empty.</p>
+						{/if}
+					{:else if fileTreeLoading}
+						<p class="file-tree-empty">Opening folder...</p>
+					{:else}
+						<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
+					{/if}
+
+					{#if fileTreeError}
+						<p class="file-tree-error">{fileTreeError}</p>
+					{/if}
+				</div>
+			</div>
+		</aside>
+	{/if}
+
 	<div
 		class="workspace-layout"
 		class:file-tree-visible={fileTreePanelOpen}
-		style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 	>
 		{#if !fileTreePanelOpen}
 			<nav class="activity-rail workspace-activity-rail" aria-label="Workspace views">
@@ -9084,72 +9139,6 @@
 			</aside>
 		</div>
 
-		{#if fileTreePanelOpen}
-			<aside
-				class="file-tree-panel"
-				aria-label="Open folder"
-			>
-				<button
-					class="file-tree-resizer"
-					type="button"
-					aria-label="Resize file tree"
-					onpointerdown={startFileTreeResize}
-					onkeydown={handleFileTreeResizeKeydown}
-				></button>
-
-				<div class="file-tree-content">
-					<header class="file-tree-header">
-						<div class="file-tree-heading">
-							<p class="file-tree-eyebrow">Folder</p>
-							<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
-						</div>
-
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							class="activity-icon-button file-tree-close-button active"
-							aria-label="Hide file tree"
-							aria-pressed="true"
-							title="Hide file tree"
-							onclick={toggleFileTreePanel}
-						>
-							<PanelLeftCloseIcon aria-hidden="true" />
-						</Button>
-					</header>
-
-					<div class="file-tree-scroll">
-						{#if fileTreeRoot}
-							<p class="file-tree-root-path" title={fileTreeRoot.path}>{fileTreeRootLabel()}</p>
-							<p class="file-tree-count">{fileTreeEntryCount(fileTreeRoot.entries)} items</p>
-
-							{#if fileTreeRoot.entries.length > 0}
-								<ul class="file-tree-list root">
-									{#each fileTreeRoot.entries as entry (entry.path)}
-										<li>
-											<FileTreeEntry
-												{entry}
-												activePath={nativeFilePath}
-												onOpen={openFileTreeEntry}
-											/>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<p class="file-tree-empty">This folder is empty.</p>
-							{/if}
-						{:else if fileTreeLoading}
-							<p class="file-tree-empty">Opening folder...</p>
-						{:else}
-							<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
-						{/if}
-
-						{#if fileTreeError}
-							<p class="file-tree-error">{fileTreeError}</p>
-						{/if}
-					</div>
-				</div>
-			</aside>
-		{/if}
 	</div>
 
 	<section class="print-document" aria-hidden="true">
