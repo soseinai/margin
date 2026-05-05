@@ -408,7 +408,7 @@
 	};
 	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
 	type FindPanelMode = 'compact' | 'expanded';
-	type FindPanelIconName = 'up' | 'down' | 'scaling' | 'scaling-contract';
+	type FindPanelIconName = 'up' | 'down' | 'x' | 'scaling' | 'scaling-contract';
 	type FindPanelPosition = { left: number; top: number };
 	type FindPanelModeOptions = { resetPosition?: boolean };
 	type CommandPaletteMode = 'commands' | 'files';
@@ -4084,7 +4084,7 @@
 
 		const title = document.createElement('span');
 		title.className = 'margin-find-title';
-		title.textContent = 'Find and replace';
+		title.textContent = 'Find and Replace';
 
 		titleDragHandle.append(title);
 		titleBar.append(
@@ -4094,14 +4094,14 @@
 
 				return true;
 			}, undefined, 'scaling-contract'),
-			findPanelButton('close-expanded', 'x', 'Close find and replace', () => closeSearchPanel(view))
+			findPanelButton('close-expanded', 'Close', 'Close find and replace', () => closeSearchPanel(view), undefined, 'x')
 		);
 		titleBar.addEventListener('pointerdown', startFindPanelDrag);
 
 		const topRow = document.createElement('div');
 		topRow.className = 'margin-find-row find-primary';
 		topRow.append(
-			findPanelField(searchInput),
+			findPanelField(searchInput, 'Find'),
 			findPanelButton('previous', 'Prev', 'Previous match', () => findPrevious(view), commandButtons, 'up'),
 			findPanelButton('next', 'Next', 'Next match', () => findNext(view), commandButtons, 'down'),
 			status,
@@ -4110,26 +4110,38 @@
 
 				return true;
 			}, undefined, 'scaling'),
-			findPanelButton('close-compact', 'x', 'Close find and replace', () => closeSearchPanel(view))
+			findPanelButton('close-compact', 'Close', 'Close find and replace', () => closeSearchPanel(view), undefined, 'x')
 		);
 
 		const replaceRow = document.createElement('div');
 		replaceRow.className = 'margin-find-row replace';
 		replaceRow.append(
-			findPanelField(replaceInput),
+			findPanelField(replaceInput, 'Replace'),
 			findPanelButton('replace', 'Replace', 'Replace current match', () => replaceNext(view), replaceButtons),
 			findPanelButton('replaceAll', 'All', 'Replace all matches', () => replaceAll(view), replaceButtons)
 		);
 
 		const optionsRow = document.createElement('div');
 		optionsRow.className = 'margin-find-row options';
-		optionsRow.append(
+		const optionsLabel = document.createElement('span');
+		optionsLabel.className = 'margin-find-row-label';
+		optionsLabel.textContent = 'Options';
+
+		const optionsGroup = document.createElement('div');
+		optionsGroup.className = 'margin-find-option-group';
+		optionsGroup.append(
 			findPanelOption('Case', caseInput),
 			findPanelOption('Word', wordInput),
 			findPanelOption('Regex', regexInput)
 		);
 
-		dom.append(titleBar, topRow, replaceRow, optionsRow);
+		optionsRow.append(optionsLabel, optionsGroup);
+
+		const findGroup = document.createElement('div');
+		findGroup.className = 'margin-find-group';
+		findGroup.append(topRow, replaceRow, optionsRow);
+
+		dom.append(titleBar, findGroup);
 		dom.addEventListener('keydown', handleFindPanelKeydown);
 
 		searchInput.addEventListener('input', commit);
@@ -4349,11 +4361,14 @@
 		return input;
 	}
 
-	function findPanelField(input: HTMLInputElement) {
+	function findPanelField(input: HTMLInputElement, labelText: string) {
 		const field = document.createElement('div');
+		const label = document.createElement('span');
 
 		field.className = 'margin-find-field';
-		field.append(input);
+		label.className = 'margin-find-field-label';
+		label.textContent = labelText;
+		field.append(label, input);
 
 		return field;
 	}
@@ -4404,6 +4419,7 @@
 		const paths: Record<FindPanelIconName, string[]> = {
 			up: ['M6 15l6-6 6 6'],
 			down: ['M6 9l6 6 6-6'],
+			x: ['M18 6 6 18', 'M6 6l12 12'],
 			scaling: [
 				'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7',
 				'M14 15H9v-5',

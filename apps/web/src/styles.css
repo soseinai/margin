@@ -2754,50 +2754,48 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .live-preview-editor .cm-panel.cm-search.margin-find-panel {
-  background: color-mix(in srgb, var(--paper-raised) 94%, var(--paper-sunk));
-  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  border-radius: 8px;
+  backdrop-filter: blur(28px) saturate(1.35);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  background: var(--dialog-bg-strong);
+  border: 1px solid var(--dialog-border);
+  border-radius: 14px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 10%) inset,
-    0 14px 34px rgb(0 0 0 / 14%);
+    inset 0 1px 0 var(--glass-highlight),
+    0 24px 72px color-mix(in srgb, var(--ink) 18%, transparent);
   color: var(--fg-2);
   display: grid;
   font-family: var(--font-ui);
-  font-size: 12px;
-  gap: 6px;
+  font-size: 12.5px;
+  gap: 0;
   line-height: 1.2;
   margin: 0;
   position: fixed;
-  z-index: 80;
+  z-index: 110;
 }
 
 .live-preview-editor .cm-panel.cm-search.margin-find-panel.is-compact {
   gap: 0;
-  padding: 6px 8px;
+  padding: 6px;
   right: calc(24px + env(safe-area-inset-right));
   top: calc(74px + env(safe-area-inset-top));
-  width: min(380px, calc(100vw - 32px));
+  width: min(390px, calc(100vw - 32px));
 }
 
 .live-preview-editor .cm-panel.cm-search.margin-find-panel.is-expanded {
   left: 50%;
-  padding: 0 14px 12px;
+  padding: 0 18px 18px;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(760px, calc(100vw - 32px));
+  width: min(640px, calc(100vw - 32px));
 }
 
 :root[data-theme="dark"] .live-preview-editor .cm-panel.cm-search.margin-find-panel {
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 8%) inset,
-    0 16px 36px rgb(0 0 0 / 36%);
+  box-shadow: none;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .live-preview-editor .cm-panel.cm-search.margin-find-panel {
-    box-shadow:
-      0 1px 0 rgb(255 255 255 / 8%) inset,
-      0 16px 36px rgb(0 0 0 / 36%);
+    box-shadow: none;
   }
 }
 
@@ -2817,16 +2815,27 @@ button.settings-sidebar-item.active:not([data-slot]) {
   margin: 0;
 }
 
+.live-preview-editor .margin-find-group {
+  display: grid;
+  min-width: 0;
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-group {
+  background: color-mix(in srgb, var(--chrome-raised) 88%, var(--ink) 3%);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .live-preview-editor .margin-find-titlebar {
   align-items: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
   cursor: grab;
   display: flex;
   gap: 6px;
-  margin: 0 -14px 12px;
-  min-height: 34px;
+  margin: 0 -18px 10px;
+  min-height: 58px;
   min-width: 0;
-  padding: 6px 7px 6px 14px;
+  padding: 15px 10px 9px 18px;
   touch-action: none;
   user-select: none;
 }
@@ -2845,9 +2854,9 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .live-preview-editor .margin-find-title {
   color: var(--fg);
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 1.2;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.12;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2861,11 +2870,36 @@ button.settings-sidebar-item.active:not([data-slot]) {
   min-width: 0;
 }
 
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 82px minmax(0, 1fr) auto auto minmax(64px, auto);
+  min-height: 52px;
+  padding: 10px 12px;
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-row + .margin-find-row {
+  border-top: 1px solid color-mix(in srgb, var(--dialog-border) 72%, transparent);
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-row.replace {
+  grid-template-columns: 82px minmax(0, 1fr) auto auto;
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-row.options {
+  grid-template-columns: 82px minmax(0, 1fr);
+  min-height: 48px;
+}
+
 .live-preview-editor .margin-find-field {
   align-items: center;
   display: flex;
   flex: 1 1 220px;
   min-width: 180px;
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-field {
+  display: contents;
 }
 
 .live-preview-editor .margin-find-panel.is-compact .margin-find-row {
@@ -2877,14 +2911,30 @@ button.settings-sidebar-item.active:not([data-slot]) {
   min-width: 0;
 }
 
+.live-preview-editor .margin-find-field-label,
+.live-preview-editor .margin-find-row-label {
+  display: none;
+}
+
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-field-label,
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-row-label {
+  align-items: center;
+  color: var(--fg-2);
+  display: flex;
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 1.25;
+  min-width: 0;
+}
+
 .live-preview-editor .margin-find-input {
-  background: color-mix(in srgb, var(--paper-sunk) 54%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  border-radius: 5px;
+  background: var(--dialog-field-bg);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
   color: var(--fg);
   font: inherit;
   font-size: 13px;
-  height: 32px;
+  height: 34px;
   min-width: 0;
   outline: none;
   padding: 0 10px;
@@ -2892,24 +2942,26 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .live-preview-editor .margin-find-input:focus {
-  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 7%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 26%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .live-preview-editor .margin-find-button {
   align-items: center;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
-  border-radius: 5px;
+  background: var(--dialog-control-bg);
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--fg-2);
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
   font: inherit;
-  height: 28px;
+  font-size: 12.5px;
+  font-weight: 520;
+  height: 30px;
   justify-content: center;
   min-height: 0;
-  padding: 0 9px;
+  padding: 0 10px;
   transition:
     background var(--dur-base) var(--ease-out),
     border-color var(--dur-base) var(--ease-out),
@@ -2918,8 +2970,8 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .live-preview-editor .margin-find-button:hover:not(:disabled),
 .live-preview-editor .margin-find-button:focus-visible {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
-  border-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  background: var(--dialog-control-hover);
+  border-color: transparent;
   color: var(--fg);
   outline: none;
 }
@@ -2937,12 +2989,12 @@ button.settings-sidebar-item.active:not([data-slot]) {
   display: block;
   fill: none;
   flex: 0 0 auto;
-  height: 12px;
+  height: 13px;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
-  width: 12px;
+  width: 13px;
 }
 
 .live-preview-editor .margin-find-panel :is(
@@ -2955,13 +3007,13 @@ button.settings-sidebar-item.active:not([data-slot]) {
 ) {
   background: transparent;
   border-color: transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg-3);
-  flex-basis: 20px;
-  height: 20px;
-  opacity: 0.64;
+  flex-basis: 28px;
+  height: 28px;
+  opacity: 0.72;
   padding: 0;
-  width: 20px;
+  width: 28px;
 }
 
 .live-preview-editor .margin-find-panel :is(
@@ -2980,21 +3032,22 @@ button.settings-sidebar-item.active:not([data-slot]) {
   .compact,
   .close-expanded
 ):focus-visible {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  background: var(--dialog-control-hover);
   border-color: transparent;
   box-shadow: none;
   color: var(--fg);
   opacity: 1;
-  outline: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
-  outline-offset: 1px;
+  outline: 0;
 }
 
 .live-preview-editor .margin-find-panel.is-compact .previous .margin-find-button-label,
 .live-preview-editor .margin-find-panel.is-compact .next .margin-find-button-label,
 .live-preview-editor .margin-find-panel.is-compact .more .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-compact .close-compact .margin-find-button-label,
 .live-preview-editor .margin-find-panel.is-expanded .previous .margin-find-button-label,
 .live-preview-editor .margin-find-panel.is-expanded .next .margin-find-button-label,
-.live-preview-editor .margin-find-panel.is-expanded .compact .margin-find-button-label {
+.live-preview-editor .margin-find-panel.is-expanded .compact .margin-find-button-label,
+.live-preview-editor .margin-find-panel.is-expanded .close-expanded .margin-find-button-label {
   display: none;
 }
 
@@ -3002,23 +3055,33 @@ button.settings-sidebar-item.active:not([data-slot]) {
   color: var(--fg-3);
   flex: 0 0 auto;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   margin-left: auto;
   min-width: 76px;
   text-align: right;
 }
 
-.live-preview-editor .margin-find-row.options {
-  gap: 14px;
+.live-preview-editor .margin-find-panel.is-expanded .margin-find-status {
+  margin-left: 0;
+  min-width: 64px;
+}
+
+.live-preview-editor .margin-find-option-group {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .live-preview-editor .margin-find-option {
   align-items: center;
   color: var(--fg-3);
   display: inline-flex;
-  font-size: 11px;
-  gap: 5px;
+  font-size: 12px;
+  gap: 6px;
   line-height: 1;
   white-space: nowrap;
 }
@@ -5386,6 +5449,7 @@ blockquote {
   }
 
   .live-preview-editor .cm-panel.cm-search.margin-find-panel.is-expanded {
+    padding: 0 12px 12px;
     top: 50%;
     width: calc(100vw - 24px);
   }
@@ -5394,9 +5458,14 @@ blockquote {
     flex-wrap: wrap;
   }
 
+  .live-preview-editor .margin-find-panel.is-expanded .margin-find-row,
+  .live-preview-editor .margin-find-panel.is-expanded .margin-find-row.replace,
+  .live-preview-editor .margin-find-panel.is-expanded .margin-find-row.options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .live-preview-editor .margin-find-field {
     flex-basis: 100%;
-    grid-template-columns: 58px minmax(0, 1fr);
   }
 
   .live-preview-editor .margin-find-status {
