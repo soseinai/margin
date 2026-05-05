@@ -64,6 +64,7 @@
 	import ListOrderedIcon from '@lucide/svelte/icons/list-ordered';
 	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
+	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
 	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
 	import CommandIcon from '@lucide/svelte/icons/command';
 	import ClockIcon from '@lucide/svelte/icons/clock';
@@ -422,6 +423,7 @@
 		| 'list-checks'
 		| 'list-ordered'
 		| 'message-square-plus'
+		| 'panel-left'
 		| 'panel-left-close'
 		| 'pencil'
 		| 'printer'
@@ -6431,10 +6433,10 @@
 		if (entry.id === 'command:save' || entry.id === 'command:save-as') return 'save';
 		if (entry.id === 'command:print') return 'printer';
 		if (entry.id === 'command:close-tab') return 'x';
+		if (entry.id === 'command:toggle-file-tree') return fileTreePanelOpen ? 'panel-left-close' : 'panel-left';
 		if (
 			entry.id === 'command:previous-tab'
 			|| entry.id === 'command:next-tab'
-			|| entry.id === 'command:toggle-file-tree'
 		) return 'panel-left-close';
 		if (entry.id === 'command:find' || entry.id === 'command:find-replace') return 'search';
 		if (entry.id === 'command:edit-mode' || entry.id === 'command:suggest-mode') return 'pencil';
@@ -8464,6 +8466,22 @@
 	class:file-tree-resizing={fileTreeResizeActive}
 	style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 >
+	<Button
+		variant="ghost"
+		size="icon-sm"
+		class="titlebar-file-tree-toggle"
+		aria-label={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+		aria-pressed={fileTreePanelOpen}
+		title={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+		onclick={toggleFileTreePanel}
+	>
+		{#if fileTreePanelOpen}
+			<PanelLeftCloseIcon aria-hidden="true" />
+		{:else}
+			<PanelLeftIcon aria-hidden="true" />
+		{/if}
+	</Button>
+
 	<div class="window-tabbar" aria-label="Open documents">
 		{#each visibleDocumentTabs as tab (tab.id)}
 			<div
@@ -8764,18 +8782,6 @@
 						<p class="file-tree-eyebrow">Folder</p>
 						<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
 					</div>
-
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						class="activity-icon-button file-tree-close-button active"
-						aria-label="Hide file tree"
-						aria-pressed="true"
-						title="Hide file tree"
-						onclick={toggleFileTreePanel}
-					>
-						<PanelLeftCloseIcon aria-hidden="true" />
-					</Button>
 				</header>
 
 				<div class="file-tree-scroll">
@@ -8813,7 +8819,7 @@
 		class="workspace-layout"
 		class:file-tree-visible={fileTreePanelOpen}
 	>
-		{#if !fileTreePanelOpen}
+		{#if !fileTreePanelOpen && !desktopShell}
 			<nav class="activity-rail workspace-activity-rail" aria-label="Workspace views">
 				<Button
 					variant="ghost"
@@ -9268,6 +9274,8 @@
 										<ListOrderedIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'message-square-plus'}
 										<MessageSquarePlusIcon />
+									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left'}
+										<PanelLeftIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left-close'}
 										<PanelLeftCloseIcon />
 									{:else if commandPaletteEntryIcon(row.entry) === 'pencil'}

@@ -485,6 +485,10 @@ textarea:not([data-slot]):focus {
   display: none;
 }
 
+.titlebar-file-tree-toggle {
+  display: none;
+}
+
 .desktop-shell .window-tabbar {
   align-items: center;
   backdrop-filter: blur(28px) saturate(1.45);
@@ -494,7 +498,7 @@ textarea:not([data-slot]):focus {
   gap: 0;
   height: 44px;
   left: 0;
-  padding: 6px 32px 14px 100px;
+  padding: 7px 32px 13px 134px;
   position: fixed;
   right: 0;
   top: 0;
@@ -506,6 +510,49 @@ textarea:not([data-slot]):focus {
 .desktop-shell.file-tree-open .window-tabbar {
   left: calc(var(--file-tree-panel-width) + var(--file-tree-panel-inset));
   padding-left: 8px;
+}
+
+.desktop-shell .titlebar-file-tree-toggle {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: none;
+  color: var(--fg-4);
+  display: inline-flex;
+  height: 26px;
+  left: 96px;
+  min-height: 26px;
+  opacity: 0.78;
+  outline: 0;
+  padding: 0;
+  position: fixed;
+  top: 6px;
+  width: 26px;
+  z-index: 95;
+}
+
+.desktop-shell.file-tree-open .titlebar-file-tree-toggle {
+  left: calc(var(--file-tree-panel-inset) + var(--file-tree-panel-width) - 38px);
+  top: calc(var(--file-tree-panel-top-inset) + 8px);
+}
+
+.desktop-shell .titlebar-file-tree-toggle:hover:not(:disabled),
+.desktop-shell .titlebar-file-tree-toggle:focus-visible {
+  background: var(--glass-control-hover);
+  border-color: var(--glass-border);
+  color: var(--fg);
+  opacity: 1;
+  outline: 0;
+}
+
+.desktop-shell .titlebar-file-tree-toggle:active:not(:disabled) {
+  transform: none;
+}
+
+.desktop-shell .titlebar-file-tree-toggle svg {
+  height: 17px;
+  stroke-width: 1.9;
+  width: 17px;
 }
 
 .document-tab-shell {
@@ -2374,13 +2421,6 @@ button.settings-sidebar-item.active:not([data-slot]) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.file-tree-close-button {
-  border-color: transparent;
-  color: var(--fg-3);
-  flex: 0 0 auto;
-  opacity: 0.82;
 }
 
 .file-tree-list {
