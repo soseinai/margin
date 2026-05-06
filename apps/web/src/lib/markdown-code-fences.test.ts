@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isMarkdownMermaidFenceLanguage,
   isClosingMarkdownFence,
+  markdownFenceContent,
   markdownCodeFenceLanguage,
   openingMarkdownFence
 } from './markdown-code-fences';
@@ -22,6 +24,13 @@ describe('Markdown code fence helpers', () => {
     expect(markdownCodeFenceLanguage('')).toBe('');
   });
 
+  it('recognizes mermaid fence languages', () => {
+    expect(isMarkdownMermaidFenceLanguage('mermaid')).toBe(true);
+    expect(isMarkdownMermaidFenceLanguage('Mermaid')).toBe(true);
+    expect(isMarkdownMermaidFenceLanguage('mmd')).toBe(true);
+    expect(isMarkdownMermaidFenceLanguage('typescript')).toBe(false);
+  });
+
   it('matches closing fences with compatible marker and length', () => {
     const fence = openingMarkdownFence('````ts');
 
@@ -30,5 +39,12 @@ describe('Markdown code fence helpers', () => {
     expect(isClosingMarkdownFence('```', fence!)).toBe(false);
     expect(isClosingMarkdownFence('~~~~', fence!)).toBe(false);
     expect(isClosingMarkdownFence('```` js', fence!)).toBe(false);
+  });
+
+  it('extracts fenced block content without the fence lines', () => {
+    expect(markdownFenceContent(['```mermaid', 'graph TD', 'A-->B', '```'], { start: 1, end: 4 })).toBe(
+      'graph TD\nA-->B'
+    );
+    expect(markdownFenceContent(['```mermaid', 'graph TD'], { start: 1, end: 2 })).toBe('graph TD');
   });
 });

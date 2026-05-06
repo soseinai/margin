@@ -6,6 +6,7 @@ import {
   type MarkdownImageAttributes
 } from '../../markdown-images';
 import {
+  isMarkdownMermaidFenceLanguage,
   isClosingMarkdownFence,
   openingMarkdownFence
 } from '../../markdown-code-fences';
@@ -53,7 +54,11 @@ export function renderPrintMarkdown(markdown: string, options: PrintMarkdownOpti
       }
 
       if (index < lines.length) index += 1;
-      html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+      html.push(
+        isMarkdownMermaidFenceLanguage(fence.language)
+          ? renderMermaidBlock(code.join('\n'))
+          : `<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`
+      );
       continue;
     }
 
@@ -228,6 +233,14 @@ function renderTable(table: MarkdownTable, options: PrintMarkdownOptions) {
     .join('');
 
   return `<table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderMermaidBlock(source: string) {
+  return [
+    `<figure class="print-mermaid-chart" data-mermaid-source="${escapeAttribute(source)}">`,
+    `<pre><code>${escapeHtml(source)}</code></pre>`,
+    '</figure>'
+  ].join('');
 }
 
 function alignmentAttribute(alignment: MarkdownTableAlignment | undefined) {

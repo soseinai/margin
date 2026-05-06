@@ -48,14 +48,12 @@
 		Decoration,
 		EditorView,
 		ViewPlugin,
-		WidgetType,
 		keymap,
 		runScopeHandlers,
 		type Panel,
 		type ViewUpdate
 	} from '@codemirror/view';
 	import { tags } from '@lezer/highlight';
-	import katex from 'katex';
 
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import { onMount, tick } from 'svelte';
@@ -143,25 +141,39 @@
 		type RecentDocument
 	} from './lib/features/documents/local-documents';
 	import {
-		clampImageResize,
 		markdownImageFromMatch,
 		markdownImageOnly,
-		markdownImagePattern,
-		markdownImageSizeCss,
-		markdownImageWithSize,
-		type MarkdownImage
+		markdownImagePattern
 	} from './lib/markdown-images';
-	import type { MarkdownFrontmatter } from './lib/markdown-frontmatter';
 	import { inlineMarkdownMathSpans } from './lib/markdown-math';
-	import {
-		markdownCodeFenceLanguage,
-	} from './lib/markdown-code-fences';
+	import { markdownCodeFenceLanguage } from './lib/markdown-code-fences';
 	import {
 		leadingMarkdownIndent,
 		markdownIndentWidth,
 		sourceMarkdownIndentLengthForWidth
 	} from './lib/markdown-indent';
-	import type { MarkdownTable } from './lib/markdown-tables';
+	import {
+		isMermaidSourceBlock,
+		markdownMermaidBlockSource,
+		renderMermaidIntoElement,
+		resetMermaidTheme
+	} from './lib/live-preview/mermaid';
+	import {
+		CodeLanguageLabelWidget,
+		FrontmatterWidget,
+		HeadingCollapseToggleWidget,
+		HorizontalRuleWidget,
+		ListCollapseToggleWidget,
+		MarkdownImageWidget,
+		MarkdownMathWidget,
+		MarkdownMermaidWidget,
+		MarkdownTableWidget,
+		SourceIndentGuideWidget,
+		SuggestionBadgeWidget,
+		SuggestionWidget,
+		TaskCheckboxWidget,
+		markdownImagePlaceholderAttributes
+	} from './lib/live-preview/widgets/index';
 	import {
 		parsePartialMarkdownTextCore,
 		type ParsedPartialMarkdownTextCore
@@ -438,764 +450,6 @@
 			cursorText: 'Item'
 		}
 	};
-
-	const markdownImageBounds = new Map<string, { width: number; height: number }>();
-	const markdownImageResizeObservers = new WeakMap<HTMLElement, ResizeObserver>();
-
-	class SuggestionWidget extends WidgetType {
-		text = '';
-		id = '';
-		pending = false;
-		status: SuggestionStatus = 'applied';
-		focused = false;
-		label = '';
-		kind: SuggestionSurfaceKind = 'replace';
-
-		constructor(
-			text: string,
-			id: string,
-			pending = false,
-			status: SuggestionStatus = 'applied',
-			focused = false,
-			label = 'edit',
-			kind: SuggestionSurfaceKind = 'replace'
-		) {
-			super();
-			this.text = text;
-			this.id = id;
-			this.pending = pending;
-			this.status = status;
-			this.focused = focused;
-			this.label = label;
-			this.kind = kind;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof SuggestionWidget && other.text === this.text && other.id === this.id && other.pending === this.pending && other.status === this.status && other.focused === this.focused && other.label === this.label && other.kind === this.kind;
-		}
-
-		toDOM() {
-			const mark = document.createElement('mark');
-
-			mark.className = `annotation-mark suggestion suggestion-${this.kind}${this.text ? '' : ' empty-change'}${this.pending ? ' pending' : ''} is-${this.status}${this.focused ? ' is-focused' : ''}`;
-			mark.dataset.threadAnchor = this.id;
-
-			if (this.text) {
-				mark.append(document.createTextNode(this.text));
-			}
-
-			mark.append(suggestionBadgeElement(this.label));
-
-			return mark;
-		}
-	}
-
-	class SuggestionBadgeWidget extends WidgetType {
-		id = '';
-		label = '';
-		pending = false;
-		status: SuggestionStatus = 'applied';
-		focused = false;
-		kind: SuggestionSurfaceKind = 'replace';
-
-		constructor(
-			id: string,
-			label: string,
-			pending = false,
-			status: SuggestionStatus = 'applied',
-			focused = false,
-			kind: SuggestionSurfaceKind = 'replace'
-		) {
-			super();
-			this.id = id;
-			this.label = label;
-			this.pending = pending;
-			this.status = status;
-			this.focused = focused;
-			this.kind = kind;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof SuggestionBadgeWidget && other.id === this.id && other.label === this.label && other.pending === this.pending && other.status === this.status && other.focused === this.focused && other.kind === this.kind;
-		}
-
-		toDOM() {
-			const badge = suggestionBadgeElement(this.label);
-
-			badge.classList.add('inline-suggestion-badge', `suggestion-${this.kind}`, `is-${this.status}`);
-
-			if (this.pending) badge.classList.add('pending');
-			if (this.focused) badge.classList.add('is-focused');
-
-			badge.dataset.threadAnchor = this.id;
-
-			return badge;
-		}
-	}
-
-	function suggestionBadgeElement(label: string) {
-		const badge = document.createElement('span');
-
-		badge.className = 'annotation-badge';
-		badge.textContent = label;
-
-		return badge;
-	}
-
-	class TaskCheckboxWidget extends WidgetType {
-		checked = false;
-		checkPosition = 0;
-
-		constructor(checked: boolean, checkPosition: number) {
-			super();
-			this.checked = checked;
-			this.checkPosition = checkPosition;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof TaskCheckboxWidget && other.checked === this.checked && other.checkPosition === this.checkPosition;
-		}
-
-		toDOM(view: EditorView) {
-			const button = document.createElement('button');
-
-			button.type = 'button';
-			button.dataset.slot = 'task-checkbox';
-			button.className = `task-checkbox-widget${this.checked ? ' checked' : ''}`;
-			button.setAttribute('aria-label', this.checked ? 'Mark task incomplete' : 'Mark task complete');
-			button.setAttribute('aria-checked', String(this.checked));
-			button.setAttribute('role', 'checkbox');
-			button.addEventListener('mousedown', (event) => event.preventDefault());
-
-			button.addEventListener('click', (event) => {
-				event.preventDefault();
-
-				view.dispatch({
-					changes: {
-						from: this.checkPosition,
-						to: this.checkPosition + 1,
-						insert: this.checked ? ' ' : 'x'
-					}
-				});
-
-				view.focus();
-			});
-
-			return button;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class ListCollapseToggleWidget extends WidgetType {
-		key = '';
-		collapsed = false;
-		lineNumber = 1;
-
-		constructor(key: string, collapsed: boolean, lineNumber: number) {
-			super();
-			this.key = key;
-			this.collapsed = collapsed;
-			this.lineNumber = lineNumber;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof ListCollapseToggleWidget
-				&& other.key === this.key
-				&& other.collapsed === this.collapsed
-				&& other.lineNumber === this.lineNumber;
-		}
-
-		toDOM(view: EditorView) {
-			const button = document.createElement('button');
-
-			button.type = 'button';
-			button.dataset.slot = 'list-collapse-toggle';
-			button.className = `markdown-list-collapse-toggle${this.collapsed ? ' is-collapsed' : ''}`;
-			button.setAttribute('aria-label', this.collapsed ? 'Expand list item' : 'Collapse list item');
-			button.setAttribute('aria-expanded', String(!this.collapsed));
-
-			const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-
-			icon.classList.add('markdown-list-collapse-icon');
-			icon.setAttribute('aria-hidden', 'true');
-			icon.setAttribute('focusable', 'false');
-			icon.setAttribute('viewBox', '0 0 16 16');
-			path.setAttribute('d', 'M4.75 6.25L8 9.5L11.25 6.25');
-			icon.append(path);
-			button.append(icon);
-
-			button.addEventListener('mousedown', (event) => event.preventDefault());
-			button.addEventListener('click', (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-
-				toggleMarkdownListCollapse(view, this.key, this.lineNumber);
-				view.focus();
-			});
-
-			return button;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class HeadingCollapseToggleWidget extends WidgetType {
-		key = '';
-		collapsed = false;
-		lineNumber = 1;
-
-		constructor(key: string, collapsed: boolean, lineNumber: number) {
-			super();
-			this.key = key;
-			this.collapsed = collapsed;
-			this.lineNumber = lineNumber;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof HeadingCollapseToggleWidget
-				&& other.key === this.key
-				&& other.collapsed === this.collapsed
-				&& other.lineNumber === this.lineNumber;
-		}
-
-		toDOM(view: EditorView) {
-			const button = document.createElement('button');
-
-			button.type = 'button';
-			button.dataset.slot = 'heading-collapse-toggle';
-			button.className = `markdown-heading-collapse-toggle${this.collapsed ? ' is-collapsed' : ''}`;
-			button.setAttribute('aria-label', this.collapsed ? 'Expand heading section' : 'Collapse heading section');
-			button.setAttribute('aria-expanded', String(!this.collapsed));
-
-			const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-			const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-
-			icon.classList.add('markdown-heading-collapse-icon');
-			icon.setAttribute('aria-hidden', 'true');
-			icon.setAttribute('focusable', 'false');
-			icon.setAttribute('viewBox', '0 0 16 16');
-			path.setAttribute('d', 'M4.75 6.25L8 9.5L11.25 6.25');
-			icon.append(path);
-			button.append(icon);
-
-			button.addEventListener('mousedown', (event) => event.preventDefault());
-			button.addEventListener('click', (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-
-				toggleMarkdownHeadingCollapse(view, this.key, this.lineNumber);
-				view.focus();
-			});
-
-			return button;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class HorizontalRuleWidget extends WidgetType {
-		lineNumber = 1;
-
-		constructor(lineNumber: number) {
-			super();
-			this.lineNumber = lineNumber;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof HorizontalRuleWidget && other.lineNumber === this.lineNumber;
-		}
-
-		toDOM(view: EditorView) {
-			const rule = document.createElement('div');
-
-			rule.className = 'markdown-horizontal-rule-widget';
-			rule.tabIndex = 0;
-			rule.setAttribute('role', 'separator');
-			rule.setAttribute('aria-label', 'Edit horizontal rule');
-
-			const editRule = (event: Event) => {
-				event.preventDefault();
-
-				const line = view.state.doc.line(Math.min(this.lineNumber, view.state.doc.lines));
-
-				view.dispatch({ selection: { anchor: line.from } });
-				view.focus();
-			};
-
-			rule.addEventListener('mousedown', editRule);
-
-			rule.addEventListener('keydown', (event) => {
-				if (event.key === 'Enter') editRule(event);
-			});
-
-			return rule;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class MarkdownMathWidget extends WidgetType {
-		source = '';
-		displayMode = false;
-		lineNumber = 1;
-		editPosition = 0;
-		key = '';
-
-		constructor(source: string, displayMode: boolean, lineNumber: number, editPosition: number) {
-			super();
-			this.source = source;
-			this.displayMode = displayMode;
-			this.lineNumber = lineNumber;
-			this.editPosition = editPosition;
-			this.key = `${displayMode}:${source}:${lineNumber}:${editPosition}`;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof MarkdownMathWidget && other.key === this.key;
-		}
-
-		toDOM(view: EditorView) {
-			const wrapper = document.createElement('span');
-
-			wrapper.className = `markdown-math-widget ${this.displayMode ? 'display' : 'inline'}`;
-			wrapper.tabIndex = 0;
-			wrapper.setAttribute('role', 'button');
-			wrapper.setAttribute('aria-label', this.displayMode ? 'Edit display math' : 'Edit inline math');
-
-			try {
-				katex.render(this.source, wrapper, {
-					displayMode: this.displayMode,
-					throwOnError: false,
-					strict: 'ignore',
-					trust: false
-				});
-			} catch (error) {
-				wrapper.classList.add('is-error');
-				wrapper.textContent = this.source;
-				wrapper.title = error instanceof Error ? error.message : 'Unable to render math';
-			}
-
-			const editMath = (event: Event) => {
-				event.preventDefault();
-
-				const position = Math.min(this.editPosition, view.state.doc.length);
-
-				view.dispatch({ selection: { anchor: position } });
-				view.focus();
-			};
-
-			wrapper.addEventListener('mousedown', editMath);
-
-			wrapper.addEventListener('keydown', (event) => {
-				const keyboardEvent = event as KeyboardEvent;
-
-				if (keyboardEvent.key === 'Enter') editMath(keyboardEvent);
-			});
-
-			return wrapper;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class CodeLanguageLabelWidget extends WidgetType {
-		language = '';
-
-		constructor(language: string) {
-			super();
-			this.language = language;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof CodeLanguageLabelWidget && other.language === this.language;
-		}
-
-		toDOM() {
-			const label = document.createElement('span');
-
-			label.className = 'markdown-code-language-label';
-			label.textContent = this.language;
-			label.setAttribute('aria-label', `Code language: ${this.language}`);
-
-			return label;
-		}
-	}
-
-	class SourceIndentGuideWidget extends WidgetType {
-		toDOM() {
-			const guide = document.createElement('span');
-
-			guide.className = 'cm-source-indent-guide';
-			guide.setAttribute('aria-hidden', 'true');
-
-			return guide;
-		}
-	}
-
-	class MarkdownImageWidget extends WidgetType {
-		image: MarkdownImage;
-		lineNumber = 1;
-		from = 0;
-		to = 0;
-		block = false;
-		key = '';
-
-		constructor(image: MarkdownImage, lineNumber: number, from: number, to: number, block = false) {
-			super();
-			this.image = image;
-			this.lineNumber = lineNumber;
-			this.from = from;
-			this.to = to;
-			this.block = block;
-			this.key = `${JSON.stringify(image)}:${from}:${to}:${block}`;
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof MarkdownImageWidget && other.lineNumber === this.lineNumber && other.key === this.key;
-		}
-
-		toDOM(view: EditorView) {
-			const wrapper = document.createElement(this.block ? 'figure' : 'span');
-			const image = document.createElement('img');
-			const fallback = document.createElement('span');
-			const resizeHandle = document.createElement('button');
-			const resolvedSrc = resolveMarkdownImageSrc(this.image.src);
-
-			wrapper.className = `markdown-image-widget ${this.block ? 'block' : 'inline'}`;
-			wrapper.tabIndex = 0;
-			wrapper.setAttribute('role', 'button');
-			wrapper.setAttribute('aria-label', 'Edit Markdown image');
-
-			image.alt = this.image.alt;
-			image.decoding = 'async';
-			image.loading = 'lazy';
-			image.draggable = false;
-			if (this.image.title) image.title = this.image.title;
-			applyMarkdownImageSize(image, this.image);
-
-			if (resolvedSrc) {
-				image.src = resolvedSrc;
-			} else {
-				wrapper.classList.add('is-missing');
-			}
-
-			fallback.className = 'markdown-image-fallback';
-			fallback.textContent = this.image.alt || this.image.src || 'Image';
-			resizeHandle.type = 'button';
-			resizeHandle.className = 'markdown-image-resize-handle';
-			resizeHandle.setAttribute('aria-label', 'Resize image');
-
-			const resizeGrip = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-			resizeGrip.classList.add('markdown-image-resize-grip');
-			resizeGrip.setAttribute('aria-hidden', 'true');
-			resizeGrip.setAttribute('focusable', 'false');
-			resizeGrip.setAttribute('viewBox', '0 0 24 24');
-
-			for (const pathData of ['M22 7L7 22', 'M22 13L13 22', 'M22 19L19 22']) {
-				const gripLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-
-				gripLine.setAttribute('d', pathData);
-				resizeGrip.append(gripLine);
-			}
-
-			resizeHandle.append(resizeGrip);
-			resizeHandle.addEventListener('mousedown', (event) => {
-				this.startResize(event, view, image, wrapper);
-			});
-
-			wrapper.append(image, fallback, resizeHandle);
-
-			const rememberBounds = () => {
-				const rect = image.getBoundingClientRect();
-
-				if (rect.width <= 0 || rect.height <= 0) return;
-
-				markdownImageBounds.set(markdownImageBoundsKey(this.image), {
-					width: Math.round(rect.width),
-					height: Math.round(rect.height)
-				});
-			};
-
-			let measureFrame = 0;
-			const refreshGeometry = () => {
-				if (measureFrame) return;
-
-				measureFrame = window.requestAnimationFrame(() => {
-					measureFrame = 0;
-					rememberBounds();
-					view.requestMeasure();
-					window.requestAnimationFrame(updateAnchorPositions);
-				});
-			};
-
-			image.addEventListener('error', () => {
-				wrapper.classList.add('is-missing');
-				refreshGeometry();
-			});
-
-			image.addEventListener('load', refreshGeometry);
-			if (image.complete) refreshGeometry();
-
-			if (typeof ResizeObserver === 'function') {
-				const observer = new ResizeObserver(refreshGeometry);
-
-				observer.observe(wrapper);
-				observer.observe(image);
-				markdownImageResizeObservers.set(wrapper, observer);
-			}
-
-			const editImage = (event: Event) => {
-				event.preventDefault();
-
-				const line = view.state.doc.line(Math.min(this.lineNumber, view.state.doc.lines));
-
-				view.dispatch({ selection: { anchor: line.from } });
-				view.focus();
-			};
-
-			wrapper.addEventListener('mousedown', editImage);
-
-			wrapper.addEventListener('keydown', (event) => {
-				if (event.key === 'Enter') editImage(event);
-			});
-
-			return wrapper;
-		}
-
-		startResize(
-			event: MouseEvent,
-			view: EditorView,
-			image: HTMLImageElement,
-			wrapper: HTMLElement
-		) {
-			event.preventDefault();
-			event.stopPropagation();
-
-			const rect = image.getBoundingClientRect();
-
-			if (rect.width <= 0 || rect.height <= 0) return;
-
-			const startX = event.clientX;
-			const startY = event.clientY;
-			const startWidth = rect.width;
-			const startHeight = rect.height;
-			let nextWidth = Math.round(startWidth);
-			let nextHeight = Math.round(startHeight);
-
-			wrapper.classList.add('is-resizing');
-
-			const onMove = (moveEvent: MouseEvent) => {
-				moveEvent.preventDefault();
-
-				nextWidth = clampImageResize(startWidth + moveEvent.clientX - startX);
-				nextHeight = clampImageResize(startHeight + moveEvent.clientY - startY);
-				image.style.width = `${nextWidth}px`;
-				image.style.height = `${nextHeight}px`;
-
-				markdownImageBounds.set(markdownImageBoundsKey(this.image), {
-					width: nextWidth,
-					height: nextHeight
-				});
-			};
-
-			const onUp = (upEvent: MouseEvent) => {
-				upEvent.preventDefault();
-				wrapper.classList.remove('is-resizing');
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-
-				replaceMarkdownImageSize(view, this.image, this.from, this.to, nextWidth, nextHeight);
-			};
-
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-
-		destroy(dom: HTMLElement) {
-			markdownImageResizeObservers.get(dom)?.disconnect();
-			markdownImageResizeObservers.delete(dom);
-		}
-	}
-
-	class FrontmatterWidget extends WidgetType {
-		frontmatter: MarkdownFrontmatter;
-		startLine = 1;
-		key = '';
-
-		constructor(frontmatter: MarkdownFrontmatter, startLine: number) {
-			super();
-			this.frontmatter = frontmatter;
-			this.startLine = startLine;
-			this.key = JSON.stringify(frontmatter);
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof FrontmatterWidget && other.startLine === this.startLine && other.key === this.key;
-		}
-
-		toDOM(view: EditorView) {
-			const wrapper = document.createElement('div');
-
-			wrapper.className = 'markdown-frontmatter-widget';
-			wrapper.tabIndex = 0;
-			wrapper.setAttribute('role', 'button');
-			wrapper.setAttribute('aria-label', 'Edit front matter');
-
-			const title = document.createElement('div');
-
-			title.className = 'markdown-frontmatter-title';
-			title.textContent = 'front matter';
-			wrapper.append(title);
-
-			if (this.frontmatter.entries.length > 0) {
-				const list = document.createElement('dl');
-
-				list.className = 'markdown-frontmatter-list';
-
-				this.frontmatter.entries.forEach((entry) => {
-					const key = document.createElement('dt');
-					const value = document.createElement('dd');
-
-					key.textContent = entry.key;
-					value.textContent = entry.value;
-					list.append(key, value);
-				});
-
-				wrapper.append(list);
-			} else {
-				const raw = document.createElement('pre');
-
-				raw.className = 'markdown-frontmatter-raw';
-				raw.textContent = this.frontmatter.rawLines.filter((line) => line.trim()).join('\n');
-				wrapper.append(raw);
-			}
-
-			const editFrontmatter = (event: Event) => {
-				event.preventDefault();
-
-				const line = view.state.doc.line(Math.min(this.startLine, view.state.doc.lines));
-
-				view.dispatch({ selection: { anchor: line.from } });
-				view.focus();
-			};
-
-			wrapper.addEventListener('mousedown', editFrontmatter);
-
-			wrapper.addEventListener('keydown', (event) => {
-				if (event.key === 'Enter') editFrontmatter(event);
-			});
-
-			return wrapper;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	class MarkdownTableWidget extends WidgetType {
-		table: MarkdownTable;
-		startLine = 1;
-		key = '';
-
-		constructor(table: MarkdownTable, startLine: number) {
-			super();
-			this.table = table;
-			this.startLine = startLine;
-			this.key = JSON.stringify(table);
-		}
-
-		eq(other: WidgetType) {
-			return other instanceof MarkdownTableWidget && other.startLine === this.startLine && other.key === this.key;
-		}
-
-		toDOM(view: EditorView) {
-			const wrapper = document.createElement('div');
-
-			wrapper.className = 'markdown-table-widget';
-			wrapper.tabIndex = 0;
-			wrapper.setAttribute('role', 'button');
-			wrapper.setAttribute('aria-label', 'Edit Markdown table');
-
-			const table = document.createElement('table');
-			const thead = document.createElement('thead');
-			const headerRow = document.createElement('tr');
-
-			this.table.headers.forEach((header, index) => {
-				const cell = document.createElement('th');
-
-				cell.textContent = header;
-				setTableCellAlignment(cell, this.table.alignments[index]);
-				headerRow.append(cell);
-			});
-
-			thead.append(headerRow);
-			table.append(thead);
-
-			const tbody = document.createElement('tbody');
-
-			this.table.rows.forEach((row) => {
-				const tableRow = document.createElement('tr');
-
-				for (let index = 0; index < this.table.headers.length; index += 1) {
-					const cell = document.createElement('td');
-
-					cell.textContent = row[index] ?? '';
-					setTableCellAlignment(cell, this.table.alignments[index]);
-					tableRow.append(cell);
-				}
-
-				tbody.append(tableRow);
-			});
-
-			table.append(tbody);
-			wrapper.append(table);
-
-			const editTable = (event: Event) => {
-				event.preventDefault();
-
-				const line = view.state.doc.line(Math.min(this.startLine, view.state.doc.lines));
-
-				view.dispatch({ selection: { anchor: line.from } });
-				view.focus();
-			};
-
-			wrapper.addEventListener('mousedown', editTable);
-
-			wrapper.addEventListener('keydown', (event) => {
-				if (event.key === 'Enter') editTable(event);
-			});
-
-			return wrapper;
-		}
-
-		ignoreEvent() {
-			return false;
-		}
-	}
-
-	function setTableCellAlignment(
-		cell: HTMLTableCellElement,
-		alignment: 'left' | 'center' | 'right' | null
-	) {
-		if (alignment) cell.dataset.align = alignment;
-	}
 
 	const setThreadsEffect = StateEffect.define<ThreadView[]>();
 	const setActiveThreadEffect = StateEffect.define<string>();
@@ -1927,6 +1181,24 @@
 			}).range(startLine.from, blockEnd.to));
 		}
 
+		for (const block of markdownModel.fencedBlocks) {
+			if (!isMermaidSourceBlock(block) || livePreviewBlockHidden(markdownModel, block.start)) continue;
+			if (sourceMode.decisionForLine(block.start).active) continue;
+
+			const startLine = state.doc.line(block.start);
+			const blockEnd = state.doc.line(block.end);
+
+			ranges.push(Decoration.replace({
+				widget: new MarkdownMermaidWidget(
+					markdownMermaidBlockSource(markdownModel, block),
+					block.start,
+					startLine.from,
+					updateAnchorPositions
+				),
+				block: true
+			}).range(startLine.from, blockEnd.to));
+		}
+
 		for (const block of markdownModel.tableBlocks) {
 			if (!block.table || livePreviewBlockHidden(markdownModel, block.start)) continue;
 			if (sourceMode.decisionForLine(block.start).active) continue;
@@ -1965,7 +1237,14 @@
 			if (imageLine) {
 				if (!sourceMode.decisionForLine(line.number).active) {
 					ranges.push(Decoration.replace({
-						widget: new MarkdownImageWidget(imageLine, line.number, line.from, line.to, true),
+						widget: new MarkdownImageWidget(
+							imageLine,
+							line.number,
+							line.from,
+							line.to,
+							markdownImageWidgetOptions(),
+							true
+						),
 						block: true
 					}).range(line.from, line.to));
 				}
@@ -2093,6 +1372,8 @@
 				const boundary = line.number === fencedBlock.start || line.number === fencedBlock.end;
 				const emptyCodeBlock = fencedBlock.end === fencedBlock.start + 1;
 				const listContext = active ? null : markdownModel.listContainerInfo(fencedBlock.start);
+
+				if (isMermaidSourceBlock(fencedBlock) && !active) continue;
 
 				const classes = active
 					? `cm-live-codeblock-line ${activeClass}`
@@ -2270,7 +1551,12 @@
 
 				if (headingCollapseKey) {
 					ranges.push(Decoration.widget({
-						widget: new HeadingCollapseToggleWidget(headingCollapseKey, headingCollapsed, line.number),
+						widget: new HeadingCollapseToggleWidget(
+							headingCollapseKey,
+							headingCollapsed,
+							line.number,
+							toggleMarkdownHeadingCollapse
+						),
 						side: -1
 					}).range(line.from));
 				}
@@ -2317,7 +1603,12 @@
 
 				if (taskCollapseKey) {
 					ranges.push(Decoration.widget({
-						widget: new ListCollapseToggleWidget(taskCollapseKey, taskCollapsed, line.number),
+						widget: new ListCollapseToggleWidget(
+							taskCollapseKey,
+							taskCollapsed,
+							line.number,
+							toggleMarkdownListCollapse
+						),
 						side: -1
 					}).range(line.from));
 				}
@@ -2372,7 +1663,12 @@
 
 				if (itemCollapseKey) {
 					ranges.push(Decoration.widget({
-						widget: new ListCollapseToggleWidget(itemCollapseKey, itemCollapsed, line.number),
+						widget: new ListCollapseToggleWidget(
+							itemCollapseKey,
+							itemCollapsed,
+							line.number,
+							toggleMarkdownListCollapse
+						),
 						side: -1
 					}).range(line.from));
 				}
@@ -2707,12 +2003,11 @@
 		return tauriFileSrc(imagePath);
 	}
 
-	function applyMarkdownImageSize(imageElement: HTMLImageElement, image: MarkdownImage) {
-		const width = markdownImageSizeCss(image.attrs.width);
-		const height = markdownImageSizeCss(image.attrs.height);
-
-		if (width) imageElement.style.width = width;
-		if (height) imageElement.style.height = height;
+	function markdownImageWidgetOptions() {
+		return {
+			resolveImageSrc: resolveMarkdownImageSrc,
+			onGeometryChange: updateAnchorPositions
+		};
 	}
 
 	function isExternalImageSource(src: string) {
@@ -2740,39 +2035,6 @@
 		const prefix = (/^[A-Za-z]:\//).test(normalized) ? 'file:///' : 'file://';
 
 		return `${prefix}${normalized.split('/').map(encodeURIComponent).join('/')}`;
-	}
-
-	function markdownImageBoundsKey(image: MarkdownImage) {
-		return image.src;
-	}
-
-	function markdownImagePlaceholderAttributes(image: MarkdownImage) {
-		const bounds = markdownImageBounds.get(markdownImageBoundsKey(image));
-
-		if (!bounds) return undefined;
-
-		return {
-			style: `--markdown-image-placeholder-width: ${bounds.width}px; --markdown-image-placeholder-height: ${bounds.height}px;`
-		};
-	}
-
-	function replaceMarkdownImageSize(
-		view: EditorView,
-		image: MarkdownImage,
-		from: number,
-		to: number,
-		width: number,
-		height: number
-	) {
-		if (from < 0 || to > view.state.doc.length || from >= to) return;
-
-		view.dispatch({
-			changes: {
-				from,
-				to,
-				insert: markdownImageWithSize(image, width, height)
-			}
-		});
 	}
 
 	function isHorizontalRuleLine(text: string) {
@@ -2986,7 +2248,13 @@
 			if (!image || !claim(from, to)) continue;
 
 			ranges.push(Decoration.replace({
-				widget: new MarkdownImageWidget(image, line.number, line.from + from, line.from + to),
+				widget: new MarkdownImageWidget(
+					image,
+					line.number,
+					line.from + from,
+					line.from + to,
+					markdownImageWidgetOptions()
+				),
 				inclusive: false
 			}).range(line.from + from, line.from + to));
 		}
@@ -4574,7 +3842,8 @@
 
 		return [
 			...imageBlocks,
-			...markdownModel.mathBlocks
+			...markdownModel.mathBlocks,
+			...markdownModel.fencedBlocks.filter(isMermaidSourceBlock)
 		];
 	}
 
@@ -5503,6 +4772,9 @@
 		} else {
 			document.documentElement.dataset.theme = theme;
 		}
+
+		resetMermaidTheme();
+		mainEditor?.dispatch({ effects: refreshLivePreviewEffect.of() });
 	}
 
 	function clearUpdateAutoCheckTimer() {
@@ -7263,6 +6535,7 @@
 			? []
 			: printAppendixCandidateThreads;
 		await tick();
+		await renderPrintMermaidCharts();
 
 		const nativePrint = desktopShell ? tauriInvoke<void>('print_window') : null;
 
@@ -7277,6 +6550,19 @@
 		}
 
 		window.print();
+	}
+
+	async function renderPrintMermaidCharts() {
+		const charts = Array.from(
+			document.querySelectorAll<HTMLElement>('.print-document-body .print-mermaid-chart[data-mermaid-source]')
+		);
+
+		await Promise.all(charts.map(async (chart) => {
+			const source = chart.dataset.mermaidSource ?? '';
+
+			chart.classList.add('markdown-mermaid-widget');
+			await renderMermaidIntoElement(chart, source);
+		}));
 	}
 
 	function isAbortError(err: unknown) {
