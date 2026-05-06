@@ -37,8 +37,17 @@ type TauriMockOptions = {
   chosenDocumentPath?: string | null;
   chosenDirectoryPath?: string | null;
   chosenSavePath?: string | null;
-  settings?: { theme: string; localUserName: string };
+  settings?: { theme: string; localUserName: string; soseinCloudEnabled?: boolean };
   recentDocuments?: Array<{ path: string; title: string; openedAt: number }>;
+  soseinDocuments?: Array<{
+    id: string;
+    title: string;
+    content_type: string;
+    current_snapshot_version: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  soseinDocumentsStatus?: number;
   update?: { currentVersion: string; version: string; notes?: string | null } | null;
   confirmClose?: boolean;
   writeSettingsError?: string;
@@ -383,6 +392,8 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
     let chosenSavePath = mockOptions.chosenSavePath ?? null;
     let settings = mockOptions.settings ?? { theme: 'auto', localUserName: 'Me' };
     let recentDocuments = mockOptions.recentDocuments ?? [];
+    let soseinDocuments = mockOptions.soseinDocuments ?? [];
+    let soseinDocumentsStatus = mockOptions.soseinDocumentsStatus ?? 200;
     let update = mockOptions.update ?? null;
     let confirmClose = mockOptions.confirmClose ?? true;
     let writeSettingsError = mockOptions.writeSettingsError ?? '';
@@ -511,7 +522,80 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
             if (command === 'watch_markdown_document') return undefined;
             if (command === 'confirm_close_tab') return confirmClose;
             if (command === 'quit_app') return undefined;
+            if (command === 'set_window_tab_state') return undefined;
+            if (command === 'close_last_tab_or_quit_app') return undefined;
             if (command === 'print_window') return undefined;
+            if (command === 'open_sosein_workspace_window') return undefined;
+
+            if (command === 'sosein_cloud_enabled') return settings.soseinCloudEnabled === true;
+
+            if (command === 'sosein_api_request') {
+              const path = args?.path as string;
+              const method = args?.method as string;
+
+              if (path === '/v1/auth/session/validate') {
+                return {
+                  status: 200,
+                  body: {
+                    user: { id: 'user-1', email: 'alice@example.com' },
+                    expires_at: '2026-05-06T12:00:00Z'
+                  },
+                  bodyText: '{"ok":true}'
+                };
+              }
+
+              if (path === '/v1/documents' && method === 'GET') {
+                if (soseinDocumentsStatus < 200 || soseinDocumentsStatus >= 300) {
+                  return {
+                    status: soseinDocumentsStatus,
+                    body: null,
+                    bodyText: soseinDocumentsStatus === 404 ? 'Not found' : `Sosein error ${soseinDocumentsStatus}`
+                  };
+                }
+
+                return {
+                  status: 200,
+                  body: { documents: soseinDocuments },
+                  bodyText: JSON.stringify({ documents: soseinDocuments })
+                };
+              }
+
+              const documentMatch = /^\/v1\/documents\/([^/]+)$/.exec(path);
+
+              if (documentMatch && method === 'GET') {
+                const document = soseinDocuments.find((candidate) => candidate.id === decodeURIComponent(documentMatch[1]));
+
+                if (!document) {
+                  return { status: 404, body: null, bodyText: 'Not found' };
+                }
+
+                return {
+                  status: 200,
+                  body: {
+                    id: document.id,
+                    title: document.title,
+                    content_type: document.content_type,
+                    latest_snapshot: {
+                      version: document.current_snapshot_version,
+                      yrs_state_hash: 'test-yrs',
+                      markdown_content: '',
+                      markdown_content_hash: 'test-md'
+                    }
+                  },
+                  bodyText: JSON.stringify(document)
+                };
+              }
+
+              if (/^\/v1\/documents\/[^/]+\/sync-ticket$/.test(path) && method === 'POST') {
+                return {
+                  status: 200,
+                  body: { ticket: 'test-ticket', expires_at: '2026-05-06T12:05:00Z' },
+                  bodyText: '{"ticket":"test-ticket"}'
+                };
+              }
+
+              return { status: 500, body: null, bodyText: `Unexpected Sosein request ${method} ${path}` };
+            }
 
             if (command === 'check_for_app_update') {
               if (checkUpdateError) throw new Error(checkUpdateError);

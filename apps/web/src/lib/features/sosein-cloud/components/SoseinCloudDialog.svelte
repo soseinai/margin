@@ -28,6 +28,7 @@
 	export let closeDialog: () => void = () => {};
 	export let disconnectSession: () => void = () => {};
 	export let startOAuthLogin: () => MaybePromise = () => {};
+	export let openWorkspace: () => MaybePromise = () => {};
 	export let refreshDocuments: () => MaybePromise = () => {};
 	export let createDocument: () => MaybePromise = () => {};
 	export let openDocument: (document: SoseinDocumentSummary | SoseinDocument) => MaybePromise = () => {};
@@ -67,12 +68,20 @@
 
 					<div class="settings-row-control">
 						{#if session}
-							<Button
-								variant="outline"
-								size="sm"
-								class="ghost-button"
-								onclick={disconnectSession}
-							>Disconnect</Button>
+							<div class="sosein-session-actions">
+								<Button
+									size="sm"
+									class="primary"
+									onclick={openWorkspace}
+								>Open Workspace</Button>
+
+								<Button
+									variant="outline"
+									size="sm"
+									class="ghost-button"
+									onclick={disconnectSession}
+								>Disconnect</Button>
+							</div>
 						{:else}
 							<Button
 								size="sm"

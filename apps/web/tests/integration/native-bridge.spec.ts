@@ -83,6 +83,23 @@ test('routes native menu events through the frontend contract', async ({ page })
   await expect(page.getByRole('dialog', { name: 'General' })).toBeVisible();
 });
 
+test('ignores native menu events in an unfocused desktop window', async ({ page }) => {
+  await installTauriMock(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(document, 'hasFocus', {
+      configurable: true,
+      value: () => false
+    });
+  });
+  await openCleanApp(page, '/?desktop-preview');
+
+  await emitTauriEvent(page, 'margin://new-document');
+  await expect(page.getByRole('heading', { name: 'Untitled 2.md' })).toHaveCount(0);
+
+  await emitTauriEvent(page, 'margin://open-command-palette');
+  await expect(page.getByRole('dialog', { name: 'Command Palette' })).toHaveCount(0);
+});
+
 test('can omit the margin notes appendix from native print', async ({ page }) => {
   await installTauriMock(page);
   await openCleanApp(page, '/?desktop-preview');
