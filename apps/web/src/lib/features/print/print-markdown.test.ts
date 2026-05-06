@@ -47,4 +47,14 @@ describe('renderPrintMarkdown', () => {
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('javascript:');
   });
+
+  it('renders mermaid fences as printable chart containers with escaped fallback source', () => {
+    const html = renderPrintMarkdown(['```mermaid', 'graph TD', 'A["<safe>"] --> B', '```'].join('\n'));
+
+    expect(html).toContain('class="print-mermaid-chart"');
+    expect(html).toContain('data-mermaid-source="graph TD');
+    expect(html).toContain('A[&quot;&lt;safe&gt;&quot;] --&gt; B');
+    expect(html).toContain('<pre><code>graph TD');
+    expect(html).toContain('&lt;safe&gt;');
+  });
 });

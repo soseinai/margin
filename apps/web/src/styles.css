@@ -3685,6 +3685,73 @@ button.task-checkbox-widget.checked::after {
   padding: 1px 4px;
 }
 
+.markdown-mermaid-widget {
+  background: color-mix(in srgb, var(--surface-muted) 34%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 34%, transparent);
+  border-radius: 4px;
+  cursor: text;
+  margin: 10px -10px 24px;
+  max-width: calc(100% + 20px);
+  min-height: 116px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.markdown-mermaid-widget:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  outline-offset: 2px;
+}
+
+.markdown-mermaid-widget.is-rendered {
+  min-height: auto;
+}
+
+.markdown-mermaid-widget.is-error {
+  background: color-mix(in srgb, var(--error-bg) 70%, transparent);
+  border-color: color-mix(in srgb, var(--error-border) 72%, transparent);
+}
+
+.markdown-mermaid-body {
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
+  display: grid;
+  font-family: var(--font-plex-mono);
+  font-size: 12.5px;
+  justify-items: center;
+  line-height: 1.45;
+  min-width: max-content;
+}
+
+.markdown-mermaid-body svg {
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.markdown-mermaid-error {
+  color: var(--error-text);
+  justify-self: stretch;
+  min-width: min(100%, 420px);
+}
+
+.markdown-mermaid-error p {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.markdown-mermaid-error pre {
+  background: color-mix(in srgb, var(--surface-muted) 58%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error-border) 48%, transparent);
+  color: var(--text);
+  font-family: var(--font-plex-mono);
+  font-size: 12.5px;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
 .markdown-image-widget {
   cursor: text;
   max-width: 100%;
@@ -5907,6 +5974,28 @@ blockquote {
     height: auto;
     margin: 0.08in 0 0.16in;
     max-width: 100%;
+  }
+
+  .print-document-body .print-mermaid-chart {
+    background: transparent;
+    border: 0;
+    break-inside: avoid;
+    margin: 0 0 0.16in;
+    max-width: 100%;
+    min-height: auto;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .print-document-body .print-mermaid-chart svg {
+    display: block;
+    height: auto;
+    margin: 0 auto;
+    max-width: 100%;
+  }
+
+  .print-document-body .print-mermaid-chart pre {
+    margin: 0 0 0.14in;
   }
 
   .print-document-body hr {
