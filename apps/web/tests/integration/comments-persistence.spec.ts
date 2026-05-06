@@ -8,6 +8,7 @@ import {
   openCleanApp,
   pressMod,
   replaceEditorMarkdown,
+  runCommand,
   selectAllEditorText,
   setEditorSelection,
   setFilePickerOpenFiles
@@ -41,7 +42,7 @@ test('adds, focuses, resolves, saves, and reopens local comments', async ({ page
   await openCommentComposer(page);
   await page.getByPlaceholder('Add a comment').fill('Persist this comment.');
   await page.getByRole('button', { name: 'Comment' }).click();
-  await page.getByLabel('Save document', { exact: true }).click();
+  await runCommand(page, 'Save Document');
 
   const snapshot = await filePickerSnapshot(page);
   const savedMarkdown = snapshot.saveWrites.at(-1) ?? '';
@@ -50,8 +51,8 @@ test('adds, focuses, resolves, saves, and reopens local comments', async ({ page
   expect(savedMarkdown).toContain('"body": "Persist this comment."');
 
   await setFilePickerOpenFiles(page, [{ name: 'Commented.md', markdown: savedMarkdown }]);
-  await page.getByLabel('New document', { exact: true }).click();
-  await page.getByLabel('Open document', { exact: true }).click();
+  await runCommand(page, 'New Document');
+  await runCommand(page, 'Open Document...');
 
   await expect(page.getByRole('heading', { name: 'Commented.md' })).toBeVisible();
   await expect(editor(page)).toContainText('Comment target');

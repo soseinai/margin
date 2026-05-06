@@ -5,6 +5,7 @@ import {
   openCommentComposer,
   openCleanApp,
   replaceEditorMarkdown,
+  runCommand,
   selectAllEditorText,
   setTauriUpdate,
   setTauriWriteSettingsError,
@@ -14,7 +15,7 @@ import {
 test('persists browser theme and local author name across reloads', async ({ page }) => {
   await openCleanApp(page);
 
-  await page.getByLabel('Settings', { exact: true }).click();
+  await runCommand(page, 'Settings');
   await page.getByText('Dark').click();
   await page.getByLabel('Local name').fill('Ada Lovelace');
 

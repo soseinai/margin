@@ -34,6 +34,16 @@ export default defineConfig({
             return 'icons';
           }
 
+          if (
+            id.includes('/node_modules/yjs/')
+            || id.includes('/node_modules/y-websocket/')
+            || id.includes('/node_modules/y-codemirror.next/')
+            || id.includes('/node_modules/y-protocols/')
+            || id.includes('/node_modules/lib0/')
+          ) {
+            return 'collaboration';
+          }
+
           if (id.includes('/node_modules/katex/') || id.includes('/node_modules/@fontsource/')) {
             return 'math-fonts';
           }

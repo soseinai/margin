@@ -1,5 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { saveViaDownload, runCommand } from './helpers';
 
 async function iconButtonDesign(locator: Locator) {
   await locator.hover();
@@ -58,9 +59,7 @@ test('edits a new Markdown document in the browser editor', async ({ page }) => 
   await page.getByLabel('Expand heading section').first().click();
   await expect(page.locator('.cm-collapsed-heading-hidden-line')).toHaveCount(0);
 
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByLabel('Save document').click();
-  const download = await downloadPromise;
+  const download = await saveViaDownload(page);
   const savedPath = await download.path();
 
   expect(download.suggestedFilename()).toBe('Untitled.md');
@@ -144,9 +143,7 @@ test('edits a saved margin comment', async ({ page }) => {
   await expect(page.getByText('Updated note after review.')).toBeVisible();
   await expect(page.getByText('First note')).toHaveCount(0);
 
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByLabel('Save document').click();
-  const download = await downloadPromise;
+  const download = await saveViaDownload(page);
   const savedPath = await download.path();
 
   expect(savedPath).toBeTruthy();
@@ -225,9 +222,7 @@ test('keeps find and settings dialogs mutually exclusive', async ({ page }) => {
   const findDialog = page.getByRole('dialog', { name: 'Find and replace' });
   await expect(findDialog).toBeVisible();
 
-  await page
-    .locator('button[aria-label="Settings"]')
-    .evaluate((button: HTMLButtonElement) => button.click());
+  await runCommand(page, 'Settings');
 
   const settingsDialog = page.getByRole('dialog', { name: 'General' });
   await expect(settingsDialog).toBeVisible();

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ClockIcon from '@lucide/svelte/icons/clock';
+	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import CommandIcon from '@lucide/svelte/icons/command';
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
@@ -465,6 +466,7 @@
 		if (entry.id === 'command:open-document' || entry.id === 'quick-open:open-document') return 'file-text';
 		if (entry.id === 'command:open-folder' || entry.id === 'quick-open:open-folder') return 'folder-open';
 		if (entry.id === 'command:quick-open') return 'search';
+		if (entry.id === 'command:sosein-cloud') return 'cloud';
 		if (entry.id === 'command:settings') return 'settings';
 		if (entry.id === 'command:save' || entry.id === 'command:save-as') return 'save';
 		if (entry.id === 'command:print') return 'printer';
@@ -631,6 +633,8 @@
 							<span class={`command-palette-icon ${row.entry.kind}`} aria-hidden="true">
 								{#if entryIcon(row.entry) === 'clock'}
 									<ClockIcon />
+								{:else if entryIcon(row.entry) === 'cloud'}
+									<CloudIcon />
 								{:else if entryIcon(row.entry) === 'file-plus'}
 									<FilePlusIcon />
 								{:else if entryIcon(row.entry) === 'file-text'}

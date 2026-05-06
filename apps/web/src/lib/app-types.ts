@@ -5,7 +5,7 @@ import type { LocalAnnotations, LocalDocument } from '$lib/types';
 export type SuggestionStatus = 'applied' | 'rejected' | 'resolved';
 export type EditingMode = 'edit' | 'suggest';
 export type ThemeSetting = 'auto' | 'light' | 'dark';
-export type AppSettings = { theme: ThemeSetting; localUserName: string };
+export type AppSettings = { theme: ThemeSetting; localUserName: string; soseinCloudEnabled: boolean };
 export type AppUpdateMetadata = { currentVersion: string; version: string; notes?: string | null };
 export type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
@@ -30,6 +30,7 @@ export type CommandPaletteInputMode = 'keyboard' | 'pointer';
 export type CommandPaletteEntryKind = 'command' | 'file' | 'recent' | 'tab' | 'empty';
 export type CommandPaletteIconName =
 	| 'clock'
+	| 'cloud'
 	| 'command'
 	| 'file-plus'
 	| 'file-text'
@@ -144,6 +145,15 @@ export type NativeDirectoryEntry = {
  };
 export type ExternalDocumentChange = NativeMarkdownDocument & { detectedAt: number };
 export type NativeMarkdownDocumentChange = { path: string };
+export type NativeSoseinApiResponse = { status: number; body: unknown; bodyText: string };
+
+export type SoseinActiveDocument = {
+	serverUrl: string;
+	id: string;
+	title: string;
+	contentType: string;
+	snapshotVersion: number
+};
 
 export type FilePickerWindow =
 	Window &
@@ -203,6 +213,7 @@ export type DocumentTab = {
 	externalChange: ExternalDocumentChange | null;
 	saveState: SaveState;
 	saveMessage: string;
+	soseinDocument: SoseinActiveDocument | null;
 	documentSessionKey: string;
 	syncedEditKeys: string[]
  };

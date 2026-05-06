@@ -1,12 +1,7 @@
 <script lang="ts">
 	import CommandIcon from '@lucide/svelte/icons/command';
-	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
-	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
 	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
-	import PrinterIcon from '@lucide/svelte/icons/printer';
-	import SaveIcon from '@lucide/svelte/icons/save';
-	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import XIcon from '@lucide/svelte/icons/x';
 
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -32,11 +27,6 @@
 	export let openCommandPalette: (mode: CommandPaletteMode) => MaybePromise = () => {};
 	export let setEditingMode: (mode: EditingMode) => void = () => {};
 	export let handleLocalFileSelected: (event: Event) => void = () => {};
-	export let createNewDocument: () => MaybePromise = () => {};
-	export let openLocalMarkdown: () => MaybePromise = () => {};
-	export let saveLocalMarkdown: () => MaybePromise = () => {};
-	export let requestPrintDocument: () => MaybePromise = () => {};
-	export let openSettingsDialog: () => void = () => {};
 </script>
 
 <Button
@@ -153,73 +143,6 @@
 			aria-hidden="true"
 		></div>
 
-		<div class="topbar-actions" aria-label="Document actions">
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Open command palette"
-				title="Command palette"
-				onclick={() => openCommandPalette('commands')}
-			>
-				<CommandIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="New document"
-				title="New document"
-				onclick={createNewDocument}
-			>
-				<FilePlusIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Open document"
-				title="Open document"
-				onclick={openLocalMarkdown}
-			>
-				<FolderOpenIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Save document"
-				title="Save document"
-				onclick={() => saveLocalMarkdown()}
-			>
-				<SaveIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Print document"
-				title="Print document"
-				onclick={requestPrintDocument}
-			>
-				<PrinterIcon aria-hidden="true" />
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="topbar-icon-button"
-				aria-label="Settings"
-				title="Settings"
-				onclick={openSettingsDialog}
-			>
-				<SettingsIcon aria-hidden="true" />
-			</Button>
-		</div>
 	</header>
 
 	<div
