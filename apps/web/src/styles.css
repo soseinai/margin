@@ -2403,7 +2403,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
 
 .file-tree-panel button.file-tree-resizer:not([data-slot]):hover::after,
 .file-tree-panel button.file-tree-resizer:not([data-slot]):focus-visible::after,
-.file-tree-resizing .file-tree-panel button.file-tree-resizer:not([data-slot])::after {
+.file-tree-panel.resizing button.file-tree-resizer:not([data-slot])::after {
   background: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 
