@@ -11,9 +11,12 @@ import type {
 	EditingMode,
 	NativeDirectoryEntry
 } from '../../app-types';
+import type { SoseinDocumentSummary } from '../sosein-cloud/sosein-cloud';
 
 export function buildCommandPaletteCommandEntries(args: {
 	desktopShell: boolean;
+	workspaceKind: 'local' | 'sosein';
+	workspaceNavigatorLabel: string;
 	soseinCloudVisible: boolean;
 	soseinSessionEmail: string;
 	soseinActiveDocument: boolean;
@@ -40,17 +43,18 @@ export function buildCommandPaletteCommandEntries(args: {
 	openCommentComposerForSelection: () => void | Promise<void>;
 	insertMarkdownBlock: (kind: 'table' | 'tasks' | 'bullets' | 'numbers') => void | Promise<void>;
 	openSoseinDialog: () => void | Promise<void>;
+	openSoseinWorkspace: () => void | Promise<void>;
 	checkForDesktopUpdate: () => void | Promise<void>;
 }) {
 	const commands: CommandPaletteEntry[] = [
 		{
 			id: 'command:new-document',
 			kind: 'command',
-			title: 'New Document',
-			subtitle: 'File',
+			title: args.workspaceKind === 'sosein' ? 'New Cloud Document' : 'New Document',
+			subtitle: args.workspaceKind === 'sosein' ? 'Sosein Cloud' : 'File',
 			group: 'Suggested',
 			shortcut: shortcutLabel('N'),
-			keywords: ['file', 'untitled'],
+			keywords: ['file', 'untitled', 'cloud'],
 			action: args.createNewDocument
 		},
 		{
@@ -159,11 +163,13 @@ export function buildCommandPaletteCommandEntries(args: {
 		{
 			id: 'command:toggle-file-tree',
 			kind: 'command',
-			title: args.fileTreePanelOpen ? 'Hide File Tree' : 'Show File Tree',
+			title: args.fileTreePanelOpen
+				? `Hide ${titleCase(args.workspaceNavigatorLabel)}`
+				: `Show ${titleCase(args.workspaceNavigatorLabel)}`,
 			subtitle: 'View',
 			group: 'Navigation',
 			shortcut: shortcutLabel('B'),
-			keywords: ['folder', 'sidebar', 'explorer'],
+			keywords: ['folder', 'sidebar', 'explorer', 'cloud'],
 			action: args.toggleFileTreePanel
 		},
 		{
@@ -203,7 +209,7 @@ export function buildCommandPaletteCommandEntries(args: {
 			subtitle: 'Editing Mode',
 			group: 'Editing Mode',
 			keywords: ['mode', 'track changes'],
-			disabled: args.editMode === 'suggest' || args.soseinActiveDocument,
+			disabled: args.editMode === 'suggest' || args.workspaceKind === 'sosein',
 			action: () => args.setEditingMode('suggest')
 		},
 		{
@@ -214,7 +220,7 @@ export function buildCommandPaletteCommandEntries(args: {
 			group: 'Insert',
 			shortcut: shortcutLabel('Alt+M'),
 			keywords: ['annotation', 'note'],
-			disabled: !args.selectedQuote.trim() || args.soseinActiveDocument,
+			disabled: !args.selectedQuote.trim() || args.workspaceKind === 'sosein',
 			action: args.openCommentComposerForSelection
 		},
 		{
@@ -263,11 +269,11 @@ export function buildCommandPaletteCommandEntries(args: {
 		commands.splice(4, 0, {
 			id: 'command:sosein-cloud',
 			kind: 'command',
-			title: 'Sosein Cloud',
+			title: args.soseinSessionEmail ? 'Open Cloud Workspace' : 'Connect Sosein Cloud',
 			subtitle: args.soseinSessionEmail || 'Connect',
 			group: 'Suggested',
 			keywords: ['cloud', 'sosein', 'sync'],
-			action: args.openSoseinDialog
+			action: args.soseinSessionEmail ? args.openSoseinWorkspace : args.openSoseinDialog
 		});
 	}
 
@@ -287,20 +293,26 @@ export function buildCommandPaletteCommandEntries(args: {
 }
 
 export function buildQuickOpenPaletteEntries(args: {
+	workspaceKind: 'local' | 'sosein';
 	visibleDocumentTabs: DocumentTab[];
 	activeDocumentTabId: string;
 	fileTreeRoot: { path: string; entries: NativeDirectoryEntry[] } | null;
 	recentDocuments: RecentDocument[];
+	soseinDocuments: SoseinDocumentSummary[];
 	activateDocumentTab: (tabId: string) => void | Promise<void>;
 	openNativeMarkdownPath: (path: string, options?: { removeRecentOnFailure?: boolean }) => void | Promise<void>;
+	openSoseinDocument: (document: SoseinDocumentSummary) => void | Promise<void>;
 	openLocalFolder: () => void | Promise<void>;
 	openLocalMarkdown: () => void | Promise<void>;
+	openSoseinWorkspace: () => void | Promise<void>;
 }): CommandPaletteEntry[] {
 	const entries: CommandPaletteEntry[] = [];
 	const seenPaths = new Set<string>();
+	const seenCloudDocumentIds = new Set<string>();
 
 	for (const tab of args.visibleDocumentTabs) {
 		const path = tab.nativeFilePath;
+		const cloudDocument = tab.soseinDocument;
 
 		entries.push({
 			id: `quick-open:tab:${tab.id}`,
@@ -309,13 +321,45 @@ export function buildQuickOpenPaletteEntries(args: {
 			subtitle: path ? undefined : 'Open tab',
 			detail: path
 				? compactLocalPath(path)
-				: tab.id === args.activeDocumentTabId ? 'Current tab' : 'Tab',
+				: cloudDocument ? 'Cloud document' : tab.id === args.activeDocumentTabId ? 'Current tab' : 'Tab',
 			group: 'Open Tabs',
-			keywords: ['tab', path || '', tab.localFileName || ''],
+			keywords: ['tab', path || '', tab.localFileName || '', cloudDocument?.title || '', cloudDocument?.id || ''],
 			action: () => args.activateDocumentTab(tab.id)
 		});
 
 		if (path) seenPaths.add(path);
+		if (cloudDocument) seenCloudDocumentIds.add(cloudDocument.id);
+	}
+
+	if (args.workspaceKind === 'sosein') {
+		for (const document of args.soseinDocuments) {
+			if (seenCloudDocumentIds.has(document.id)) continue;
+			seenCloudDocumentIds.add(document.id);
+
+			entries.push({
+				id: `quick-open:sosein:${document.id}`,
+				kind: 'file',
+				title: document.title,
+				detail: `v${document.current_snapshot_version}`,
+				group: 'Cloud Documents',
+				keywords: ['cloud', 'sosein', document.id, document.title],
+				action: () => args.openSoseinDocument(document)
+			});
+		}
+
+		if (entries.length > 0) return entries;
+
+		return [
+			{
+				id: 'quick-open:sosein-workspace',
+				kind: 'command' as const,
+				title: 'Open Cloud Workspace',
+				subtitle: 'Connect or refresh Sosein Cloud documents',
+				group: 'Suggested',
+				keywords: ['cloud', 'sosein'],
+				action: args.openSoseinWorkspace
+			}
+		];
 	}
 
 	if (args.fileTreeRoot) {
@@ -398,6 +442,10 @@ export function shortcutLabel(keys: string) {
 	}
 
 	return `${platformCommandKeyLabel()}+${keys}`;
+}
+
+function titleCase(value: string) {
+	return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function platformCommandKeyLabel() {

@@ -10,6 +10,9 @@ export type AppUpdateMetadata = { currentVersion: string; version: string; notes
 export type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
 export type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
+export type WorkspaceMode =
+	{ kind: 'local'; rootPath?: string } |
+	{ kind: 'sosein'; serverUrl: string; workspaceId: string; userEmail: string };
 export type PrintDocumentOptions = { includeMarginNotesAppendix?: boolean };
 export type WordCountMetrics = { words: number; characters: number; lines: number };
 export type ReviewCountStats = { open: number; closed: number };

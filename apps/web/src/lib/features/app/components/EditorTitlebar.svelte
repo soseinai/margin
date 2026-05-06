@@ -11,6 +11,7 @@
 	type MaybePromise<T = void> = T | Promise<T>;
 
 	export let fileTreePanelOpen = false;
+	export let workspaceNavigatorLabel = 'file tree';
 	export let visibleDocumentTabs: DocumentTab[] = [];
 	export let activeDocumentTabId = '';
 	export let editMode: EditingMode = 'edit';
@@ -20,6 +21,7 @@
 	export let titlebarEyebrowLabel = '';
 	export let titlebarEyebrowPlaceholder = false;
 	export let documentTitleLabel = 'Untitled.md';
+	export let showDocumentTitlebar = true;
 	export let toggleFileTreePanel: () => void = () => {};
 	export let tabHasDiscardableWork: (tab: DocumentTab) => boolean = () => false;
 	export let activateDocumentTab: (tabId: string) => MaybePromise = () => {};
@@ -33,9 +35,9 @@
 	variant="ghost"
 	size="icon-sm"
 	class="titlebar-file-tree-toggle"
-	aria-label={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+	aria-label={fileTreePanelOpen ? `Hide ${workspaceNavigatorLabel}` : `Show ${workspaceNavigatorLabel}`}
 	aria-pressed={fileTreePanelOpen}
-	title={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
+	title={fileTreePanelOpen ? `Hide ${workspaceNavigatorLabel}` : `Show ${workspaceNavigatorLabel}`}
 	onclick={toggleFileTreePanel}
 >
 	{#if fileTreePanelOpen}
@@ -108,53 +110,55 @@
 	/>
 </div>
 
-<div class="doc-titlebar-shell">
-	<header class="doc-topbar">
-		<input
-			class="local-file-input"
-			bind:this={fileInput}
-			type="file"
-			accept=".md,.markdown,text/markdown,text/plain"
-			onchange={handleLocalFileSelected}
-		/>
+{#if showDocumentTitlebar}
+	<div class="doc-titlebar-shell">
+		<header class="doc-topbar">
+			<input
+				class="local-file-input"
+				bind:this={fileInput}
+				type="file"
+				accept=".md,.markdown,text/markdown,text/plain"
+				onchange={handleLocalFileSelected}
+			/>
 
-		<div class="brand-cluster" data-tauri-drag-region>
-			<div class="brand-mark" aria-hidden="true">
-				<img class="brand-mark-image brand-mark-image-light" src={brandMarkUrl} alt="" draggable="false" />
-				<img class="brand-mark-image brand-mark-image-dark" src={brandMarkDarkUrl} alt="" draggable="false" />
+			<div class="brand-cluster" data-tauri-drag-region>
+				<div class="brand-mark" aria-hidden="true">
+					<img class="brand-mark-image brand-mark-image-light" src={brandMarkUrl} alt="" draggable="false" />
+					<img class="brand-mark-image brand-mark-image-dark" src={brandMarkDarkUrl} alt="" draggable="false" />
+				</div>
+
+				<div class="brand-title" data-tauri-drag-region>
+					<p
+						class="eyebrow"
+						class:eyebrow-placeholder={!titlebarEyebrowLabel}
+						class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
+						aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
+					>
+						{titlebarEyebrowLabel}
+					</p>
+					<h1>{documentTitleLabel}</h1>
+				</div>
 			</div>
 
-			<div class="brand-title" data-tauri-drag-region>
-				<p
-					class="eyebrow"
-					class:eyebrow-placeholder={!titlebarEyebrowLabel}
-					class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
-					aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
-				>
-					{titlebarEyebrowLabel}
-				</p>
-				<h1>{documentTitleLabel}</h1>
-			</div>
-		</div>
+			<div
+				class="window-drag-spacer"
+				data-tauri-drag-region
+				aria-hidden="true"
+			></div>
+
+		</header>
 
 		<div
-			class="window-drag-spacer"
+			class="doc-toolbar"
+			aria-label="Document tools"
 			data-tauri-drag-region
-			aria-hidden="true"
-		></div>
-
-	</header>
-
-	<div
-		class="doc-toolbar"
-		aria-label="Document tools"
-		data-tauri-drag-region
-	>
-		<EditingModeToggle
-			className="mobile-mode-toggle"
-			itemClassName="mobile-mode-button"
-			{editMode}
-			{setEditingMode}
-		/>
+		>
+			<EditingModeToggle
+				className="mobile-mode-toggle"
+				itemClassName="mobile-mode-button"
+				{editMode}
+				{setEditingMode}
+			/>
+		</div>
 	</div>
-</div>
+{/if}

@@ -5,7 +5,8 @@ import {
   installTauriMock,
   openCleanApp,
   replaceEditorMarkdown,
-  setTauriConfirmClose
+  setTauriConfirmClose,
+  tauriCalls
 } from './helpers';
 
 test('keeps dirty state and editor contents isolated across tabs', async ({ page }) => {
@@ -57,4 +58,24 @@ test('confirms before closing dirty tabs and before unloading dirty documents', 
     return !window.dispatchEvent(event);
   });
   expect(cleanBeforeUnload).toBe(false);
+});
+
+test('closing the last tab delegates app-wide window close or quit to native', async ({ page }) => {
+  await installTauriMock(page);
+  await openCleanApp(page, '/?desktop-preview');
+
+  await emitTauriEvent(page, 'margin://close-tab');
+
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+
+    return calls.some((call) => call.command === 'close_last_tab_or_quit_app');
+  }).toBe(true);
+
+  const calls = await tauriCalls(page);
+
+  expect(calls.some((call) => call.command === 'quit_app')).toBe(false);
+  expect(
+    calls.some((call) => call.command === 'set_window_tab_state' && call.args?.hasTabs === true)
+  ).toBe(true);
 });

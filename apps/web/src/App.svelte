@@ -56,6 +56,7 @@
 	import { tags } from '@lezer/highlight';
 
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
+	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import { onMount, tick } from 'svelte';
 	import brandMarkUrl from '../../../assets/margin-icon.svg';
 	import brandMarkDarkUrl from '../../../assets/margin-icon-dk.svg';
@@ -69,6 +70,7 @@
 	import UpdateNotice from './lib/features/app/components/UpdateNotice.svelte';
 	import WordCountDialog from './lib/features/app/components/WordCountDialog.svelte';
 	import FileTreePanel from './lib/features/documents/components/FileTreePanel.svelte';
+	import SoseinCloudPanel from './lib/features/sosein-cloud/components/SoseinCloudPanel.svelte';
 	import SoseinCloudDialog from './lib/features/sosein-cloud/components/SoseinCloudDialog.svelte';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/features/comments/draft-suggestions';
 	import {
@@ -246,7 +248,8 @@
 		TypingProfile,
 		TypingProfileRow,
 		WordCountMetrics,
-		WordCountStats
+		WordCountStats,
+		WorkspaceMode
 	} from './lib/app-types';
 
 	let documentData: LocalDocument | null = null;
@@ -270,6 +273,7 @@
 	let settingsDraftTheme: ThemeSetting = 'auto';
 	let settingsDraftLocalUserName = defaultLocalUserName();
 	let localAuthor = defaultLocalUserName();
+	let workspaceMode: WorkspaceMode = { kind: 'local' };
 	const soseinCloudServerUrl = SOSEIN_CLOUD_API_BASE_URL;
 	let soseinSession: SoseinStoredSession | null = null;
 	let soseinDialogOpen = false;
@@ -354,6 +358,7 @@
 	let documentTabs: DocumentTab[] = [];
 	let visibleDocumentTabs: DocumentTab[] = [];
 	let activeDocumentTabId = '';
+	let lastReportedDesktopWindowHasTabs: boolean | null = null;
 	let recentDocuments: RecentDocument[] = [];
 	let dragActive = false;
 	let printDocumentHtml = '';
@@ -880,13 +885,20 @@
 		soseinActiveDocument,
 		projectVisibleDocumentTabs(documentTabs, activeDocumentTabId, currentDocumentTabSnapshot())
 	);
+	$: workspaceModeKind = workspaceMode.kind;
+	$: workspaceNavigatorLabel = workspaceMode.kind === 'sosein' ? 'cloud documents' : 'file tree';
+	$: showDocumentTitlebar = workspaceMode.kind !== 'sosein' || Boolean(documentData);
+	$: desktopWindowHasTabs = documentTabs.length > 0;
+	$: reportDesktopWindowTabState(desktopWindowHasTabs);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
-	$: documentLocationLabel = documentLocationLabelFor(
-		soseinActiveDocument,
-		soseinSession,
-		soseinSyncStatus,
-		nativeFilePath
-	);
+	$: documentLocationLabel = workspaceMode.kind === 'sosein' && !soseinActiveDocument
+		? (soseinSession?.user.email || 'Sosein Cloud')
+		: documentLocationLabelFor(
+			soseinActiveDocument,
+			soseinSession,
+			soseinSyncStatus,
+			nativeFilePath
+		);
 	$: printAppendixCandidateThreads = threads.filter((thread) => !thread.resolved && thread.body.trim().length > 0);
 	$: titlebarEyebrowPlaceholder = localFileMode
 		&& !nativeFilePath
@@ -926,6 +938,8 @@
 		tauriShell = Boolean((window as TauriWindow).__TAURI__);
 		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
 		desktopShell = desktopPreview || (tauriShell && !mobileShell);
+		workspaceMode = workspaceModeFromSearchParams(searchParams);
+		if (workspaceMode.kind === 'sosein') fileTreePanelOpen = true;
 		void initializeSoseinCloudVisibility();
 		initializeSoseinCloudState(searchParams);
 		const settingsReady = loadAppSettings();
@@ -971,6 +985,33 @@
 		return (/iPhone|iPad|iPod/i).test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 	}
 
+	function workspaceModeFromSearchParams(searchParams: URLSearchParams): WorkspaceMode {
+		if (searchParams.get('workspace') !== 'sosein') return { kind: 'local' };
+
+		return {
+			kind: 'sosein',
+			serverUrl: soseinCloudServerUrl,
+			workspaceId: '',
+			userEmail: ''
+		};
+	}
+
+	function enterLocalWorkspaceMode(rootPath?: string) {
+		workspaceMode = rootPath ? { kind: 'local', rootPath } : { kind: 'local' };
+	}
+
+	function enterSoseinWorkspaceMode(session = soseinSession) {
+		workspaceMode = {
+			kind: 'sosein',
+			serverUrl: session?.serverUrl ?? soseinCloudServerUrl,
+			workspaceId: session?.defaultWorkspace.id ?? '',
+			userEmail: session?.user.email ?? ''
+		};
+		fileTreePanelOpen = true;
+
+		if (session) void refreshSoseinDocuments();
+	}
+
 	async function bootstrapStandaloneDocument(
 		settingsReady: Promise<void>,
 		nativeListenersReady: Promise<void>,
@@ -981,7 +1022,7 @@
 		await recentDocumentsReady;
 		await flushPendingNativeOpenUrls();
 
-		if (!documentData) createUntitledMarkdownDocument();
+		if (!documentData && workspaceMode.kind !== 'sosein') createUntitledMarkdownDocument();
 	}
 
 	function activeEditorMarkdown() {
@@ -1046,7 +1087,7 @@
 		}
 
 		if (documentTabs.length <= 1) {
-			if (await quitDesktopApp()) {
+			if (await closeLastDesktopTabOrQuitApp()) {
 				return;
 			}
 
@@ -1081,10 +1122,25 @@
 		return window.confirm(`Close ${tab.title}? Unsaved work in this tab will be discarded.`);
 	}
 
-	async function quitDesktopApp() {
+	function reportDesktopWindowTabState(hasTabs: boolean) {
+		if (!desktopShell || lastReportedDesktopWindowHasTabs === hasTabs) return;
+
+		lastReportedDesktopWindowHasTabs = hasTabs;
+
+		const request = tauriInvoke<void>('set_window_tab_state', { hasTabs });
+
+		if (!request) return;
+
+		request.catch((err) => {
+			console.warn('Unable to report desktop window tab state', err);
+			lastReportedDesktopWindowHasTabs = null;
+		});
+	}
+
+	async function closeLastDesktopTabOrQuitApp() {
 		if (!desktopShell) return false;
 
-		const request = tauriInvoke<void>('quit_app');
+		const request = tauriInvoke<void>('close_last_tab_or_quit_app');
 
 		if (!request) return false;
 
@@ -1093,7 +1149,7 @@
 
 			return true;
 		} catch(err) {
-			console.warn('Unable to quit desktop app', err);
+			console.warn('Unable to close last desktop tab', err);
 
 			return false;
 		}
@@ -4618,7 +4674,7 @@
 	}
 
 	function shouldHandleWebNativeShortcut() {
-		return desktopShell && !nativeMenuBridgeReady;
+		return desktopShell && !nativeMenuBridgeReady && document.hasFocus();
 	}
 
 	async function openCommandPalette(mode: CommandPaletteMode) {
@@ -4637,6 +4693,8 @@
 	function commandPaletteCommandEntries(): CommandPaletteEntry[] {
 		return buildCommandPaletteCommandEntries({
 			desktopShell,
+			workspaceKind: workspaceModeKind,
+			workspaceNavigatorLabel,
 			soseinCloudVisible,
 			soseinSessionEmail: soseinSession?.user.email ?? '',
 			soseinActiveDocument: Boolean(soseinActiveDocument),
@@ -4667,6 +4725,7 @@
 				insertMarkdownBlock(kind);
 			},
 			openSoseinDialog,
+			openSoseinWorkspace,
 			checkForDesktopUpdate: () => {
 				openSettingsDialog();
 				return checkForDesktopUpdate(true);
@@ -4676,14 +4735,18 @@
 
 	function quickOpenPaletteEntries(): CommandPaletteEntry[] {
 		return buildQuickOpenPaletteEntries({
+			workspaceKind: workspaceModeKind,
 			visibleDocumentTabs,
 			activeDocumentTabId,
 			fileTreeRoot,
 			recentDocuments,
+			soseinDocuments,
 			activateDocumentTab,
 			openNativeMarkdownPath,
+			openSoseinDocument,
 			openLocalFolder,
-			openLocalMarkdown
+			openLocalMarkdown,
+			openSoseinWorkspace
 		});
 	}
 
@@ -4825,6 +4888,7 @@
 			void exchangeSoseinOAuthHandoff(searchParams.get('handoff_code') || '');
 		} else if (soseinSession) {
 			void validateStoredSoseinSession();
+			if (workspaceMode.kind === 'sosein') void refreshSoseinDocuments();
 		}
 	}
 
@@ -4843,6 +4907,26 @@
 	function closeSoseinDialog() {
 		soseinDialogOpen = false;
 		soseinCloudError = '';
+	}
+
+	async function openSoseinWorkspace() {
+		closeSoseinDialog();
+
+		if (desktopShell && workspaceMode.kind !== 'sosein') {
+			const request = tauriInvoke<void>('open_sosein_workspace_window');
+
+			if (request) {
+				try {
+					await request;
+
+					return;
+				} catch(err) {
+					handleSoseinCloudError(err, 'Unable to open Sosein Cloud workspace');
+				}
+			}
+		}
+
+		enterSoseinWorkspaceMode();
 	}
 
 	async function exchangeSoseinOAuthHandoff(handoffCode: string) {
@@ -4899,6 +4983,7 @@
 		soseinSession = session;
 		writeSoseinSession(session);
 		soseinDialogOpen = true;
+		if (workspaceMode.kind === 'sosein') enterSoseinWorkspaceMode(session);
 		await refreshSoseinDocuments();
 	}
 
@@ -4920,6 +5005,7 @@
 				expiresAt: validation.expires_at
 			};
 			writeSoseinSession(soseinSession);
+			if (workspaceMode.kind === 'sosein') enterSoseinWorkspaceMode(soseinSession);
 		} catch(err) {
 			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
 		}
@@ -4936,9 +5022,12 @@
 		} catch(err) {
 			if (isSoseinUnauthorized(err)) {
 				disconnectSoseinSession();
+			} else if (isSoseinNotFound(err)) {
+				soseinDocuments = [];
+				soseinCloudError = 'Sosein Cloud account setup is incomplete. Disconnect and connect again to finish workspace setup.';
+			} else {
+				handleSoseinCloudError(err, 'Unable to list Sosein Cloud documents');
 			}
-
-			handleSoseinCloudError(err, 'Unable to list Sosein Cloud documents');
 		} finally {
 			soseinDocumentsLoading = false;
 		}
@@ -4999,6 +5088,7 @@
 			destroySoseinEditorSync();
 			clearLocalAutosaveTimer();
 			closeSoseinDialog();
+			enterSoseinWorkspaceMode(session);
 
 			soseinActiveDocument = nextState.soseinDocument;
 			soseinSyncStatus = 'connecting';
@@ -5172,6 +5262,10 @@
 
 	function isSoseinUnauthorized(err: unknown) {
 		return err instanceof SoseinCloudApiError && err.status === 401;
+	}
+
+	function isSoseinNotFound(err: unknown) {
+		return err instanceof SoseinCloudApiError && err.status === 404;
 	}
 
 	function openWordCountDialog() {
@@ -5609,6 +5703,7 @@
 	}
 
 	function loadNativeDirectoryTree(directory: NativeDirectoryTree) {
+		enterLocalWorkspaceMode(directory.path);
 		fileTreeRoot = directory;
 		fileTreePanelOpen = true;
 		fileTreeError = '';
@@ -5728,6 +5823,12 @@
 	}
 
 	function createNewDocument() {
+		if (workspaceMode.kind === 'sosein') {
+			void createSoseinDocument();
+
+			return;
+		}
+
 		syncActiveDocumentTab();
 		createUntitledMarkdownDocument();
 	}
@@ -5765,6 +5866,7 @@
 	}
 
 	function createUntitledMarkdownDocument(options: { replaceActive?: boolean } = {}) {
+		enterLocalWorkspaceMode();
 		syncActiveDocumentTab();
 		const fileName = nextUntitledFileName(documentTabs);
 		const sessionState = createUntitledLocalDocumentSession(fileName, `local:untitled:${Date.now()}`);
@@ -5867,6 +5969,7 @@
 	}
 
 	async function loadNativeMarkdownDocument(nativeDocument: NativeMarkdownDocument) {
+		enterLocalWorkspaceMode(directoryPath(nativeDocument.path));
 		syncActiveDocumentTab();
 
 		const existingTab = documentTabs.find((tab) => tab.nativeFilePath === nativeDocument.path);
@@ -5908,10 +6011,11 @@
 			documentSessionKey: nextDocumentSessionKey
 		});
 
-		applyLocalDocumentSessionState(sessionState, { fileName, resetEditor: true, clearCloud: false });
+		applyLocalDocumentSessionState(sessionState, { fileName, resetEditor: true, clearCloud: true });
 	}
 
 	async function loadLocalMarkdownFile(file: File, handle: MarkdownFileHandle | null) {
+		enterLocalWorkspaceMode();
 		const serializedMarkdown = await file.text();
 		const splitDocument = splitMarginCommentBlock(serializedMarkdown);
 		const fileName = handle?.name || file.name || 'Untitled.md';
@@ -6470,7 +6574,7 @@
 
 	function setEditingMode(nextMode: EditingMode) {
 		if (editMode === nextMode) return;
-		if (soseinActiveDocument && nextMode === 'suggest') return;
+		if (workspaceMode.kind === 'sosein' && nextMode === 'suggest') return;
 
 		if (editMode === 'suggest') {
 			materializePendingEditSuggestions();
@@ -6596,6 +6700,8 @@
 	}
 
 	function handleCommandPaletteShortcut(event: KeyboardEvent) {
+		if (desktopShell && !document.hasFocus()) return false;
+
 		const mod = event.metaKey || event.ctrlKey;
 		const key = event.key.toLowerCase();
 
@@ -6609,6 +6715,7 @@
 
 	function handleGlobalShortcut(event: KeyboardEvent) {
 		if (event.defaultPrevented) return;
+		if (desktopShell && !document.hasFocus()) return;
 		if (handleCommandPaletteShortcut(event)) return;
 		if (commandPaletteIsOpen) return;
 		if (handleFindShortcut(event)) return;
@@ -6678,6 +6785,7 @@
 	}
 
 	function handleFindShortcut(event: KeyboardEvent) {
+		if (desktopShell && !document.hasFocus()) return false;
 		if (!mainEditor) return false;
 
 		const target = event.target;
@@ -6981,6 +7089,7 @@
 	<EditorTitlebar
 		bind:fileInput
 		{fileTreePanelOpen}
+		{workspaceNavigatorLabel}
 		{visibleDocumentTabs}
 		{activeDocumentTabId}
 		{editMode}
@@ -6989,6 +7098,7 @@
 		{titlebarEyebrowLabel}
 		{titlebarEyebrowPlaceholder}
 		{documentTitleLabel}
+		{showDocumentTitlebar}
 		{toggleFileTreePanel}
 		{tabHasDiscardableWork}
 		{activateDocumentTab}
@@ -7030,14 +7140,35 @@
 	{/if}
 
 	{#if fileTreePanelOpen}
-		<FileTreePanel
-			{fileTreeRoot}
-			{fileTreeLoading}
-			{fileTreeError}
-			{nativeFilePath}
-			bind:width={fileTreePanelWidth}
-			{openFileTreeEntry}
-		/>
+		{#if workspaceMode.kind === 'sosein'}
+			<SoseinCloudPanel
+				bind:newDocumentTitle={soseinNewDocumentTitle}
+				session={soseinSession}
+				documents={soseinDocuments}
+				documentsLoading={soseinDocumentsLoading}
+				authLoading={soseinAuthLoading}
+				documentOpening={soseinDocumentOpening}
+				error={soseinCloudError}
+				activeDocument={soseinActiveDocument}
+				syncStatus={soseinSyncStatus}
+				bind:width={fileTreePanelWidth}
+				disconnectSession={disconnectSoseinSession}
+				startOAuthLogin={startSoseinOAuthLogin}
+				refreshDocuments={refreshSoseinDocuments}
+				createDocument={createSoseinDocument}
+				openDocument={openSoseinDocument}
+				syncStatusLabel={soseinSyncStatusLabel}
+			/>
+		{:else}
+			<FileTreePanel
+				{fileTreeRoot}
+				{fileTreeLoading}
+				{fileTreeError}
+				{nativeFilePath}
+				bind:width={fileTreePanelWidth}
+				{openFileTreeEntry}
+			/>
+		{/if}
 	{/if}
 
 	<div
@@ -7050,12 +7181,16 @@
 					variant="ghost"
 					size="icon-sm"
 					class="activity-icon-button"
-					aria-label="Show file tree"
+					aria-label={`Show ${workspaceNavigatorLabel}`}
 					aria-pressed="false"
-					title="Show file tree"
+					title={`Show ${workspaceNavigatorLabel}`}
 					onclick={toggleFileTreePanel}
 				>
-					<FolderTreeIcon aria-hidden="true" />
+					{#if workspaceMode.kind === 'sosein'}
+						<CloudIcon aria-hidden="true" />
+					{:else}
+						<FolderTreeIcon aria-hidden="true" />
+					{/if}
 				</Button>
 			</nav>
 		{/if}
@@ -7191,6 +7326,7 @@
 		closeDialog={closeSoseinDialog}
 		disconnectSession={disconnectSoseinSession}
 		startOAuthLogin={startSoseinOAuthLogin}
+		openWorkspace={openSoseinWorkspace}
 		refreshDocuments={refreshSoseinDocuments}
 		createDocument={createSoseinDocument}
 		openDocument={openSoseinDocument}

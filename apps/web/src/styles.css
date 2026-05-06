@@ -2009,6 +2009,70 @@ button.settings-sidebar-item.active:not([data-slot]) {
   font-size: 11px;
 }
 
+.sosein-cloud-panel-content {
+  gap: 8px;
+}
+
+.sosein-cloud-account-row {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 64%, transparent);
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  min-height: 42px;
+  padding: 4px 3px 9px 6px;
+}
+
+.sosein-cloud-account-icon {
+  align-items: center;
+  color: var(--fg-4);
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.sosein-cloud-account-icon svg {
+  height: 15px;
+  stroke-width: 1.9;
+  width: 15px;
+}
+
+.sosein-cloud-account-text {
+  color: var(--fg-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sosein-panel-new-document {
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 64%, transparent);
+  padding: 2px 0 10px;
+}
+
+.sosein-cloud-document-scroll {
+  padding-top: 0;
+}
+
+.sosein-cloud-document-list {
+  gap: 2px;
+}
+
+.file-tree-panel button.sosein-cloud-document-row:not([data-slot]) {
+  padding-left: 6px;
+}
+
+.sosein-cloud-sync-label {
+  color: var(--fg-4);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.3;
+  margin: 12px 6px 0;
+}
+
 .sosein-empty {
   align-self: center;
   color: var(--fg-4);

@@ -116,4 +116,4 @@ The current free desktop slice includes:
 - selected-text replacement suggestions
 - robust anchor payloads with lines, quote, context, heading path, and content hash
 
-Cloud-backed opening, saving, and commenting are intentionally left as a future storage-provider boundary.
+Cloud-backed opening, saving, and commenting are intentionally left as a future storage-provider boundary. The Sosein Cloud workspace behavior is recorded in [docs/sosein-cloud-workspace-architecture.md](docs/sosein-cloud-workspace-architecture.md).
