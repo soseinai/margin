@@ -8,7 +8,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
-	import { authorInitials, avatarStyle } from '$lib/local-identity';
+	import { authorInitials, avatarStyle } from '$lib/features/app/local-identity';
 	import type {
 		AppUpdateCheckState,
 		AppUpdateMetadata,

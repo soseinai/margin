@@ -62,18 +62,41 @@
 	import brandMarkUrl from '../../../assets/margin-icon.svg';
 	import brandMarkDarkUrl from '../../../assets/margin-icon-dk.svg';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import CommandPalette from './lib/components/app/CommandPalette.svelte';
-	import EditorTitlebar from './lib/components/app/EditorTitlebar.svelte';
-	import FileTreePanel from './lib/components/app/FileTreePanel.svelte';
-	import MarginRail from './lib/components/app/MarginRail.svelte';
-	import PrintDocument from './lib/components/app/PrintDocument.svelte';
-	import PrintOptionsDialog from './lib/components/app/PrintOptionsDialog.svelte';
-	import SettingsDialog from './lib/components/app/SettingsDialog.svelte';
-	import SoseinCloudDialog from './lib/components/app/SoseinCloudDialog.svelte';
-	import UpdateNotice from './lib/components/app/UpdateNotice.svelte';
-	import WordCountDialog from './lib/components/app/WordCountDialog.svelte';
-	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
-	import { defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
+	import CommandPalette from './lib/features/app/components/CommandPalette.svelte';
+	import EditorTitlebar from './lib/features/app/components/EditorTitlebar.svelte';
+	import MarginRail from './lib/features/app/components/MarginRail.svelte';
+	import PrintDocument from './lib/features/app/components/PrintDocument.svelte';
+	import PrintOptionsDialog from './lib/features/app/components/PrintOptionsDialog.svelte';
+	import SettingsDialog from './lib/features/app/components/SettingsDialog.svelte';
+	import UpdateNotice from './lib/features/app/components/UpdateNotice.svelte';
+	import WordCountDialog from './lib/features/app/components/WordCountDialog.svelte';
+	import FileTreePanel from './lib/features/documents/components/FileTreePanel.svelte';
+	import SoseinCloudDialog from './lib/features/sosein-cloud/components/SoseinCloudDialog.svelte';
+	import { draftMarkdownSuggestions, suggestionKey } from './lib/features/comments/draft-suggestions';
+	import {
+		buildCommandPaletteCommandEntries,
+		buildQuickOpenPaletteEntries
+	} from './lib/features/app/command-registry';
+	import {
+		adjacentDocumentTab,
+		closeDocumentTabs,
+		nextUntitledFileName,
+		syncDocumentTab,
+		tabHasDiscardableWork,
+		visibleDocumentTabs as projectVisibleDocumentTabs
+	} from './lib/features/documents/document-tabs';
+	import { defaultLocalUserName, normalizeLocalUserName } from './lib/features/app/local-identity';
+	import {
+		createBrowserLocalDocumentSession,
+		createNativeLocalDocumentSession,
+		createUntitledLocalDocumentSession,
+		hasAutosavableLocalChanges as computeHasAutosavableLocalChanges,
+		hasUnsavedLocalChanges as computeHasUnsavedLocalChanges,
+		hasWritableLocalSaveTarget as computeHasWritableLocalSaveTarget,
+		refreshLocalSaveState as computeRefreshLocalSaveState,
+		shouldAutosaveLocalDocument as computeShouldAutosaveLocalDocument
+	} from './lib/features/documents/local-document-session';
+	import { registerNativeDesktopBridge } from './lib/features/native-shell/native-bridge';
 	import {
 		SOSEIN_CLOUD_API_BASE_URL,
 		SoseinCloudApiError,
@@ -86,13 +109,23 @@
 		type SoseinDocument,
 		type SoseinDocumentSummary,
 		type SoseinStoredSession
-	} from './lib/sosein-cloud';
-	import type { SoseinCodeMirrorSync, SoseinSyncStatus } from './lib/sosein-codemirror-sync';
+	} from './lib/features/sosein-cloud/sosein-cloud';
+	import type { SoseinCodeMirrorSync, SoseinSyncStatus } from './lib/features/sosein-cloud/sosein-codemirror-sync';
+	import {
+		addRecentDocumentEntry,
+		readBrowserRecentDocuments,
+		removeRecentDocumentEntry,
+		writeBrowserRecentDocuments
+	} from './lib/features/documents/recent-documents-service';
 	import {
 		clearSoseinSession,
 		readSoseinSession,
 		writeSoseinSession
-	} from './lib/sosein-session-store';
+	} from './lib/features/sosein-cloud/sosein-session-store';
+	import {
+		createSoseinDocumentState,
+		findExistingSoseinDocumentTab
+	} from './lib/features/sosein-cloud/sosein-workspace';
 	import {
 		compactLocalPath,
 		directoryPath,
@@ -108,7 +141,7 @@
 		normalizeRecentDocuments,
 		relativeLocalPath,
 		type RecentDocument
-	} from './lib/local-documents';
+	} from './lib/features/documents/local-documents';
 	import {
 		clampImageResize,
 		markdownImageFromMatch,
@@ -154,7 +187,7 @@
 		splitMarginCommentBlock,
 		type MarginCommentBlock
 	} from './lib/embedded-margin';
-	import { renderPrintMarkdown } from './lib/print-markdown';
+	import { renderPrintMarkdown } from './lib/features/print/print-markdown';
 
 	import type { LocalDocument, MarginAnchor, MarginSuggestion, LocalAnnotations } from './lib/types';
 	import type {
@@ -299,32 +332,7 @@
 	let saveProgressHideTimer: ReturnType<typeof setTimeout> | null = null;
 	let commentComposerAttentionTimer: ReturnType<typeof setTimeout> | null = null;
 	let fileChangeCheckInFlight = false;
-	let unlistenNativeInsertMenu: (() => void) | null = null;
-	let unlistenNativeCommentMenu: (() => void) | null = null;
-	let unlistenNativeNewMenu: (() => void) | null = null;
-	let unlistenNativeOpenUrls: (() => void) | null = null;
-	let unlistenNativeCommandPaletteMenu: (() => void) | null = null;
-	let unlistenNativeQuickOpenMenu: (() => void) | null = null;
-	let unlistenNativeOpenMenu: (() => void) | null = null;
-	let unlistenNativeOpenFolderMenu: (() => void) | null = null;
-	let unlistenNativeOpenRecentMenu: (() => void) | null = null;
-	let unlistenNativeClearRecentMenu: (() => void) | null = null;
-	let unlistenNativeSaveMenu: (() => void) | null = null;
-	let unlistenNativeSaveAsMenu: (() => void) | null = null;
-	let unlistenNativePrintMenu: (() => void) | null = null;
-	let unlistenNativeWordCountMenu: (() => void) | null = null;
-	let unlistenNativeCloseTabMenu: (() => void) | null = null;
-	let unlistenNativePreviousTabMenu: (() => void) | null = null;
-	let unlistenNativeNextTabMenu: (() => void) | null = null;
-	let unlistenNativeSettingsMenu: (() => void) | null = null;
-	let unlistenNativeCheckUpdatesMenu: (() => void) | null = null;
-	let unlistenNativeOpenFindMenu: (() => void) | null = null;
-	let unlistenNativeOpenFindReplaceMenu: (() => void) | null = null;
-	let unlistenNativeFindNextMenu: (() => void) | null = null;
-	let unlistenNativeFindPreviousMenu: (() => void) | null = null;
-	let unlistenNativeToggleFileTreeMenu: (() => void) | null = null;
-	let unlistenNativeDocumentChanged: (() => void) | null = null;
-	let unlistenNativeDragDrop: (() => void) | null = null;
+	let nativeDesktopBridgeCleanup: Array<() => void> = [];
 	let tauriShell = false;
 	let desktopShell = false;
 	let mobileShell = false;
@@ -1616,7 +1624,7 @@
 		saveMessage,
 		externalChange,
 		soseinActiveDocument,
-		documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab)
+		projectVisibleDocumentTabs(documentTabs, activeDocumentTabId, currentDocumentTabSnapshot())
 	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = documentLocationLabelFor(
@@ -1696,32 +1704,8 @@
 			destroySoseinEditorSync();
 			clearUpdateAutoCheckTimer();
 			clearCommentComposerAttention();
-			unlistenNativeInsertMenu?.();
-			unlistenNativeCommentMenu?.();
-			unlistenNativeNewMenu?.();
-			unlistenNativeOpenUrls?.();
-			unlistenNativeCommandPaletteMenu?.();
-			unlistenNativeQuickOpenMenu?.();
-			unlistenNativeOpenMenu?.();
-			unlistenNativeOpenFolderMenu?.();
-			unlistenNativeOpenRecentMenu?.();
-			unlistenNativeClearRecentMenu?.();
-			unlistenNativeSaveMenu?.();
-			unlistenNativeSaveAsMenu?.();
-			unlistenNativePrintMenu?.();
-			unlistenNativeWordCountMenu?.();
-			unlistenNativeCloseTabMenu?.();
-			unlistenNativePreviousTabMenu?.();
-			unlistenNativeNextTabMenu?.();
-			unlistenNativeSettingsMenu?.();
-			unlistenNativeCheckUpdatesMenu?.();
-			unlistenNativeOpenFindMenu?.();
-			unlistenNativeOpenFindReplaceMenu?.();
-			unlistenNativeFindNextMenu?.();
-			unlistenNativeFindPreviousMenu?.();
-			unlistenNativeToggleFileTreeMenu?.();
-			unlistenNativeDocumentChanged?.();
-			unlistenNativeDragDrop?.();
+			for (const cleanup of nativeDesktopBridgeCleanup) cleanup();
+			nativeDesktopBridgeCleanup = [];
 			nativeMenuBridgeReady = false;
 		};
 	});
@@ -1750,23 +1734,11 @@
 		return mainEditor?.state.doc.toString() ?? editorMarkdown;
 	}
 
-	function tabFromCurrentState(previous?: DocumentTab): DocumentTab {
-		const markdown = activeEditorMarkdown();
-
-		const nextDocumentData = documentData
-			? { ...documentData, markdown }
-			: previous?.documentData ?? {
-				id: documentSessionKey,
-				fileName: 'Untitled.md',
-				markdown
-			};
-
+	function currentDocumentTabSnapshot() {
 		return {
-			id: previous?.id ?? (activeDocumentTabId || documentSessionKey),
-			title: nextDocumentData.fileName,
-			documentData: nextDocumentData,
+			documentData,
 			annotations,
-			editorMarkdown: markdown,
+			editorMarkdown: activeEditorMarkdown(),
 			baseMarkdown,
 			draftBaseMarkdown,
 			pendingEditThreads,
@@ -1783,25 +1755,12 @@
 			saveMessage,
 			soseinDocument: soseinActiveDocument,
 			documentSessionKey,
-			syncedEditKeys: [...syncedEditKeys]
+			syncedEditKeys
 		};
 	}
 
 	function syncActiveDocumentTab() {
-		if (!activeDocumentTabId || !documentData) return;
-
-		const nextTab = tabFromCurrentState();
-		const existingIndex = documentTabs.findIndex((tab) => tab.id === activeDocumentTabId);
-
-		if (existingIndex >= 0) {
-			documentTabs = [
-				...documentTabs.slice(0, existingIndex),
-				nextTab,
-				...documentTabs.slice(existingIndex + 1)
-			];
-		} else {
-			documentTabs = [...documentTabs, nextTab];
-		}
+		documentTabs = syncDocumentTab(documentTabs, activeDocumentTabId, currentDocumentTabSnapshot());
 	}
 
 	async function activateDocumentTab(tabId: string) {
@@ -1842,14 +1801,11 @@
 			return;
 		}
 
-		const nextTabs = documentTabs.filter((candidate) => candidate.id !== tabId);
-
+		const { nextActiveTab, nextTabs } = closeDocumentTabs(documentTabs, activeDocumentTabId, tabId);
 		documentTabs = nextTabs;
 
 		if (tabId === activeDocumentTabId) {
-			const nextTab = nextTabs[Math.max(0, tabIndex - 1)] ?? nextTabs[0];
-
-			if (nextTab) await applyDocumentTab(nextTab);
+			if (nextActiveTab) await applyDocumentTab(nextActiveTab);
 		}
 	}
 
@@ -1898,20 +1854,11 @@
 	async function activateAdjacentDocumentTab(direction: -1 | 1) {
 		syncActiveDocumentTab();
 
-		if (documentTabs.length <= 1) return;
+		const nextTab = adjacentDocumentTab(documentTabs, activeDocumentTabId, direction);
 
-		const activeIndex = Math.max(0, documentTabs.findIndex((tab) => tab.id === activeDocumentTabId));
-		const nextIndex = (activeIndex + direction + documentTabs.length) % documentTabs.length;
+		if (!nextTab) return;
 
-		await applyDocumentTab(documentTabs[nextIndex]);
-	}
-
-	function tabHasDiscardableWork(tab: DocumentTab) {
-		if (tab.soseinDocument) {
-			return tab.pendingEditThreads.length > 0 || tab.localMetadataDirty;
-		}
-
-		return tab.saveState === 'dirty' || tab.saveState === 'conflict' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.annotations?.comments.length ?? 0) + (tab.annotations?.suggestions.length ?? 0));
+		await applyDocumentTab(nextTab);
 	}
 
 	async function applyDocumentTab(nextTab: DocumentTab) {
@@ -5163,132 +5110,45 @@
 	}
 
 	async function setupNativeDesktopListeners() {
-		const tauri = (window as TauriWindow).__TAURI__;
-		const listen = tauri?.event?.listen;
-
-		if (!listen) return;
-
-		try {
-			unlistenNativeNewMenu = await listen('margin://new-document', () => {
-				createNewDocument();
-			});
-
-			unlistenNativeOpenUrls = await listen<string[]>('margin://open-urls', (event) => {
-				handleNativeOpenUrls(event.payload);
-			});
-
-			unlistenNativeDocumentChanged = await listen<NativeMarkdownDocumentChange>('margin://document-changed', (event) => {
-				handleNativeDocumentChanged(event.payload);
-			});
-
-			unlistenNativeCommandPaletteMenu = await listen('margin://open-command-palette', () => {
-				openCommandPalette('commands');
-			});
-
-			unlistenNativeQuickOpenMenu = await listen('margin://quick-open-document', () => {
-				openCommandPalette('files');
-			});
-
-			unlistenNativeOpenMenu = await listen('margin://open-document', () => {
-				openLocalMarkdown();
-			});
-
-			unlistenNativeOpenFolderMenu = await listen('margin://open-folder', () => {
-				openLocalFolder();
-			});
-
-			unlistenNativeOpenRecentMenu = await listen<number>('margin://open-recent-document', (event) => {
-				openRecentDocument(event.payload);
-			});
-
-			unlistenNativeClearRecentMenu = await listen('margin://clear-recent-documents', () => {
-				clearRecentDocuments();
-			});
-
-			unlistenNativeSaveMenu = await listen('margin://save-document', () => {
-				saveLocalMarkdown();
-			});
-
-			unlistenNativeSaveAsMenu = await listen('margin://save-document-as', () => {
-				saveLocalMarkdownAs();
-			});
-
-			unlistenNativePrintMenu = await listen('margin://print-document', () => {
-				requestPrintDocument();
-			});
-
-			unlistenNativeWordCountMenu = await listen('margin://show-word-count', () => {
-				openWordCountDialog();
-			});
-
-			unlistenNativeCloseTabMenu = await listen('margin://close-tab', () => {
-				closeActiveDocumentTab();
-			});
-
-			unlistenNativePreviousTabMenu = await listen('margin://previous-tab', () => {
-				activateAdjacentDocumentTab(-1);
-			});
-
-			unlistenNativeNextTabMenu = await listen('margin://next-tab', () => {
-				activateAdjacentDocumentTab(1);
-			});
-
-			unlistenNativeSettingsMenu = await listen('margin://open-settings', () => {
+		const bridge = await registerNativeDesktopBridge(window as TauriWindow, {
+			createNewDocument,
+			handleNativeOpenUrls,
+			handleNativeDocumentChanged,
+			openCommandPaletteCommands: () => openCommandPalette('commands'),
+			openCommandPaletteFiles: () => openCommandPalette('files'),
+			openLocalMarkdown,
+			openLocalFolder,
+			openRecentDocument,
+			clearRecentDocuments,
+			saveLocalMarkdown: () => saveLocalMarkdown(),
+			saveLocalMarkdownAs,
+			requestPrintDocument,
+			openWordCountDialog,
+			closeActiveDocumentTab,
+			activatePreviousTab: () => activateAdjacentDocumentTab(-1),
+			activateNextTab: () => activateAdjacentDocumentTab(1),
+			openSettingsDialog,
+			checkForDesktopUpdate: () => {
 				openSettingsDialog();
-			});
-
-			unlistenNativeCheckUpdatesMenu = await listen('margin://check-for-updates', () => {
-				openSettingsDialog();
-				checkForDesktopUpdate(true);
-			});
-
-			unlistenNativeOpenFindMenu = await listen('margin://open-find', () => {
-				openFindPanel();
-			});
-
-			unlistenNativeOpenFindReplaceMenu = await listen('margin://open-find-and-replace', () => {
-				openFindAndReplacePanel();
-			});
-
-			unlistenNativeFindNextMenu = await listen('margin://find-next', () => {
-				findNextInEditor();
-			});
-
-			unlistenNativeFindPreviousMenu = await listen('margin://find-previous', () => {
-				findPreviousInEditor();
-			});
-
-			unlistenNativeToggleFileTreeMenu = await listen('margin://toggle-file-tree', () => {
-				toggleFileTreePanel();
-			});
-
-			unlistenNativeInsertMenu = await listen<InsertBlockKind>('margin://insert-block', (event) => {
-				if (isInsertBlockKind(event.payload)) {
-					insertMarkdownBlock(event.payload);
-				}
-			});
-
-			unlistenNativeCommentMenu = await listen('margin://add-comment', () => {
+				return checkForDesktopUpdate(true);
+			},
+			openFindPanel: () => openFindPanel(),
+			openFindAndReplacePanel: () => openFindAndReplacePanel(),
+			findNextInEditor,
+			findPreviousInEditor,
+			toggleFileTreePanel,
+			insertMarkdownBlock: (kind) => {
+				insertMarkdownBlock(kind);
+			},
+			openCommentComposerForSelection: () => {
 				openCommentComposerForSelection();
-			});
+			},
+			handleNativeDragDrop,
+			isInsertBlockKind
+		});
 
-			nativeMenuBridgeReady = true;
-		} catch(err) {
-			nativeMenuBridgeReady = false;
-			console.warn('Unable to connect native menus', err);
-		}
-
-		try {
-			const webview = tauri?.webview?.getCurrentWebview?.();
-
-			if (webview?.onDragDropEvent) {
-				unlistenNativeDragDrop = await webview.onDragDropEvent((event) => {
-					handleNativeDragDrop(event.payload);
-				});
-			}
-		} catch(err) {
-			console.warn('Unable to connect native file drops', err);
-		}
+		nativeDesktopBridgeCleanup = bridge.cleanup;
+		nativeMenuBridgeReady = bridge.menuReady;
 	}
 
 	function insertMarkdownBlock(kind: InsertBlockKind) {
@@ -5506,375 +5366,56 @@
 	}
 
 	function commandPaletteCommandEntries(): CommandPaletteEntry[] {
-		const commands: CommandPaletteEntry[] = [
-			{
-				id: 'command:new-document',
-				kind: 'command',
-				title: 'New Document',
-				subtitle: 'File',
-				group: 'Suggested',
-				shortcut: shortcutLabel('N'),
-				keywords: ['file', 'untitled'],
-				action: createNewDocument
+		return buildCommandPaletteCommandEntries({
+			desktopShell,
+			soseinCloudVisible,
+			soseinSessionEmail: soseinSession?.user.email ?? '',
+			soseinActiveDocument: Boolean(soseinActiveDocument),
+			editMode,
+			documentData: Boolean(documentData),
+			documentTabsLength: documentTabs.length,
+			fileTreePanelOpen,
+			selectedQuote,
+			createNewDocument,
+			openLocalMarkdown,
+			openLocalFolder,
+			openQuickOpen: () => openCommandPalette('files'),
+			openSettingsDialog,
+			saveLocalMarkdown: () => saveLocalMarkdown(),
+			saveLocalMarkdownAs,
+			requestPrintDocument,
+			closeActiveDocumentTab,
+			activatePreviousTab: () => activateAdjacentDocumentTab(-1),
+			activateNextTab: () => activateAdjacentDocumentTab(1),
+			toggleFileTreePanel,
+			openFindPanel: () => openFindPanel(),
+			openFindAndReplacePanel: () => openFindAndReplacePanel(),
+			setEditingMode,
+			openCommentComposerForSelection: () => {
+				openCommentComposerForSelection();
 			},
-			{
-				id: 'command:open-document',
-				kind: 'command',
-				title: 'Open Document...',
-				subtitle: 'File',
-				group: 'Suggested',
-				shortcut: shortcutLabel('O'),
-				keywords: ['file', 'markdown'],
-				action: openLocalMarkdown
+			insertMarkdownBlock: (kind) => {
+				insertMarkdownBlock(kind);
 			},
-			{
-				id: 'command:open-folder',
-				kind: 'command',
-				title: 'Open Folder...',
-				subtitle: 'File',
-				group: 'Suggested',
-				shortcut: shortcutLabel('Shift+O'),
-				keywords: ['workspace', 'files'],
-				action: openLocalFolder
-			},
-			{
-				id: 'command:quick-open',
-				kind: 'command',
-				title: 'Quick Open File',
-				subtitle: 'File',
-				group: 'Suggested',
-				shortcut: shortcutLabel('P'),
-				keywords: ['file', 'search', 'open'],
-				action: () => openCommandPalette('files')
-			},
-			{
-				id: 'command:settings',
-				kind: 'command',
-				title: 'Settings',
-				subtitle: 'Application',
-				group: 'Suggested',
-				shortcut: shortcutLabel(','),
-				keywords: ['preferences'],
-				action: openSettingsDialog
-			},
-			{
-				id: 'command:save',
-				kind: 'command',
-				title: 'Save Document',
-				subtitle: 'File',
-				group: 'File',
-				shortcut: shortcutLabel('S'),
-				keywords: ['write'],
-				disabled: Boolean(soseinActiveDocument),
-				action: () => saveLocalMarkdown()
-			},
-			{
-				id: 'command:save-as',
-				kind: 'command',
-				title: 'Save Document As...',
-				subtitle: 'File',
-				group: 'File',
-				shortcut: shortcutLabel('Shift+S'),
-				keywords: ['write', 'copy'],
-				action: saveLocalMarkdownAs
-			},
-			{
-				id: 'command:print',
-				kind: 'command',
-				title: 'Print Document',
-				subtitle: 'File',
-				group: 'File',
-				keywords: ['export'],
-				disabled: !documentData,
-				action: requestPrintDocument
-			},
-			{
-				id: 'command:close-tab',
-				kind: 'command',
-				title: 'Close Tab',
-				subtitle: 'File',
-				group: 'File',
-				shortcut: shortcutLabel('W'),
-				keywords: ['document'],
-				action: closeActiveDocumentTab
-			},
-			{
-				id: 'command:previous-tab',
-				kind: 'command',
-				title: 'Show Previous Tab',
-				subtitle: 'Window',
-				group: 'Navigation',
-				shortcut: shortcutLabel('Shift+['),
-				keywords: ['tabs'],
-				disabled: documentTabs.length <= 1,
-				action: () => activateAdjacentDocumentTab(-1)
-			},
-			{
-				id: 'command:next-tab',
-				kind: 'command',
-				title: 'Show Next Tab',
-				subtitle: 'Window',
-				group: 'Navigation',
-				shortcut: shortcutLabel('Shift+]'),
-				keywords: ['tabs'],
-				disabled: documentTabs.length <= 1,
-				action: () => activateAdjacentDocumentTab(1)
-			},
-			{
-				id: 'command:toggle-file-tree',
-				kind: 'command',
-				title: fileTreePanelOpen ? 'Hide File Tree' : 'Show File Tree',
-				subtitle: 'View',
-				group: 'Navigation',
-				shortcut: shortcutLabel('B'),
-				keywords: ['folder', 'sidebar', 'explorer'],
-				action: toggleFileTreePanel
-			},
-			{
-				id: 'command:find',
-				kind: 'command',
-				title: 'Find',
-				subtitle: 'Edit',
-				group: 'Edit',
-				shortcut: shortcutLabel('F'),
-				keywords: ['search'],
-				action: () => openFindPanel()
-			},
-			{
-				id: 'command:find-replace',
-				kind: 'command',
-				title: 'Find and Replace',
-				subtitle: 'Edit',
-				group: 'Edit',
-				shortcut: shortcutLabel('Alt+F'),
-				keywords: ['search'],
-				action: () => openFindAndReplacePanel()
-			},
-			{
-				id: 'command:edit-mode',
-				kind: 'command',
-				title: 'Edit Directly',
-				subtitle: 'Editing Mode',
-				group: 'Editing Mode',
-				keywords: ['mode', 'write'],
-				disabled: editMode === 'edit',
-				action: () => setEditingMode('edit')
-			},
-			{
-				id: 'command:suggest-mode',
-				kind: 'command',
-				title: 'Suggest Edits',
-				subtitle: 'Editing Mode',
-				group: 'Editing Mode',
-				keywords: ['mode', 'track changes'],
-				disabled: editMode === 'suggest' || Boolean(soseinActiveDocument),
-				action: () => setEditingMode('suggest')
-			},
-			{
-				id: 'command:add-comment',
-				kind: 'command',
-				title: 'Add Comment',
-				subtitle: selectedQuote.trim() ? 'Insert' : 'Select text first',
-				group: 'Insert',
-				shortcut: shortcutLabel('Alt+M'),
-				keywords: ['annotation', 'note'],
-				disabled: !selectedQuote.trim() || Boolean(soseinActiveDocument),
-				action: () => {
-					openCommentComposerForSelection();
-				}
-			},
-			{
-				id: 'command:insert-table',
-				kind: 'command',
-				title: 'Insert Table',
-				subtitle: 'Insert',
-				group: 'Insert',
-				shortcut: shortcutLabel('Shift+T'),
-				keywords: ['markdown'],
-				action: () => insertMarkdownBlock('table')
-			},
-			{
-				id: 'command:insert-tasks',
-				kind: 'command',
-				title: 'Insert Task List',
-				subtitle: 'Insert',
-				group: 'Insert',
-				shortcut: shortcutLabel('Shift+X'),
-				keywords: ['markdown', 'checkbox'],
-				action: () => insertMarkdownBlock('tasks')
-			},
-			{
-				id: 'command:insert-bullets',
-				kind: 'command',
-				title: 'Insert Bulleted List',
-				subtitle: 'Insert',
-				group: 'Insert',
-				shortcut: shortcutLabel('Shift+8'),
-				keywords: ['markdown'],
-				action: () => insertMarkdownBlock('bullets')
-			},
-			{
-				id: 'command:insert-numbers',
-				kind: 'command',
-				title: 'Insert Numbered List',
-				subtitle: 'Insert',
-				group: 'Insert',
-				shortcut: shortcutLabel('Shift+7'),
-				keywords: ['markdown'],
-				action: () => insertMarkdownBlock('numbers')
+			openSoseinDialog,
+			checkForDesktopUpdate: () => {
+				openSettingsDialog();
+				return checkForDesktopUpdate(true);
 			}
-		];
-
-		if (soseinCloudVisible) {
-			commands.splice(4, 0, {
-				id: 'command:sosein-cloud',
-				kind: 'command',
-				title: 'Sosein Cloud',
-				subtitle: soseinSession ? soseinSession.user.email : 'Connect',
-				group: 'Suggested',
-				keywords: ['cloud', 'sosein', 'sync'],
-				action: openSoseinDialog
-			});
-		}
-
-		if (desktopShell) {
-			commands.push({
-				id: 'command:check-updates',
-				kind: 'command',
-				title: 'Check for Updates',
-				subtitle: 'Application',
-				group: 'Application',
-				keywords: ['version'],
-				action: () => {
-					openSettingsDialog();
-					checkForDesktopUpdate(true);
-				}
-			});
-		}
-
-		return commands;
+		});
 	}
 
 	function quickOpenPaletteEntries(): CommandPaletteEntry[] {
-		const entries: CommandPaletteEntry[] = [];
-		const seenPaths = new Set<string>();
-
-		for (const tab of visibleDocumentTabs) {
-			const path = tab.nativeFilePath;
-
-			entries.push({
-				id: `quick-open:tab:${tab.id}`,
-				kind: 'tab',
-				title: tab.title,
-				subtitle: path ? undefined : 'Open tab',
-				detail: path
-					? compactLocalPath(path)
-					: tab.id === activeDocumentTabId ? 'Current tab' : 'Tab',
-				group: 'Open Tabs',
-				keywords: ['tab', path || '', tab.localFileName || ''],
-				action: () => activateDocumentTab(tab.id)
-			});
-
-			if (path) seenPaths.add(path);
-		}
-
-		if (fileTreeRoot) {
-			for (const entry of markdownFileTreeEntries(fileTreeRoot.entries)) {
-				if (seenPaths.has(entry.path)) continue;
-				seenPaths.add(entry.path);
-
-				const relativePath = relativeLocalPath(fileTreeRoot.path, entry.path);
-
-				entries.push({
-					id: `quick-open:file:${entry.path}`,
-					kind: 'file',
-					title: entry.name,
-					detail: relativePath || compactLocalPath(entry.path),
-					group: 'Files',
-					keywords: ['markdown', entry.path, relativePath],
-					action: () => openNativeMarkdownPath(entry.path)
-				});
-			}
-		}
-
-		for (const recentDocument of recentDocuments) {
-			if (seenPaths.has(recentDocument.path)) continue;
-			seenPaths.add(recentDocument.path);
-
-			entries.push({
-				id: `quick-open:recent:${recentDocument.path}`,
-				kind: 'recent',
-				title: recentDocument.title || fileNameFromPath(recentDocument.path),
-				detail: compactLocalPath(recentDocument.path),
-				group: 'Recent',
-				keywords: ['recent', recentDocument.path],
-				action: () => openNativeMarkdownPath(recentDocument.path, { removeRecentOnFailure: true })
-			});
-		}
-
-		if (entries.length > 0) return entries;
-
-		return [
-			{
-				id: 'quick-open:open-folder',
-				kind: 'command',
-				title: 'Open Folder...',
-				subtitle: 'Choose a folder to search Markdown files',
-				group: 'Suggested',
-				keywords: ['workspace'],
-				action: openLocalFolder
-			},
-			{
-				id: 'quick-open:open-document',
-				kind: 'command',
-				title: 'Open Document...',
-				subtitle: 'Choose a Markdown file',
-				group: 'Suggested',
-				keywords: ['file'],
-				action: openLocalMarkdown
-			}
-		];
-	}
-
-	function markdownFileTreeEntries(entries: NativeDirectoryEntry[]): NativeDirectoryEntry[] {
-		const markdownEntries: NativeDirectoryEntry[] = [];
-
-		for (const entry of entries) {
-			if (entry.kind === 'markdown') {
-				markdownEntries.push(entry);
-			}
-
-			if (entry.children.length > 0) {
-				markdownEntries.push(...markdownFileTreeEntries(entry.children));
-			}
-		}
-
-		return markdownEntries;
-	}
-
-	function shortcutLabel(keys: string) {
-		if (isApplePlatform()) {
-			return `${platformCommandKeyLabel()}${keys.split('+').map(macShortcutPartLabel).join('')}`;
-		}
-
-		return `${platformCommandKeyLabel()}+${keys}`;
-	}
-
-	function platformCommandKeyLabel() {
-		return isApplePlatform() ? '⌘' : 'Ctrl';
-	}
-
-	function isApplePlatform() {
-		return typeof navigator !== 'undefined' && (/Mac|iPhone|iPad|iPod/).test(navigator.platform);
-	}
-
-	function macShortcutPartLabel(part: string) {
-		if (part === 'Shift') return '⇧';
-		if (part === 'Alt') return '⌥';
-		if (part === 'Ctrl') return '⌃';
-		if (part === 'Cmd') return '⌘';
-
-		return part.toUpperCase();
+		return buildQuickOpenPaletteEntries({
+			visibleDocumentTabs,
+			activeDocumentTabId,
+			fileTreeRoot,
+			recentDocuments,
+			activateDocumentTab,
+			openNativeMarkdownPath,
+			openLocalFolder,
+			openLocalMarkdown
+		});
 	}
 
 	function openFindPanel(view: EditorView | null = mainEditor) {
@@ -6162,14 +5703,7 @@
 		try {
 			syncActiveDocumentTab();
 
-			const existingTab = documentTabs.find((tab) => {
-				const cloudDocument = tab.soseinDocument;
-
-				if (!cloudDocument) return false;
-
-				return cloudDocument.serverUrl === session.serverUrl
-					&& cloudDocument.id === document.id;
-			});
+			const existingTab = findExistingSoseinDocumentTab(documentTabs, session.serverUrl, document.id);
 
 			if (existingTab) {
 				closeSoseinDialog();
@@ -6182,20 +5716,19 @@
 			const fullDocument = 'latest_snapshot' in document
 				? document
 				: await client.getDocument(document.id);
-			const cloudDocument: SoseinActiveDocument = {
+			const nextState = createSoseinDocumentState({
 				serverUrl: session.serverUrl,
-				id: fullDocument.id,
-				title: fullDocument.title,
-				contentType: fullDocument.content_type,
-				snapshotVersion: fullDocument.latest_snapshot.version
-			};
-			const nextDocumentSessionKey = `sosein:${cloudDocument.serverUrl}:${cloudDocument.id}`;
+				document: fullDocument,
+				fileName: soseinDocumentFileName(fullDocument.title),
+				syncStatus: 'connecting',
+				syncStatusLabel: soseinSyncStatusLabel
+			});
 
 			destroySoseinEditorSync();
 			clearLocalAutosaveTimer();
 			closeSoseinDialog();
 
-			soseinActiveDocument = cloudDocument;
+			soseinActiveDocument = nextState.soseinDocument;
 			soseinSyncStatus = 'connecting';
 			localFileMode = false;
 			localFileHandle = null;
@@ -6205,14 +5738,10 @@
 			lastPersistedSerializedMarkdown = '';
 			externalChange = null;
 			saveState = 'saved';
-			saveMessage = soseinSyncStatusLabel(soseinSyncStatus);
-			documentSessionKey = nextDocumentSessionKey;
-			activeDocumentTabId = nextDocumentSessionKey;
-			documentData = {
-				id: nextDocumentSessionKey,
-				fileName: soseinDocumentFileName(cloudDocument.title),
-				markdown: ''
-			};
+			saveMessage = nextState.saveMessage;
+			documentSessionKey = nextState.documentSessionKey;
+			activeDocumentTabId = nextState.documentSessionKey;
+			documentData = nextState.documentData;
 			annotations = null;
 			editMode = 'edit';
 			resetDraftState('');
@@ -6237,7 +5766,7 @@
 		const client = soseinClientForSession();
 
 		try {
-			const { createSoseinCodeMirrorSync } = await import('./lib/sosein-codemirror-sync');
+			const { createSoseinCodeMirrorSync } = await import('./lib/features/sosein-cloud/sosein-codemirror-sync');
 			const sync = await createSoseinCodeMirrorSync({
 				serverUrl: activeDocument.serverUrl,
 				documentId: activeDocument.id,
@@ -6715,7 +6244,7 @@
 	}
 
 	async function loadRecentDocuments() {
-		const browserRecentDocuments = readBrowserRecentDocuments();
+		const browserRecentDocuments = readBrowserRecentDocuments(recentDocumentsStorageKey);
 
 		if (!desktopShell) return browserRecentDocuments;
 
@@ -6734,47 +6263,14 @@
 		}
 	}
 
-	function readBrowserRecentDocuments() {
-		try {
-			const raw = window.localStorage.getItem(recentDocumentsStorageKey);
-
-			if (!raw) return [];
-
-			const parsed = JSON.parse(raw);
-
-			return normalizeRecentDocuments(parsed);
-		} catch {
-			return [];
-		}
-	}
-
 	function persistRecentDocuments(nextRecentDocuments: RecentDocument[]) {
 		recentDocuments = normalizeRecentDocuments(nextRecentDocuments);
-		writeBrowserRecentDocuments(recentDocuments);
+		writeBrowserRecentDocuments(recentDocumentsStorageKey, recentDocuments);
 		void syncRecentDocumentsMenu();
 	}
 
-	function writeBrowserRecentDocuments(documents: RecentDocument[]) {
-		try {
-			window.localStorage.setItem(recentDocumentsStorageKey, JSON.stringify(documents));
-		} catch {
-			// Recent documents are a convenience; failures here should not block editing.
-		}
-	}
-
 	function addRecentDocument(document: NativeMarkdownDocument) {
-		if (!document.path) return;
-
-		const nextEntry = {
-			path: document.path,
-			title: document.name || fileNameFromPath(document.path),
-			openedAt: Date.now()
-		};
-
-		persistRecentDocuments([
-			nextEntry,
-			...recentDocuments.filter((entry) => entry.path !== document.path)
-		]);
+		persistRecentDocuments(addRecentDocumentEntry(recentDocuments, document));
 	}
 
 	function clearRecentDocuments() {
@@ -6795,7 +6291,7 @@
 
 			if (savedRecentDocuments.length > 0 || recentDocuments.length === 0) {
 				recentDocuments = savedRecentDocuments;
-				writeBrowserRecentDocuments(recentDocuments);
+				writeBrowserRecentDocuments(recentDocumentsStorageKey, recentDocuments);
 			}
 		} catch(err) {
 			console.warn('Unable to update recent documents menu', err);
@@ -6859,7 +6355,7 @@
 			await loadNativeMarkdownDocument(await request);
 		} catch(err) {
 			if (options.removeRecentOnFailure) {
-				persistRecentDocuments(recentDocuments.filter((entry) => entry.path !== path));
+				persistRecentDocuments(removeRecentDocumentEntry(recentDocuments, path));
 			}
 
 			error = err instanceof Error ? err.message : 'Unable to open recent document';
@@ -6964,59 +6460,54 @@
 		createUntitledMarkdownDocument();
 	}
 
+	function applyLocalDocumentSessionState(
+		sessionState: ReturnType<typeof createUntitledLocalDocumentSession>,
+		options: { fileName: string; resetEditor: boolean; clearCloud?: boolean } = {
+			fileName: sessionState.localFileName,
+			resetEditor: true,
+			clearCloud: true
+		}
+	) {
+		if (options.clearCloud ?? true) {
+			clearSoseinActiveDocument();
+		}
+
+		localFileMode = sessionState.localFileMode;
+		localFileHandle = sessionState.localFileHandle;
+		localFileName = sessionState.localFileName;
+		localMetadataDirty = sessionState.localMetadataDirty;
+		nativeFilePath = sessionState.nativeFilePath;
+		lastPersistedSerializedMarkdown = sessionState.lastPersistedSerializedMarkdown;
+		externalChange = sessionState.externalChange;
+		saveState = sessionState.saveState;
+		saveMessage = sessionState.saveMessage;
+		documentSessionKey = sessionState.documentSessionKey;
+		activeDocumentTabId = sessionState.documentSessionKey;
+		documentData = sessionState.documentData;
+		annotations = localAnnotationsFromEmbeddedBlock(options.fileName, sessionState.embeddedComments);
+
+		if (options.resetEditor) {
+			resetDraftState(sessionState.editorMarkdown);
+			clearSelection();
+		}
+	}
+
 	function createUntitledMarkdownDocument(options: { replaceActive?: boolean } = {}) {
-		const fileName = nextUntitledFileName();
-		const nextDocumentSessionKey = `local:untitled:${Date.now()}`;
+		syncActiveDocumentTab();
+		const fileName = nextUntitledFileName(documentTabs);
+		const sessionState = createUntitledLocalDocumentSession(fileName, `local:untitled:${Date.now()}`);
 
 		clearLocalAutosaveTimer();
 
 		if (!options.replaceActive) syncActiveDocumentTab();
 
-		clearSoseinActiveDocument();
-		localFileMode = true;
-		localFileHandle = null;
-		localFileName = fileName;
-		localMetadataDirty = false;
-		nativeFilePath = '';
-		lastPersistedSerializedMarkdown = '';
-		externalChange = null;
-		saveState = 'idle';
-		saveMessage = 'Unsaved document';
-		documentSessionKey = nextDocumentSessionKey;
-		activeDocumentTabId = nextDocumentSessionKey;
-		documentData = standaloneDocumentData(fileName, '');
+		applyLocalDocumentSessionState(sessionState, { fileName, resetEditor: true, clearCloud: true });
 		annotations = emptyLocalAnnotations(fileName);
-		resetDraftState('');
-		clearSelection();
 
 		if (options.replaceActive) documentTabs = [];
 
 		syncActiveDocumentTab();
 		requestAnimationFrame(updateAnchorPositions);
-	}
-
-	function nextUntitledFileName() {
-		syncActiveDocumentTab();
-
-		const usedNames = new Set(documentTabs.map((tab) => tab.localFileName || tab.title));
-
-		if (!usedNames.has('Untitled.md')) return 'Untitled.md';
-
-		for (let index = 2; index < 1000; index += 1) {
-			const candidate = `Untitled ${index}.md`;
-
-			if (!usedNames.has(candidate)) return candidate;
-		}
-
-		return `Untitled ${Date.now()}.md`;
-	}
-
-	function standaloneDocumentData(fileName: string, markdown: string): LocalDocument {
-		return {
-			id: documentSessionKey,
-			fileName,
-			markdown
-		};
 	}
 
 	async function openLocalMarkdown() {
@@ -7104,8 +6595,6 @@
 	}
 
 	async function loadNativeMarkdownDocument(nativeDocument: NativeMarkdownDocument) {
-		const fileName = nativeDocument.name || fileNameFromPath(nativeDocument.path);
-
 		syncActiveDocumentTab();
 
 		const existingTab = documentTabs.find((tab) => tab.nativeFilePath === nativeDocument.path);
@@ -7117,16 +6606,7 @@
 			return;
 		}
 
-		const nextDocumentSessionKey = `local:${nativeDocument.path}`;
-
-		clearSoseinActiveDocument();
-		localFileMode = true;
-		localFileHandle = null;
-		localFileName = fileName;
-		localMetadataDirty = false;
-		nativeFilePath = nativeDocument.path;
-		documentSessionKey = nextDocumentSessionKey;
-		activeDocumentTabId = nextDocumentSessionKey;
+		documentSessionKey = `local:${nativeDocument.path}`;
 		hydrateNativeDocumentState(nativeDocument, 'Saved');
 		addRecentDocument(nativeDocument);
 		watchNativeMarkdownDocument(nativeDocument.path);
@@ -7145,60 +6625,63 @@
 
 		clearLocalAutosaveTimer();
 
-		if (options.forceEditorReload) {
-			documentSessionKey = `${activeDocumentTabId || documentSessionKey}:reload:${Date.now()}`;
-		}
+		const nextDocumentSessionKey = options.forceEditorReload
+			? `${activeDocumentTabId || documentSessionKey}:reload:${Date.now()}`
+			: documentSessionKey;
+		const sessionState = createNativeLocalDocumentSession({
+			nativeDocument,
+			fileName,
+			splitDocument,
+			message,
+			documentSessionKey: nextDocumentSessionKey
+		});
 
-		localFileMode = true;
-		localFileHandle = null;
-		localFileName = fileName;
-		localMetadataDirty = false;
-		nativeFilePath = nativeDocument.path;
-		lastPersistedSerializedMarkdown = nativeDocument.markdown;
-		externalChange = null;
-		saveState = 'saved';
-		saveMessage = message;
-		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
-		annotations = localAnnotationsFromEmbeddedBlock(fileName, splitDocument.comments);
-		resetDraftState(splitDocument.markdown);
-		clearSelection();
+		applyLocalDocumentSessionState(sessionState, { fileName, resetEditor: true, clearCloud: false });
 	}
 
 	async function loadLocalMarkdownFile(file: File, handle: MarkdownFileHandle | null) {
 		const serializedMarkdown = await file.text();
 		const splitDocument = splitMarginCommentBlock(serializedMarkdown);
 		const fileName = handle?.name || file.name || 'Untitled.md';
-		const nextDocumentSessionKey = `local:${Date.now()}:${fileName}`;
+		const sessionState = createBrowserLocalDocumentSession({
+			serializedMarkdown,
+			splitDocument,
+			fileName,
+			handle,
+			documentSessionKey: `local:${Date.now()}:${fileName}`
+		});
 
 		clearLocalAutosaveTimer();
 		syncActiveDocumentTab();
-		clearSoseinActiveDocument();
-		localFileMode = true;
-		localFileHandle = handle;
-		localFileName = fileName;
-		localMetadataDirty = false;
-		nativeFilePath = '';
-		lastPersistedSerializedMarkdown = serializedMarkdown;
-		externalChange = null;
-		saveState = 'saved';
-		saveMessage = handle?.createWritable ? 'Saved' : 'Opened read-only; use Save As';
-		documentSessionKey = nextDocumentSessionKey;
-		activeDocumentTabId = nextDocumentSessionKey;
-		documentData = standaloneDocumentData(fileName, splitDocument.markdown);
-		annotations = localAnnotationsFromEmbeddedBlock(fileName, splitDocument.comments);
-		resetDraftState(splitDocument.markdown);
-		clearSelection();
+		applyLocalDocumentSessionState(sessionState, { fileName, resetEditor: true, clearCloud: true });
 		syncActiveDocumentTab();
 		await tick();
 		updateAnchorPositions();
 	}
 
 	function hasWritableLocalSaveTarget() {
-		return localFileMode && ((desktopShell && Boolean(nativeFilePath)) || Boolean(localFileHandle?.createWritable));
+		return computeHasWritableLocalSaveTarget({
+			localFileMode,
+			desktopShell,
+			nativeFilePath,
+			localFileHandle
+		});
 	}
 
 	function shouldAutosaveLocalDocument() {
-		return Boolean(documentData && hasWritableLocalSaveTarget() && !externalChange && saveMessage !== 'Save failed' && hasAutosavableLocalChanges());
+		return computeShouldAutosaveLocalDocument({
+			documentData,
+			localFileMode,
+			desktopShell,
+			nativeFilePath,
+			localFileHandle,
+			externalChange,
+			saveMessage,
+			markdown: activeEditorMarkdown(),
+			baseMarkdown,
+			localMetadataDirty,
+			pendingEditThreads
+		});
 	}
 
 	function clearLocalAutosaveTimer() {
@@ -7530,11 +7013,22 @@
 	}
 
 	function hasUnsavedLocalChanges(markdown = activeEditorMarkdown()) {
-		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0 || commentBody.trim().length > 0;
+		return computeHasUnsavedLocalChanges({
+			markdown,
+			baseMarkdown,
+			localMetadataDirty,
+			pendingEditThreads,
+			commentBody
+		});
 	}
 
 	function hasAutosavableLocalChanges(markdown = activeEditorMarkdown()) {
-		return markdown !== baseMarkdown || localMetadataDirty || pendingEditThreads.length > 0;
+		return computeHasAutosavableLocalChanges({
+			markdown,
+			baseMarkdown,
+			localMetadataDirty,
+			pendingEditThreads
+		});
 	}
 
 	async function reloadExternalChange() {
@@ -7604,17 +7098,15 @@
 	}
 
 	function refreshLocalSaveState(markdown = activeEditorMarkdown()) {
-		const dirty = markdown !== baseMarkdown || localMetadataDirty;
+		const nextState = computeRefreshLocalSaveState({
+			markdown,
+			baseMarkdown,
+			localMetadataDirty,
+			externalChange
+		});
 
-		if (externalChange) {
-			saveState = 'conflict';
-			saveMessage = 'Changed on disk';
-
-			return;
-		}
-
-		saveState = dirty ? 'dirty' : 'saved';
-		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
+		saveState = nextState.saveState;
+		saveMessage = nextState.saveMessage;
 	}
 
 	function persistenceSnapshot(markdown = activeEditorMarkdown()) {

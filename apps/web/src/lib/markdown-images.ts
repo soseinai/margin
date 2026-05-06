@@ -1,4 +1,4 @@
-import { escapeMarkdownImageAlt, markdownImageDestination } from './local-documents';
+import { escapeMarkdownImageAlt, markdownImageDestination } from './features/documents/local-documents';
 
 export type MarkdownImage = {
   alt: string;

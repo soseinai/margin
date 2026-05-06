@@ -1,5 +1,5 @@
 <script lang="ts">
-	import FileTreeEntry from '$lib/components/FileTreeEntry.svelte';
+	import FileTreeEntry from '$lib/features/documents/components/FileTreeEntry.svelte';
 	import { onDestroy } from 'svelte';
 	import type { NativeDirectoryEntry, NativeDirectoryTree } from '$lib/app-types';
 

@@ -10,8 +10,8 @@
 		SoseinDocument,
 		SoseinDocumentSummary,
 		SoseinStoredSession
-	} from '$lib/sosein-cloud';
-	import type { SoseinSyncStatus } from '$lib/sosein-codemirror-sync';
+	} from '$lib/features/sosein-cloud/sosein-cloud';
+	import type { SoseinSyncStatus } from '$lib/features/sosein-cloud/sosein-codemirror-sync';
 
 	type MaybePromise<T = void> = T | Promise<T>;
 
