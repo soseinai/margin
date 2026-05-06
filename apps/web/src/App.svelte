@@ -57,40 +57,22 @@
 	import { tags } from '@lezer/highlight';
 	import katex from 'katex';
 
-	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
-	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
-	import ListIcon from '@lucide/svelte/icons/list';
-	import ListOrderedIcon from '@lucide/svelte/icons/list-ordered';
-	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
-	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
-	import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
-	import CommandIcon from '@lucide/svelte/icons/command';
-	import ClockIcon from '@lucide/svelte/icons/clock';
-	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
-	import SearchIcon from '@lucide/svelte/icons/search';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import DownloadIcon from '@lucide/svelte/icons/download';
-	import PencilIcon from '@lucide/svelte/icons/pencil';
-	import PrinterIcon from '@lucide/svelte/icons/printer';
-	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
-	import SaveIcon from '@lucide/svelte/icons/save';
-	import SettingsIcon from '@lucide/svelte/icons/settings';
-	import TableIcon from '@lucide/svelte/icons/table';
-	import XIcon from '@lucide/svelte/icons/x';
 	import { onMount, tick } from 'svelte';
 	import brandMarkUrl from '../../../assets/margin-icon.svg';
 	import brandMarkDarkUrl from '../../../assets/margin-icon-dk.svg';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import * as Dialog from '$lib/components/ui/dialog/index.js';
-	import { Label } from '$lib/components/ui/label/index.js';
-	import { Textarea } from '$lib/components/ui/textarea/index.js';
-	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
+	import CommandPalette from './lib/components/app/CommandPalette.svelte';
+	import EditorTitlebar from './lib/components/app/EditorTitlebar.svelte';
+	import FileTreePanel from './lib/components/app/FileTreePanel.svelte';
+	import MarginRail from './lib/components/app/MarginRail.svelte';
+	import PrintDocument from './lib/components/app/PrintDocument.svelte';
+	import PrintOptionsDialog from './lib/components/app/PrintOptionsDialog.svelte';
+	import SettingsDialog from './lib/components/app/SettingsDialog.svelte';
+	import UpdateNotice from './lib/components/app/UpdateNotice.svelte';
+	import WordCountDialog from './lib/components/app/WordCountDialog.svelte';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
-	import FileTreeEntry from './lib/components/FileTreeEntry.svelte';
-	import { authorInitials, avatarStyle, defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
+	import { defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
 	import {
 		compactLocalPath,
 		directoryPath,
@@ -155,6 +137,50 @@
 	import { renderPrintMarkdown } from './lib/print-markdown';
 
 	import type { LocalDocument, MarginAnchor, MarginSuggestion, LocalAnnotations } from './lib/types';
+	import type {
+		AppSettings,
+		AppUpdateCheckState,
+		AppUpdateMetadata,
+		CommandPaletteEntry,
+		CommandPaletteMode,
+		CommandPaletteOpenRequest,
+		CommentSelectionAnchor,
+		DocumentTab,
+		DocumentViewport,
+		EditingMode,
+		ExternalDocumentChange,
+		FilePickerWindow,
+		FindPanelHandle,
+		FindPanelIconName,
+		FindPanelMode,
+		FindPanelModeOptions,
+		FindPanelPosition,
+		InsertBlockKind,
+		LivePreviewState,
+		MarginItem,
+		MarkdownFileHandle,
+		NativeDirectoryEntry,
+		NativeDirectoryTree,
+		NativeMarkdownDocument,
+		NativeMarkdownDocumentChange,
+		NativeOpenPathPayload,
+		PrintDocumentOptions,
+		ReviewCountStats,
+		SaveLocalMarkdownOptions,
+		SaveState,
+		SuggestionStatus,
+		SuggestionSurfaceKind,
+		TaskCountStats,
+		TauriDragDropPayload,
+		TauriWindow,
+		ThemeSetting,
+		ThreadRangeMatch,
+		ThreadView,
+		TypingProfile,
+		TypingProfileRow,
+		WordCountMetrics,
+		WordCountStats
+	} from './lib/app-types';
 
 	let documentData: LocalDocument | null = null;
 	let annotations: LocalAnnotations | null = null;
@@ -276,29 +302,12 @@
 	let fileTreeRoot: NativeDirectoryTree | null = null;
 	let fileTreePanelOpen = false;
 	let fileTreePanelWidth = 300;
-	let fileTreeResizeActive = false;
 	let fileTreeLoading = false;
 	let fileTreeError = '';
 	let anchorPositionFrame: number | null = null;
-	let commandPaletteOpen = false;
-	let commandPaletteMode: CommandPaletteMode = 'commands';
-	let commandPaletteEffectiveMode: CommandPaletteMode = 'commands';
-	let commandPaletteQuery = '';
-	let commandPaletteSearchQuery = '';
-	let commandPaletteTitleLabel = 'Command Palette';
-	let commandPalettePlaceholderLabel = 'Search commands';
-	let commandPaletteSearchAriaLabel = 'Command palette search';
-	let commandPaletteShortcutLabel = '';
-	let commandPaletteActiveIndex = 0;
-	let commandPaletteWindowStart = 0;
-	let commandPaletteWindowed = false;
-	let commandPaletteListHeight = '';
-	let commandPaletteEntries: CommandPaletteEntry[] = [];
-	let commandPaletteRows: CommandPaletteRow[] = [];
-	let commandPaletteInput: HTMLInputElement | null = null;
-	let commandPaletteInputMode: CommandPaletteInputMode = 'keyboard';
-	let commandPaletteLastPointerX = Number.NaN;
-	let commandPaletteLastPointerY = Number.NaN;
+	let commandPaletteOpenRequest: CommandPaletteOpenRequest | null = null;
+	let commandPaletteRequestId = 0;
+	let commandPaletteIsOpen = false;
 	let collapsedHeadingKeys = new Set<string>();
 	let collapsedListItemKeys = new Set<string>();
 	const syncedEditKeys = new Set<string>();
@@ -314,14 +323,8 @@
 	const saveProgressFadeMs = 500;
 	const markdownBlockWidgetNavigationRadius = 6;
 	const livePreviewViewportLineBuffer = 80;
-	const fileTreePanelMinWidth = 220;
-	const fileTreePanelMaxWidth = 520;
 	const typingProfilerStorageKey = 'margin:typing-profiler';
 	const typingProfilerThresholdStorageKey = 'margin:typing-profiler-threshold-ms';
-	const commandPaletteVisibleEntryLimit = 10;
-	const commandPaletteWindowEdgeBuffer = 2;
-	const commandPaletteFileTitleMaxLength = 34;
-	const commandPaletteFileDetailMaxLength = 54;
 	const themeOptions: ThemeSetting[] = ['auto', 'light', 'dark'];
 	const loadingMarkdownCodeLanguages = new Map<string, Promise<unknown>>();
 	let pendingTypingProfile: TypingProfile | null = null;
@@ -386,280 +389,6 @@
 			markdown: '1. Item\n2. Item',
 			cursorText: 'Item'
 		}
-	};
-
-	type SuggestionStatus = 'applied' | 'rejected' | 'resolved';
-	type EditingMode = 'edit' | 'suggest';
-	type ThemeSetting = 'auto' | 'light' | 'dark';
-	type AppSettings = { theme: ThemeSetting; localUserName: string };
-	type AppUpdateMetadata = { currentVersion: string; version: string; notes?: string | null };
-	type AppUpdateCheckState = 'idle' | 'checking' | 'available' | 'current' | 'installing' | 'error';
-	type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict';
-	type SaveLocalMarkdownOptions = { promptForPath?: boolean; autosave?: boolean };
-	type PrintDocumentOptions = { includeMarginNotesAppendix?: boolean };
-	type WordCountMetrics = { words: number; characters: number; lines: number };
-	type ReviewCountStats = { open: number; closed: number };
-	type TaskCountStats = { open: number; total: number };
-	type WordCountStats = {
-		document: WordCountMetrics;
-		selection: WordCountMetrics | null;
-		review: ReviewCountStats;
-		tasks: TaskCountStats
-	};
-	type InsertBlockKind = 'table' | 'tasks' | 'bullets' | 'numbers';
-	type FindPanelMode = 'compact' | 'expanded';
-	type FindPanelIconName = 'up' | 'down' | 'x' | 'scaling' | 'scaling-contract';
-	type FindPanelPosition = { left: number; top: number };
-	type FindPanelModeOptions = { resetPosition?: boolean };
-	type CommandPaletteMode = 'commands' | 'files';
-	type CommandPaletteInputMode = 'keyboard' | 'pointer';
-	type CommandPaletteEntryKind = 'command' | 'file' | 'recent' | 'tab' | 'empty';
-	type CommandPaletteIconName =
-		| 'clock'
-		| 'command'
-		| 'file-plus'
-		| 'file-text'
-		| 'folder-open'
-		| 'folder-tree'
-		| 'list'
-		| 'list-checks'
-		| 'list-ordered'
-		| 'message-square-plus'
-		| 'panel-left'
-		| 'panel-left-close'
-		| 'pencil'
-		| 'printer'
-		| 'refresh'
-		| 'save'
-		| 'search'
-		| 'settings'
-		| 'table'
-		| 'x';
-	type CommandPaletteEntry = {
-		id: string;
-		kind: CommandPaletteEntryKind;
-		title: string;
-		subtitle?: string;
-		detail?: string;
-		group?: string;
-		shortcut?: string;
-		keywords?: string[];
-		disabled?: boolean;
-		action: () => void | Promise<void>
-	};
-	type CommandPaletteHeadingRow = {
-		type: 'heading';
-		id: string;
-		title: string
-	};
-	type CommandPaletteEntryRow = {
-		type: 'entry';
-		id: string;
-		entry: CommandPaletteEntry;
-		index: number
-	};
-	type CommandPaletteRow = CommandPaletteHeadingRow | CommandPaletteEntryRow;
-	type FindPanelHandle = {
-		setMode: (mode: FindPanelMode, options?: FindPanelModeOptions) => void;
-		focus: () => void;
-	};
-	type TauriEvent<T> = { payload: T };
-	type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
-
-	type TauriDragDropPayload =
-		{ type: 'enter'; paths: string[]; position: unknown } |
-		{ type: 'over'; position: unknown } |
-		{ type: 'drop'; paths: string[]; position: unknown } |
-		{ type: 'leave' }
-	;
-
-	type TauriWindow =
-		Window &
-		typeof globalThis &
-		{
-			__TAURI__?: {
-				core?: {
-					invoke?: TauriInvoke;
-					convertFileSrc?: (filePath: string, protocol?: string) => string
-				};
-				event?: {
-					listen?: <T>(event: string, handler: (event: TauriEvent<T>) => void) => Promise<() => void>
-				 };
-
-				webview?: {
-					getCurrentWebview?: () => {
-						onDragDropEvent?: (handler: (event: { payload: TauriDragDropPayload }) => void) => Promise<() => void>
-					 }
-				 }
-			 }
-		 }
-	;
-
-	type MarkdownFileHandle = {
-		kind?: string;
-		name: string;
-		getFile: () => Promise<File>;
-		createWritable?: () => Promise<MarkdownWritableFile>
-	 };
-
-	type MarkdownWritableFile = {
-		write: (contents: string) => Promise<void>;
-		close: () => Promise<void>
-	};
-
-	type NativeMarkdownDocument = { path: string; name: string; markdown: string };
-	type NativeOpenPathPayload = {
-		kind: 'document' | 'directory';
-		document?: NativeMarkdownDocument | null;
-		directory?: NativeDirectoryTree | null
-	 };
-	type NativeDirectoryTree = {
-		path: string;
-		name: string;
-		entries: NativeDirectoryEntry[]
-	 };
-	type NativeDirectoryEntry = {
-		path: string;
-		name: string;
-		kind: 'directory' | 'markdown' | 'file';
-		children: NativeDirectoryEntry[]
-	 };
-	type ExternalDocumentChange = NativeMarkdownDocument & { detectedAt: number };
-	type NativeMarkdownDocumentChange = { path: string };
-
-	type FilePickerWindow =
-		Window &
-		typeof globalThis &
-		{
-			showOpenFilePicker?: (
-				options: {
-					multiple?: boolean;
-					types?: Array<{ description: string; accept: Record<string, string[]> }>
-				 }
-			) => Promise<MarkdownFileHandle[]>;
-
-			showSaveFilePicker?: (
-				options: {
-					suggestedName?: string;
-					types?: Array<{ description: string; accept: Record<string, string[]> }>
-				 }
-			) => Promise<MarkdownFileHandle>
-		 }
-	;
-
-	type ThreadView = {
-		id: string;
-		kind: 'comment' | 'suggestion';
-		author: string;
-		quote: string;
-		body: string;
-		line: number;
-		endLine: number;
-		currentLine?: number;
-		currentEndLine?: number;
-		diffQuote?: string;
-		diffBody?: string;
-		pending?: boolean;
-		applied?: boolean;
-		resolved?: boolean;
-		status?: SuggestionStatus
-	 };
-
-	type DocumentTab = {
-		id: string;
-		title: string;
-		documentData: LocalDocument;
-		annotations: LocalAnnotations | null;
-		editorMarkdown: string;
-		baseMarkdown: string;
-		draftBaseMarkdown: string;
-		pendingEditThreads: ThreadView[];
-		draftChanges: ChangeSet;
-		editMode: EditingMode;
-		localFileMode: boolean;
-		localFileHandle: MarkdownFileHandle | null;
-		localFileName: string;
-		localMetadataDirty: boolean;
-		nativeFilePath: string;
-		lastPersistedSerializedMarkdown: string;
-		externalChange: ExternalDocumentChange | null;
-		saveState: SaveState;
-		saveMessage: string;
-		documentSessionKey: string;
-		syncedEditKeys: string[]
-	 };
-
-	type MarginItem =
-		{
-			type: 'composer';
-			id: 'composer';
-			top: number;
-			anchorTop: number;
-			height: number;
-			connectorKind: 'comment'
-		 } |
-
-		{
-			type: 'thread';
-			id: string;
-			top: number;
-			anchorTop: number;
-			height: number;
-			connectorKind: 'comment' | 'suggestion';
-			thread: ThreadView
-		 }
-	;
-
-	type DocumentViewport = {
-		top: number;
-		bottom: number
-	 };
-
-	type SuggestionSurfaceKind = 'add' | 'replace' | 'remove';
-
-	type ThreadRangeMatch = {
-		from: number;
-		to: number;
-		matched: 'body' | 'quote' | 'deletion'
-	 };
-
-	type CommentSelectionAnchor = {
-		quote: string;
-		markdownQuote: string;
-		lineTop: number;
-		startLine: number;
-		endLine: number
-	 };
-
-	type LivePreviewState = {
-		threads: ThreadView[];
-		activeThreadId: string;
-		commentAnchor: CommentSelectionAnchor | null
-	 };
-
-	type TypingProfile = {
-		changedLines: string;
-		decorationRanges: number;
-		decorationsMs: number;
-		docLength: number;
-		lines: number;
-		modelCache: 'hit' | 'miss' | 'unknown';
-		modelMs: number;
-		parseMs: number;
-		startedAt: number;
-		state: EditorState;
-		totalMs: number
-	};
-	type TypingProfileRow = {
-		changedLines: string;
-		decorationRanges: number;
-		decorationsMs: number;
-		docLength: number;
-		lines: number;
-		modelCache: 'hit' | 'miss' | 'unknown';
-		modelMs: number;
-		parseMs: number;
-		totalMs: number
 	};
 
 	const markdownImageBounds = new Map<string, { width: number; height: number }>();
@@ -1846,37 +1575,6 @@
 		saveState,
 		externalChange,
 		documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab)
-	);
-	$: commandPaletteEffectiveMode = commandPaletteModeForQuery(commandPaletteMode, commandPaletteQuery);
-	$: commandPaletteSearchQuery = commandPaletteQueryForMode(commandPaletteMode, commandPaletteQuery);
-	$: commandPaletteTitleLabel = commandPaletteEffectiveMode === 'commands' ? 'Command Palette' : 'Quick Open';
-	$: commandPalettePlaceholderLabel = commandPaletteEffectiveMode === 'commands'
-		? 'Type command'
-		: 'Search files';
-	$: commandPaletteSearchAriaLabel = commandPaletteEffectiveMode === 'commands'
-		? 'Command palette search'
-		: 'Quick open search';
-	$: commandPaletteShortcutLabel = commandPaletteEffectiveMode === 'commands'
-		? shortcutLabel('Shift+P')
-		: shortcutLabel('P');
-	$: commandPaletteEntries = commandPaletteOpen
-		? commandPaletteFilteredEntries(commandPaletteEffectiveMode, commandPaletteSearchQuery)
-		: [];
-	$: commandPaletteActiveIndex = normalizedCommandPaletteIndex(commandPaletteEntries, commandPaletteActiveIndex);
-	$: commandPaletteWindowed = commandPaletteEntries.length > commandPaletteVisibleEntryLimit;
-	$: commandPaletteListHeight = commandPaletteWindowed
-		? `${commandPaletteStableListHeight(commandPaletteEntries, commandPaletteSearchQuery)}px`
-		: '';
-	$: commandPaletteWindowStart = normalizedCommandPaletteWindowStart(
-		commandPaletteEntries,
-		commandPaletteActiveIndex,
-		commandPaletteWindowStart,
-		commandPaletteInputMode
-	);
-	$: commandPaletteRows = commandPaletteDisplayRows(
-		commandPaletteVisibleEntries(commandPaletteEntries, commandPaletteWindowStart),
-		commandPaletteSearchQuery,
-		commandPaletteWindowStart
 	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
@@ -5702,326 +5400,18 @@
 		return desktopShell && !nativeMenuBridgeReady;
 	}
 
-	async function openCommandPalette(mode: CommandPaletteMode) {
-		closeFindPanel();
-		printOptionsDialogOpen = false;
-		if (settingsDialogOpen) {
-			closeSettingsDialog();
-			if (settingsDialogOpen) return;
-		}
-
-		commandPaletteMode = mode;
-		commandPaletteQuery = '';
-		commandPaletteActiveIndex = 0;
-		commandPaletteWindowStart = 0;
-		resetCommandPalettePointerTracking();
-		commandPaletteOpen = true;
-		await tick();
-		commandPaletteInput?.focus();
+async function openCommandPalette(mode: CommandPaletteMode) {
+	closeFindPanel();
+	printOptionsDialogOpen = false;
+	if (settingsDialogOpen) {
+		closeSettingsDialog();
+		if (settingsDialogOpen) return;
 	}
 
-	function closeCommandPalette() {
-		commandPaletteOpen = false;
-		commandPaletteQuery = '';
-		commandPaletteActiveIndex = 0;
-		commandPaletteWindowStart = 0;
-		resetCommandPalettePointerTracking();
-	}
+	commandPaletteRequestId += 1;
+	commandPaletteOpenRequest = { id: commandPaletteRequestId, mode };
+}
 
-	function commandPaletteModeForQuery(mode: CommandPaletteMode, query: string): CommandPaletteMode {
-		return mode === 'files' && query.trimStart().startsWith('>') ? 'commands' : mode;
-	}
-
-	function commandPaletteQueryForMode(mode: CommandPaletteMode, query: string) {
-		if (mode !== 'files') return query;
-
-		const trimmedStart = query.trimStart();
-		if (!trimmedStart.startsWith('>')) return query;
-
-		return trimmedStart.slice(1).trimStart();
-	}
-
-	function updateCommandPaletteQuery(event: Event) {
-		commandPaletteQuery = (event.currentTarget as HTMLInputElement).value;
-		commandPaletteActiveIndex = 0;
-		commandPaletteWindowStart = 0;
-		resetCommandPalettePointerTracking();
-	}
-
-	function handleCommandPaletteKeydown(event: KeyboardEvent) {
-		if (event.defaultPrevented) return;
-
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			closeCommandPalette();
-
-			return;
-		}
-
-		if (event.key === 'ArrowDown') {
-			event.preventDefault();
-			moveCommandPaletteSelection(1);
-
-			return;
-		}
-
-		if (event.key === 'ArrowUp') {
-			event.preventDefault();
-			moveCommandPaletteSelection(-1);
-
-			return;
-		}
-
-		if (event.key === 'Home') {
-			event.preventDefault();
-			setCommandPaletteKeyboardIndex(firstEnabledCommandPaletteIndex(commandPaletteEntries));
-
-			return;
-		}
-
-		if (event.key === 'End') {
-			event.preventDefault();
-			setCommandPaletteKeyboardIndex(lastEnabledCommandPaletteIndex(commandPaletteEntries));
-
-			return;
-		}
-
-		if (event.key === 'Enter') {
-			event.preventDefault();
-			void runCommandPaletteEntry(commandPaletteEntries[commandPaletteActiveIndex]);
-		}
-	}
-
-	function moveCommandPaletteSelection(direction: -1 | 1) {
-		if (commandPaletteEntries.length === 0) return;
-
-		let nextIndex = commandPaletteActiveIndex;
-
-		for (let step = 0; step < commandPaletteEntries.length; step += 1) {
-			nextIndex = (nextIndex + direction + commandPaletteEntries.length) % commandPaletteEntries.length;
-
-			if (!commandPaletteEntries[nextIndex]?.disabled) {
-				setCommandPaletteKeyboardIndex(nextIndex);
-
-				return;
-			}
-		}
-	}
-
-	function setCommandPaletteKeyboardIndex(index: number) {
-		if (index < 0) return;
-
-		commandPaletteInputMode = 'keyboard';
-		commandPaletteActiveIndex = index;
-	}
-
-	function resetCommandPalettePointerTracking() {
-		commandPaletteInputMode = 'keyboard';
-		commandPaletteLastPointerX = Number.NaN;
-		commandPaletteLastPointerY = Number.NaN;
-	}
-
-	function handleCommandPaletteOptionPointerMove(event: PointerEvent, index: number, disabled?: boolean) {
-		if (disabled) return;
-
-		const hasPreviousPointerPosition = Number.isFinite(commandPaletteLastPointerX)
-			&& Number.isFinite(commandPaletteLastPointerY);
-		const coordinateMoved = hasPreviousPointerPosition
-			&& (event.clientX !== commandPaletteLastPointerX || event.clientY !== commandPaletteLastPointerY);
-		const pointerActuallyMoved = event.movementX !== 0 || event.movementY !== 0 || coordinateMoved;
-
-		commandPaletteLastPointerX = event.clientX;
-		commandPaletteLastPointerY = event.clientY;
-
-		if (commandPaletteInputMode === 'keyboard' && !pointerActuallyMoved) return;
-		if (!pointerActuallyMoved) return;
-
-		commandPaletteInputMode = 'pointer';
-		commandPaletteActiveIndex = index;
-	}
-
-	async function runCommandPaletteEntry(entry: CommandPaletteEntry | undefined) {
-		if (!entry || entry.disabled) return;
-
-		closeCommandPalette();
-		await tick();
-		await entry.action();
-	}
-
-	function normalizedCommandPaletteIndex(entries: CommandPaletteEntry[], index: number) {
-		if (entries.length === 0) return 0;
-		if (entries[index] && !entries[index].disabled) return index;
-
-		const firstEnabled = firstEnabledCommandPaletteIndex(entries);
-		if (firstEnabled >= 0) return firstEnabled;
-
-		return Math.min(Math.max(0, index), entries.length - 1);
-	}
-
-	function normalizedCommandPaletteWindowStart(
-		entries: CommandPaletteEntry[],
-		activeIndex: number,
-		currentStart: number,
-		inputMode: CommandPaletteInputMode
-	) {
-		if (entries.length <= commandPaletteVisibleEntryLimit) return 0;
-
-		const maxStart = entries.length - commandPaletteVisibleEntryLimit;
-		const start = clampNumber(currentStart, 0, maxStart);
-
-		if (activeIndex < start) {
-			return clampNumber(activeIndex - commandPaletteWindowEdgeBuffer, 0, maxStart);
-		}
-
-		if (activeIndex >= start + commandPaletteVisibleEntryLimit) {
-			return clampNumber(
-				activeIndex - commandPaletteVisibleEntryLimit + commandPaletteWindowEdgeBuffer + 1,
-				0,
-				maxStart
-			);
-		}
-
-		if (inputMode === 'pointer') return start;
-
-		if (activeIndex < start + commandPaletteWindowEdgeBuffer) {
-			return clampNumber(activeIndex - commandPaletteWindowEdgeBuffer, 0, maxStart);
-		}
-
-		if (activeIndex >= start + commandPaletteVisibleEntryLimit - commandPaletteWindowEdgeBuffer) {
-			return clampNumber(
-				activeIndex - commandPaletteVisibleEntryLimit + commandPaletteWindowEdgeBuffer + 1,
-				0,
-				maxStart
-			);
-		}
-
-		return start;
-	}
-
-	function commandPaletteVisibleEntries(entries: CommandPaletteEntry[], start: number) {
-		return entries.slice(start, start + commandPaletteVisibleEntryLimit);
-	}
-
-	function firstEnabledCommandPaletteIndex(entries: CommandPaletteEntry[]) {
-		return entries.findIndex((entry) => !entry.disabled);
-	}
-
-	function lastEnabledCommandPaletteIndex(entries: CommandPaletteEntry[]) {
-		for (let index = entries.length - 1; index >= 0; index -= 1) {
-			if (!entries[index].disabled) return index;
-		}
-
-		return 0;
-	}
-
-	function commandPaletteFilteredEntries(mode: CommandPaletteMode, query: string) {
-		const entries = mode === 'commands'
-			? commandPaletteCommandEntries()
-			: quickOpenPaletteEntries();
-		const normalizedQuery = normalizePaletteSearchValue(query);
-
-		if (!normalizedQuery) return entries.slice(0, 60);
-
-		const matches = entries
-			.map((entry, index) => ({
-				entry,
-				index,
-				score: commandPaletteEntryScore(entry, normalizedQuery)
-			}))
-			.filter((match) => Number.isFinite(match.score))
-			.sort((a, b) => a.score - b.score || a.index - b.index)
-			.map((match) => match.entry)
-			.slice(0, 60);
-
-		return matches.length > 0
-			? matches
-			: [{
-				id: 'empty:no-matches',
-				kind: 'empty' as const,
-				title: 'No matches',
-				subtitle: 'Try another search',
-				group: 'Suggested',
-				disabled: true,
-				action: () => {}
-			}];
-	}
-
-	function commandPaletteDisplayRows(
-		entries: CommandPaletteEntry[],
-		query: string,
-		entryOffset = 0
-	): CommandPaletteRow[] {
-		const showHeadings = !normalizePaletteSearchValue(query);
-		const rows: CommandPaletteRow[] = [];
-		let previousGroup = '';
-
-		entries.forEach((entry, localIndex) => {
-			const index = entryOffset + localIndex;
-			const group = showHeadings ? commandPaletteEntryGroup(entry) : '';
-
-			if (group && group !== previousGroup) {
-				rows.push({
-					type: 'heading',
-					id: `command-palette-heading:${group}:${index}`,
-					title: group
-				});
-				previousGroup = group;
-			}
-
-			rows.push({
-				type: 'entry',
-				id: `command-palette-entry:${entry.id}`,
-				entry,
-				index
-			});
-		});
-
-		return rows;
-	}
-
-	function commandPaletteStableListHeight(entries: CommandPaletteEntry[], query: string) {
-		if (entries.length === 0) return 0;
-
-		const lastWindowStart = Math.max(0, entries.length - commandPaletteVisibleEntryLimit);
-		let height = 0;
-
-		for (let start = 0; start <= lastWindowStart; start += 1) {
-			const rows = commandPaletteDisplayRows(commandPaletteVisibleEntries(entries, start), query, start);
-			height = Math.max(height, commandPaletteRowsHeight(rows));
-		}
-
-		return height;
-	}
-
-	function commandPaletteRowsHeight(rows: CommandPaletteRow[]) {
-		const optionHeight = 32;
-		const optionWithSubtitleHeight = 38;
-		const firstHeadingHeight = 17;
-		const headingHeight = 22;
-		const rowGap = 1;
-		const listPaddingBottom = 8;
-		let height = listPaddingBottom + Math.max(0, rows.length - 1) * rowGap;
-
-		rows.forEach((row, index) => {
-			if (row.type === 'entry') {
-				height += commandPaletteShowsSubtitle(row.entry) ? optionWithSubtitleHeight : optionHeight;
-			} else {
-				height += index === 0 ? firstHeadingHeight : headingHeight;
-			}
-		});
-
-		return height;
-	}
-
-	function commandPaletteEntryGroup(entry: CommandPaletteEntry) {
-		if (entry.group) return entry.group;
-		if (entry.kind === 'tab') return 'Open Tabs';
-		if (entry.kind === 'file') return 'Files';
-		if (entry.kind === 'recent') return 'Recent';
-		if (entry.kind === 'empty') return '';
-
-		return 'Suggested';
-	}
 
 	function commandPaletteCommandEntries(): CommandPaletteEntry[] {
 		const commands: CommandPaletteEntry[] = [
@@ -6357,62 +5747,6 @@
 		return markdownEntries;
 	}
 
-	function commandPaletteEntryScore(entry: CommandPaletteEntry, query: string) {
-		const terms = query.split(/\s+/).filter(Boolean);
-		let score = 0;
-
-		for (const term of terms) {
-			const termScore = Math.min(
-				paletteTextScore(entry.title, term, 0),
-				paletteTextScore(entry.subtitle || '', term, 24),
-				paletteTextScore(entry.detail || '', term, 40),
-				paletteTextScore((entry.keywords || []).join(' '), term, 46)
-			);
-
-			if (!Number.isFinite(termScore)) return Number.POSITIVE_INFINITY;
-
-			score += termScore;
-		}
-
-		return score + (entry.disabled ? 200 : 0);
-	}
-
-	function paletteTextScore(value: string, term: string, offset: number) {
-		const text = normalizePaletteSearchValue(value);
-
-		if (!text) return Number.POSITIVE_INFINITY;
-		if (text.startsWith(term)) return offset;
-
-		const exactIndex = text.indexOf(term);
-		if (exactIndex >= 0) return offset + 10 + exactIndex;
-
-		const fuzzyScore = fuzzyPaletteScore(term, text);
-		return Number.isFinite(fuzzyScore)
-			? offset + 80 + fuzzyScore
-			: Number.POSITIVE_INFINITY;
-	}
-
-	function fuzzyPaletteScore(term: string, text: string) {
-		let previousIndex = -1;
-		let score = 0;
-
-		for (const character of term) {
-			const nextIndex = text.indexOf(character, previousIndex + 1);
-
-			if (nextIndex < 0) return Number.POSITIVE_INFINITY;
-
-			score += nextIndex;
-			if (previousIndex >= 0) score += Math.max(0, nextIndex - previousIndex - 1);
-			previousIndex = nextIndex;
-		}
-
-		return score;
-	}
-
-	function normalizePaletteSearchValue(value: string) {
-		return value.trim().toLowerCase().replace(/[_-]+/g, ' ');
-	}
-
 	function shortcutLabel(keys: string) {
 		if (isApplePlatform()) {
 			return `${platformCommandKeyLabel()}${keys.split('+').map(macShortcutPartLabel).join('')}`;
@@ -6436,78 +5770,6 @@
 		if (part === 'Cmd') return '⌘';
 
 		return part.toUpperCase();
-	}
-
-	function commandPaletteEntryIcon(entry: CommandPaletteEntry): CommandPaletteIconName {
-		if (entry.kind === 'file' || entry.kind === 'tab') return 'file-text';
-		if (entry.kind === 'recent') return 'clock';
-		if (entry.kind === 'empty') return 'search';
-
-		if (entry.id === 'command:new-document') return 'file-plus';
-		if (entry.id === 'command:open-document' || entry.id === 'quick-open:open-document') return 'file-text';
-		if (entry.id === 'command:open-folder' || entry.id === 'quick-open:open-folder') return 'folder-open';
-		if (entry.id === 'command:quick-open') return 'search';
-		if (entry.id === 'command:settings') return 'settings';
-		if (entry.id === 'command:save' || entry.id === 'command:save-as') return 'save';
-		if (entry.id === 'command:print') return 'printer';
-		if (entry.id === 'command:close-tab') return 'x';
-		if (entry.id === 'command:toggle-file-tree') return fileTreePanelOpen ? 'panel-left-close' : 'panel-left';
-		if (
-			entry.id === 'command:previous-tab'
-			|| entry.id === 'command:next-tab'
-		) return 'panel-left-close';
-		if (entry.id === 'command:find' || entry.id === 'command:find-replace') return 'search';
-		if (entry.id === 'command:edit-mode' || entry.id === 'command:suggest-mode') return 'pencil';
-		if (entry.id === 'command:add-comment') return 'message-square-plus';
-		if (entry.id === 'command:insert-table') return 'table';
-		if (entry.id === 'command:insert-tasks') return 'list-checks';
-		if (entry.id === 'command:insert-bullets') return 'list';
-		if (entry.id === 'command:insert-numbers') return 'list-ordered';
-		if (entry.id === 'command:check-updates') return 'refresh';
-
-		return 'command';
-	}
-
-	function commandPaletteShowsSubtitle(entry: CommandPaletteEntry) {
-		if (!entry.subtitle) return false;
-		if (entry.kind === 'empty') return true;
-		if (entry.kind !== 'command') return true;
-
-		return Boolean(entry.disabled);
-	}
-
-	function commandPaletteDisplayTitle(entry: CommandPaletteEntry) {
-		return commandPaletteIsFileLikeEntry(entry)
-			? middleTruncateText(entry.title, commandPaletteFileTitleMaxLength)
-			: entry.title;
-	}
-
-	function commandPaletteDisplayDetail(entry: CommandPaletteEntry) {
-		if (!entry.detail) return '';
-
-		return commandPaletteIsFileLikeEntry(entry)
-			? middleTruncateText(entry.detail, commandPaletteFileDetailMaxLength)
-			: entry.detail;
-	}
-
-	function commandPaletteOptionTooltip(entry: CommandPaletteEntry) {
-		return [entry.title, entry.subtitle, entry.detail].filter(Boolean).join(' - ');
-	}
-
-	function commandPaletteIsFileLikeEntry(entry: CommandPaletteEntry) {
-		return entry.kind === 'file' || entry.kind === 'recent' || entry.kind === 'tab';
-	}
-
-	function middleTruncateText(value: string, maxLength: number) {
-		if (value.length <= maxLength) return value;
-		if (maxLength <= 3) return value.slice(0, maxLength);
-
-		const separator = '...';
-		const remainingLength = maxLength - separator.length;
-		const startLength = Math.ceil(remainingLength * 0.45);
-		const endLength = Math.floor(remainingLength * 0.55);
-
-		return `${value.slice(0, startLength)}${separator}${value.slice(value.length - endLength)}`;
 	}
 
 	function openFindPanel(view: EditorView | null = mainEditor) {
@@ -7205,47 +6467,6 @@
 		fileTreePanelOpen = !fileTreePanelOpen;
 	}
 
-	function startFileTreeResize(event: PointerEvent) {
-		if (!fileTreePanelOpen) return;
-
-		event.preventDefault();
-		fileTreeResizeActive = true;
-
-		const startX = event.clientX;
-		const startWidth = fileTreePanelWidth;
-
-		const resize = (moveEvent: PointerEvent) => {
-			const nextWidth = startWidth + moveEvent.clientX - startX;
-
-			fileTreePanelWidth = clampNumber(nextWidth, fileTreePanelMinWidth, fileTreePanelMaxWidth);
-		};
-
-		const stopResize = () => {
-			fileTreeResizeActive = false;
-			window.removeEventListener('pointermove', resize);
-			window.removeEventListener('pointerup', stopResize);
-			window.removeEventListener('pointercancel', stopResize);
-		};
-
-		window.addEventListener('pointermove', resize);
-		window.addEventListener('pointerup', stopResize);
-		window.addEventListener('pointercancel', stopResize);
-	}
-
-	function handleFileTreeResizeKeydown(event: KeyboardEvent) {
-		if (!fileTreePanelOpen) return;
-
-		if (event.key === 'ArrowLeft') {
-			event.preventDefault();
-			fileTreePanelWidth = clampNumber(fileTreePanelWidth - 20, fileTreePanelMinWidth, fileTreePanelMaxWidth);
-		}
-
-		if (event.key === 'ArrowRight') {
-			event.preventDefault();
-			fileTreePanelWidth = clampNumber(fileTreePanelWidth + 20, fileTreePanelMinWidth, fileTreePanelMaxWidth);
-		}
-	}
-
 	function createNewDocument() {
 		syncActiveDocumentTab();
 		createUntitledMarkdownDocument();
@@ -7790,7 +7011,7 @@
 
 			if (path !== nativeFilePath) return;
 			if (document.markdown === lastPersistedSerializedMarkdown) return;
-			if (externalChange?.path === document.path && externalChange.markdown === document.markdown) return;
+			if (externalChange && externalChange.path === document.path && externalChange.markdown === document.markdown) return;
 
 			if (!hasUnsavedLocalChanges()) {
 				hydrateNativeDocumentState(document, 'Reloaded from disk', { forceEditorReload: true });
@@ -8115,7 +7336,7 @@
 	function handleGlobalShortcut(event: KeyboardEvent) {
 		if (event.defaultPrevented) return;
 		if (handleCommandPaletteShortcut(event)) return;
-		if (commandPaletteOpen) return;
+		if (commandPaletteIsOpen) return;
 		if (handleFindShortcut(event)) return;
 		if (!shouldHandleWebNativeShortcut()) return;
 
@@ -8481,277 +7702,32 @@
 	class:mobile-shell={mobileShell}
 	class:drag-active={dragActive}
 	class:file-tree-open={fileTreePanelOpen}
-	class:file-tree-resizing={fileTreeResizeActive}
 	style={`--file-tree-panel-width: ${fileTreePanelWidth}px;`}
 >
-	<Button
-		variant="ghost"
-		size="icon-sm"
-		class="titlebar-file-tree-toggle"
-		aria-label={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
-		aria-pressed={fileTreePanelOpen}
-		title={fileTreePanelOpen ? 'Hide file tree' : 'Show file tree'}
-		onclick={toggleFileTreePanel}
-	>
-		{#if fileTreePanelOpen}
-			<PanelLeftCloseIcon aria-hidden="true" />
-		{:else}
-			<PanelLeftIcon aria-hidden="true" />
-		{/if}
-	</Button>
-
-	<div class="window-tabbar" aria-label="Open documents">
-		{#each visibleDocumentTabs as tab (tab.id)}
-			<div
-				class="document-tab-shell"
-				class:active={tab.id === activeDocumentTabId}
-			>
-				<Button
-					variant="ghost"
-					size="sm"
-					class="document-tab"
-					aria-current={tab.id === activeDocumentTabId ? 'page' : undefined}
-					onclick={() => activateDocumentTab(tab.id)}
-				>
-					<span class="document-tab-title">{tab.title}</span>
-
-					{#if tabHasDiscardableWork(tab)}
-						<span
-							class="document-tab-dirty"
-							aria-label="Unsaved changes"
-						></span>
-					{/if}
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					class="document-tab-close"
-					aria-label={`Close ${tab.title}`}
-					onclick={(event) => {
-						event.stopPropagation();
-						closeDocumentTab(tab.id);
-					}}
-				>
-					<XIcon aria-hidden="true" />
-				</Button>
-			</div>
-			{/each}
-
-		<div
-			class="window-tabbar-drag"
-			data-tauri-drag-region
-			aria-hidden="true"
-		></div>
-
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			class="titlebar-command-button"
-			aria-label="Open command palette"
-			title="Command palette"
-			onclick={() => openCommandPalette('commands')}
-		>
-			<CommandIcon aria-hidden="true" />
-		</Button>
-
-		<ToggleGroup.Root
-			class="titlebar-mode-toggle"
-			aria-label="Editing mode"
-			type="single"
-			value={editMode}
-		>
-			<ToggleGroup.Item
-				class={`titlebar-mode-button${editMode === 'edit' ? ' active' : ''}`}
-				value="edit"
-				aria-label="Edit directly"
-				title="Edit directly"
-				onclick={() => setEditingMode('edit')}
-			>
-				<span
-					class="mode-icon mode-icon-edit"
-					aria-hidden="true"
-				>
-					<span class="edit-glyph-letter">A</span>
-					<span class="edit-glyph-caret"></span>
-				</span>
-			</ToggleGroup.Item>
-
-			<ToggleGroup.Item
-				class={`titlebar-mode-button${editMode === 'suggest' ? ' active' : ''}`}
-				value="suggest"
-				aria-label="Suggest edits"
-				title="Suggest edits"
-				onclick={() => setEditingMode('suggest')}
-			>
-				<svg
-					class="mode-icon mode-icon-suggest"
-					viewBox="0 0 24 24"
-					aria-hidden="true"
-				>
-					<path d="M6 5v14"></path>
-					<path d="M10 7h8"></path>
-					<path d="M10 12h6"></path>
-					<path d="M10 17h4"></path>
-					<path d="M17 15l2 2 3-4"></path>
-				</svg>
-			</ToggleGroup.Item>
-		</ToggleGroup.Root>
-	</div>
-
-	<div class="doc-titlebar-shell">
-		<header class="doc-topbar">
-			<input
-				class="local-file-input"
-				bind:this={fileInput}
-				type="file"
-				accept=".md,.markdown,text/markdown,text/plain"
-				onchange={handleLocalFileSelected}
-			/>
-
-			<div class="brand-cluster" data-tauri-drag-region>
-				<div class="brand-mark" aria-hidden="true">
-					<img class="brand-mark-image brand-mark-image-light" src={brandMarkUrl} alt="" draggable="false" />
-					<img class="brand-mark-image brand-mark-image-dark" src={brandMarkDarkUrl} alt="" draggable="false" />
-				</div>
-
-				<div class="brand-title" data-tauri-drag-region>
-					<p
-						class="eyebrow"
-						class:eyebrow-placeholder={!titlebarEyebrowLabel}
-						class:placeholder-eyebrow={titlebarEyebrowPlaceholder}
-						aria-hidden={titlebarEyebrowLabel ? undefined : 'true'}
-					>
-						{titlebarEyebrowLabel}
-					</p>
-					<h1>{documentTitleLabel}</h1>
-				</div>
-			</div>
-
-			<div
-				class="window-drag-spacer"
-				data-tauri-drag-region
-				aria-hidden="true"
-			></div>
-
-			<div class="topbar-actions" aria-label="Document actions">
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="Open command palette"
-					title="Command palette"
-					onclick={() => openCommandPalette('commands')}
-				>
-					<CommandIcon aria-hidden="true" />
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="New document"
-					title="New document"
-					onclick={createNewDocument}
-				>
-					<FilePlusIcon aria-hidden="true" />
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="Open document"
-					title="Open document"
-					onclick={openLocalMarkdown}
-				>
-					<FolderOpenIcon aria-hidden="true" />
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="Save document"
-					title="Save document"
-					onclick={() => saveLocalMarkdown()}
-				>
-					<SaveIcon aria-hidden="true" />
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="Print document"
-					title="Print document"
-					onclick={requestPrintDocument}
-				>
-					<PrinterIcon aria-hidden="true" />
-				</Button>
-
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="topbar-icon-button"
-					aria-label="Settings"
-					title="Settings"
-					onclick={openSettingsDialog}
-				>
-					<SettingsIcon aria-hidden="true" />
-				</Button>
-			</div>
-		</header>
-
-		<div
-			class="doc-toolbar"
-			aria-label="Document tools"
-			data-tauri-drag-region
-		>
-			<ToggleGroup.Root
-				class="mobile-mode-toggle"
-				aria-label="Editing mode"
-				type="single"
-				value={editMode}
-			>
-				<ToggleGroup.Item
-					class={`mobile-mode-button${editMode === 'edit' ? ' active' : ''}`}
-					value="edit"
-					aria-label="Edit directly"
-					title="Edit directly"
-					onclick={() => setEditingMode('edit')}
-				>
-					<span
-						class="mode-icon mode-icon-edit"
-						aria-hidden="true"
-					>
-						<span class="edit-glyph-letter">A</span>
-						<span class="edit-glyph-caret"></span>
-					</span>
-				</ToggleGroup.Item>
-
-				<ToggleGroup.Item
-					class={`mobile-mode-button${editMode === 'suggest' ? ' active' : ''}`}
-					value="suggest"
-					aria-label="Suggest edits"
-					title="Suggest edits"
-					onclick={() => setEditingMode('suggest')}
-				>
-					<svg
-						class="mode-icon mode-icon-suggest"
-						viewBox="0 0 24 24"
-						aria-hidden="true"
-					>
-						<path d="M6 5v14"></path>
-						<path d="M10 7h8"></path>
-						<path d="M10 12h6"></path>
-						<path d="M10 17h4"></path>
-						<path d="M17 15l2 2 3-4"></path>
-					</svg>
-				</ToggleGroup.Item>
-			</ToggleGroup.Root>
-		</div>
-	</div>
+	<EditorTitlebar
+		bind:fileInput
+		{fileTreePanelOpen}
+		{visibleDocumentTabs}
+		{activeDocumentTabId}
+		{editMode}
+		{brandMarkUrl}
+		{brandMarkDarkUrl}
+		{titlebarEyebrowLabel}
+		{titlebarEyebrowPlaceholder}
+		{documentTitleLabel}
+		{toggleFileTreePanel}
+		{tabHasDiscardableWork}
+		{activateDocumentTab}
+		{closeDocumentTab}
+		{openCommandPalette}
+		{setEditingMode}
+		{handleLocalFileSelected}
+		{createNewDocument}
+		{openLocalMarkdown}
+		{saveLocalMarkdown}
+		{requestPrintDocument}
+		{openSettingsDialog}
+	/>
 
 	{#if error}
 		<p class="error">{error}</p>
@@ -8785,55 +7761,14 @@
 	{/if}
 
 	{#if fileTreePanelOpen}
-		<aside
-			class="file-tree-panel"
-			aria-label="Open folder"
-		>
-			<button
-				class="file-tree-resizer"
-				type="button"
-				aria-label="Resize file tree"
-				onpointerdown={startFileTreeResize}
-				onkeydown={handleFileTreeResizeKeydown}
-			></button>
-
-			<div class="file-tree-content">
-				<header class="file-tree-header">
-					<div class="file-tree-heading">
-						<p class="file-tree-eyebrow">Folder</p>
-						<h2>{fileTreeRoot?.name || 'Open folder'}</h2>
-					</div>
-				</header>
-
-				<div class="file-tree-scroll">
-					{#if fileTreeRoot}
-						{#if fileTreeRoot.entries.length > 0}
-							<ul class="file-tree-list root">
-								{#each fileTreeRoot.entries as entry (entry.path)}
-									<li>
-										<FileTreeEntry
-											{entry}
-											activePath={nativeFilePath}
-											onOpen={openFileTreeEntry}
-										/>
-									</li>
-								{/each}
-							</ul>
-						{:else}
-							<p class="file-tree-empty">This folder is empty.</p>
-						{/if}
-					{:else if fileTreeLoading}
-						<p class="file-tree-empty">Opening folder...</p>
-					{:else}
-						<p class="file-tree-empty">Open a folder to browse Markdown documents.</p>
-					{/if}
-
-					{#if fileTreeError}
-						<p class="file-tree-error">{fileTreeError}</p>
-					{/if}
-				</div>
-			</div>
-		</aside>
+		<FileTreePanel
+			{fileTreeRoot}
+			{fileTreeLoading}
+			{fileTreeError}
+			{nativeFilePath}
+			bind:width={fileTreePanelWidth}
+			{openFileTreeEntry}
+		/>
 	{/if}
 
 	<div
@@ -8879,321 +7814,50 @@
 					</article>
 				</section>
 
-				<aside
-					class="margin-rail"
-					class:open={marginRailOpen}
-					class:empty={!marginRailOpen}
-					aria-label="Document comments"
-				>
-					<div
-						class="comment-stage"
-						style={`min-height: ${stageHeight}px;`}
-					>
-						{#if marginItems.length > 0}
-							<svg
-								class="connector-layer"
-								class:has-selected-thread={Boolean(selectedThreadId)}
-								viewBox={`0 0 340 ${stageHeight}`}
-								preserveAspectRatio="none"
-								aria-hidden="true"
-							>
-								{#each marginItems as item, index (item.id)}
-									<path
-										class="connector-shadow"
-										class:connector-suggestion={item.connectorKind === 'suggestion'}
-										class:connector-composer={item.type === 'composer'}
-										class:connector-active={activeThreadId === item.id}
-										class:connector-selected={selectedThreadId === item.id}
-										class:connector-resolving={threadIsResolving(item.id)}
-										d={connectorPath(item, activeThreadId === item.id)}
-										style={`--thread-index: ${index};`}
-									></path>
+				<MarginRail
+					bind:commentTextarea
+					bind:commentBody
+					bind:editingCommentTextarea
+					bind:editingCommentBody
+					{marginRailOpen}
+					{stageHeight}
+					{marginItems}
+					{activeThreadId}
+					{selectedThreadId}
+					{commentComposerAttention}
+					{localAuthor}
+					selectionReady={Boolean(selectionReady)}
+					{editingCommentId}
+					{measureHeight}
+					{threadIsResolving}
+					{connectorPath}
+					{connectorSourceRadius}
+					{clearSelection}
+					{submitComment}
+					{goToThread}
+					{previewThread}
+					{clearThreadPreview}
+					{startEditingComment}
+					{resolveComment}
+					{cancelCommentEdit}
+					{saveEditedComment}
+					{suggestionStatusLabel}
+					{diffQuote}
+					{diffLines}
+					{diffBody}
+					{acceptSuggestion}
+					{rejectSuggestion}
+					{resolveSuggestion}
+				/>
 
-									<path
-										class:connector-suggestion={item.connectorKind === 'suggestion'}
-										class:connector-composer={item.type === 'composer'}
-										class:connector-active={activeThreadId === item.id}
-										class:connector-selected={selectedThreadId === item.id}
-										class:connector-resolving={threadIsResolving(item.id)}
-										d={connectorPath(item, activeThreadId === item.id)}
-										style={`--thread-index: ${index};`}
-									></path>
-
-									<circle
-										class="connector-source"
-										class:connector-suggestion={item.connectorKind === 'suggestion'}
-										class:connector-composer={item.type === 'composer'}
-										class:connector-active={activeThreadId === item.id}
-										class:connector-selected={selectedThreadId === item.id}
-										class:connector-resolving={threadIsResolving(item.id)}
-										cx="0"
-										cy={Math.max(12, item.anchorTop)}
-										r={connectorSourceRadius(item, activeThreadId === item.id)}
-										style={`--thread-index: ${index}; --connector-source-radius: ${connectorSourceRadius(item, activeThreadId === item.id)}px;`}
-									></circle>
-
-								{/each}
-							</svg>
-						{/if}
-
-						{#each marginItems as item, index (item.id)}
-					{#if item.type === 'composer'}
-						<section
-							class="inline-composer"
-							class:needs-attention={commentComposerAttention}
-							aria-label="New comment"
-							style={`--thread-index: ${index}; top: ${item.top}px;`}
-							use:measureHeight={item.id}
-						>
-							<div class="composer-author">
-								<div class="avatar" style={avatarStyle(localAuthor)}>{authorInitials(localAuthor)}</div>
-								<strong>{localAuthor}</strong>
-							</div>
-
-							<Textarea
-								bind:ref={commentTextarea}
-								bind:value={commentBody}
-								autocapitalize="sentences"
-								autocomplete="off"
-								autocorrect="off"
-								placeholder="Add a comment"
-								spellcheck={true}
-							/>
-
-							<div class="composer-actions">
-								<Button
-									variant="outline"
-									size="sm"
-									class="ghost-button"
-									onclick={clearSelection}
-								>Cancel</Button>
-
-								<Button
-									size="sm"
-									class="primary"
-									onclick={submitComment}
-									disabled={!selectionReady || !commentBody}
-								>Comment</Button>
-							</div>
-						</section>
-					{:else}
-						<div
-							class:thread-card={true}
-							class:suggestion={item.thread.kind === 'suggestion'}
-							class:pending={item.thread.pending}
-							class:rejected={item.thread.status === 'rejected'}
-							class:resolved={item.thread.status === 'resolved'}
-							class:focused={activeThreadId === item.thread.id}
-							class:selected={selectedThreadId === item.thread.id}
-							class:resolving-comment={threadIsResolving(item.thread.id)}
-							class:editing-comment={item.thread.kind === 'comment' && editingCommentId === item.thread.id}
-							role="button"
-							aria-label={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? 'Edit comment' : `Go to ${item.thread.kind}`}
-							tabindex={item.thread.kind === 'comment' && editingCommentId === item.thread.id ? -1 : 0}
-							style={`--thread-index: ${index}; top: ${item.top}px;`}
-							onclick={() => {
-								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
-
-								goToThread(item.thread);
-							}}
-							onkeydown={(event) => {
-								if (item.thread.kind === 'comment' && editingCommentId === item.thread.id) return;
-								if (event.key === 'Enter') goToThread(item.thread);
-							}}
-							onmouseenter={() => previewThread(item.thread.id)}
-							onmouseleave={clearThreadPreview}
-							use:measureHeight={item.id}
-						>
-							{#if item.thread.kind === 'comment' && editingCommentId === item.thread.id}
-								<section
-									class="inline-composer comment-edit-form"
-									aria-label="Edit comment"
-								>
-									<div class="composer-author">
-										<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
-										<strong>{item.thread.author}</strong>
-									</div>
-
-										<Textarea
-											bind:ref={editingCommentTextarea}
-											bind:value={editingCommentBody}
-											aria-label="Edit comment"
-											autocapitalize="sentences"
-											autocomplete="off"
-											autocorrect="off"
-											placeholder="Edit comment"
-											spellcheck={true}
-										/>
-
-										<div class="composer-actions">
-											<Button
-												variant="outline"
-												size="sm"
-												class="ghost-button"
-												onclick={(event) => {
-													event.stopPropagation();
-													cancelCommentEdit();
-												}}
-											>Cancel</Button>
-
-											<Button
-												size="sm"
-												class="primary"
-												aria-label="Save comment"
-												disabled={!editingCommentBody.trim() || editingCommentBody === item.thread.body}
-												onclick={(event) => {
-													event.stopPropagation();
-													saveEditedComment(item.thread.id);
-												}}
-											>Save</Button>
-										</div>
-									</section>
-								{:else}
-									<div class="thread-header">
-										<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
-
-										<div>
-											<strong>{item.thread.author}</strong>
-										</div>
-
-										{#if item.thread.kind === 'suggestion'}
-											<Badge
-												variant="outline"
-												class="status-pill"
-											>{suggestionStatusLabel(item.thread)}</Badge>
-										{:else}
-											<div class="thread-header-actions">
-												<Button
-													variant="ghost"
-													size="icon-sm"
-													class="thread-icon-button thread-edit-button"
-													aria-label="Edit comment"
-													title="Edit comment"
-													onclick={(event) => {
-														event.stopPropagation();
-														startEditingComment(item.thread);
-													}}
-												>
-													<PencilIcon aria-hidden="true" />
-												</Button>
-
-												<Button
-													variant="ghost"
-													size="icon-sm"
-													class="thread-icon-button thread-resolve-button"
-													aria-label="Resolve comment"
-													title="Resolve comment"
-													disabled={threadIsResolving(item.thread.id)}
-													onclick={(event) => {
-														event.stopPropagation();
-														resolveComment(item.thread);
-													}}
-												>
-													<CheckIcon aria-hidden="true" />
-												</Button>
-											</div>
-										{/if}
-									</div>
-
-									{#if item.thread.kind === 'suggestion'}
-										<div
-											class="suggestion-diff"
-											aria-label="Suggested change"
-										>
-											{#if diffQuote(item.thread)}
-												<div class="diff-group removed">
-													<span class="diff-label">Remove</span>
-
-													{#each diffLines(diffQuote(item.thread)) as line}
-														<pre><span>-</span><code>{line}</code></pre>
-													{/each}
-												</div>
-											{/if}
-
-											{#if diffBody(item.thread)}
-												<div class="diff-group added">
-													<span class="diff-label">Add</span>
-
-													{#each diffLines(diffBody(item.thread)) as line}
-														<pre><span>+</span><code>{line}</code></pre>
-													{/each}
-												</div>
-											{/if}
-										</div>
-									{:else}
-										<blockquote>{item.thread.quote}</blockquote>
-										<p>{item.thread.body}</p>
-									{/if}
-								{/if}
-
-							{#if item.thread.kind === 'suggestion'}
-								<div class="thread-actions">
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(event) => {
-											event.stopPropagation();
-											acceptSuggestion(item.thread);
-										}}
-										disabled={!item.thread.pending && item.thread.status === 'applied'}
-									>Accept</Button>
-
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(event) => {
-											event.stopPropagation();
-											rejectSuggestion(item.thread);
-										}}
-										disabled={item.thread.status === 'rejected'}
-									>Reject</Button>
-
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={(event) => {
-											event.stopPropagation();
-											resolveSuggestion(item.thread);
-										}}
-										disabled={item.thread.status === 'resolved'}
-									>Resolve</Button>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				{/each}
-			</div>
-			</aside>
 		</div>
 
 	</div>
 
-	<section class="print-document" aria-hidden="true">
-		<div class="print-document-body">
-			{@html printDocumentHtml}
-		</div>
-
-		{#if printableThreads.length > 0}
-			<section class="print-annotations">
-				<h2>Margin Notes</h2>
-
-				{#each printableThreads as thread}
-					<article class="print-annotation" class:print-suggestion={thread.kind === 'suggestion'}>
-						<p class="print-annotation-label">
-							{thread.kind === 'suggestion' ? 'Suggestion' : 'Comment'} by {thread.author}
-							- line {thread.currentLine ?? thread.line}
-						</p>
-
-						{#if thread.quote}
-							<blockquote>{thread.quote}</blockquote>
-						{/if}
-
-						<p>{thread.body}</p>
-					</article>
-				{/each}
-			</section>
-		{/if}
-	</section>
+	<PrintDocument
+		{printDocumentHtml}
+		{printableThreads}
+	/>
 
 	{#if saveProgressVisible}
 		<div
@@ -9206,456 +7870,58 @@
 		</div>
 	{/if}
 
-	{#if commandPaletteOpen}
-		<div
-			class="command-palette-backdrop"
-			role="presentation"
-			onpointerdown={(event) => {
-				if (event.target === event.currentTarget) closeCommandPalette();
-			}}
-		>
-			<div
-				class="command-palette"
-				class:keyboard-input={commandPaletteInputMode === 'keyboard'}
-				class:pointer-input={commandPaletteInputMode === 'pointer'}
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="command-palette-title"
-				tabindex="-1"
-				onkeydown={handleCommandPaletteKeydown}
-			>
-				<header class="command-palette-search">
-					<SearchIcon aria-hidden="true" />
-
-					<div class="command-palette-field">
-						<h2 id="command-palette-title">{commandPaletteTitleLabel}</h2>
-						<input
-							bind:this={commandPaletteInput}
-							value={commandPaletteQuery}
-							type="text"
-							role="combobox"
-							aria-label={commandPaletteSearchAriaLabel}
-							aria-expanded="true"
-							aria-controls="command-palette-listbox"
-							aria-activedescendant={commandPaletteEntries[commandPaletteActiveIndex] ? `command-palette-option-${commandPaletteActiveIndex}` : undefined}
-							autocomplete="off"
-							autocapitalize="off"
-							autocorrect="off"
-							spellcheck="false"
-							placeholder={commandPalettePlaceholderLabel}
-							oninput={updateCommandPaletteQuery}
-							onkeydown={handleCommandPaletteKeydown}
-						/>
-					</div>
-
-					<kbd class="command-palette-shortcut">{commandPaletteShortcutLabel}</kbd>
-				</header>
-
-				<div
-					id="command-palette-listbox"
-					class="command-palette-list"
-					class:windowed={commandPaletteWindowed}
-					style={commandPaletteWindowed ? `--command-palette-list-height: ${commandPaletteListHeight};` : ''}
-					role="listbox"
-					aria-label={commandPaletteTitleLabel}
-				>
-					{#each commandPaletteRows as row (row.id)}
-						{#if row.type === 'heading'}
-							<div class="command-palette-section-label" role="presentation">{row.title}</div>
-						{:else}
-							<button
-								id={`command-palette-option-${row.index}`}
-								class="command-palette-option"
-								class:active={row.index === commandPaletteActiveIndex}
-								class:empty={row.entry.kind === 'empty'}
-								type="button"
-								role="option"
-								aria-selected={row.index === commandPaletteActiveIndex}
-								disabled={row.entry.disabled}
-								title={commandPaletteOptionTooltip(row.entry)}
-								onpointermove={(event) => handleCommandPaletteOptionPointerMove(event, row.index, row.entry.disabled)}
-								onclick={() => runCommandPaletteEntry(row.entry)}
-							>
-								<span class={`command-palette-icon ${row.entry.kind}`} aria-hidden="true">
-									{#if commandPaletteEntryIcon(row.entry) === 'clock'}
-										<ClockIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'file-plus'}
-										<FilePlusIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'file-text'}
-										<FileTextIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'folder-open'}
-										<FolderOpenIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'folder-tree'}
-										<FolderTreeIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'list'}
-										<ListIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'list-checks'}
-										<ListChecksIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'list-ordered'}
-										<ListOrderedIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'message-square-plus'}
-										<MessageSquarePlusIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left'}
-										<PanelLeftIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'panel-left-close'}
-										<PanelLeftCloseIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'pencil'}
-										<PencilIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'printer'}
-										<PrinterIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'refresh'}
-										<RefreshCwIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'save'}
-										<SaveIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'search'}
-										<SearchIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'settings'}
-										<SettingsIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'table'}
-										<TableIcon />
-									{:else if commandPaletteEntryIcon(row.entry) === 'x'}
-										<XIcon />
-									{:else}
-										<CommandIcon />
-									{/if}
-								</span>
-
-								<span class="command-palette-copy">
-									<span class="command-palette-name">{commandPaletteDisplayTitle(row.entry)}</span>
-									{#if commandPaletteShowsSubtitle(row.entry)}
-										<span class="command-palette-subtitle">{row.entry.subtitle}</span>
-									{/if}
-								</span>
-
-								{#if row.entry.detail}
-									<span class="command-palette-detail">{commandPaletteDisplayDetail(row.entry)}</span>
-								{/if}
-
-								{#if row.entry.shortcut}
-									<kbd>{row.entry.shortcut}</kbd>
-								{/if}
-							</button>
-						{/if}
-					{/each}
-				</div>
-			</div>
-		</div>
-	{/if}
+	<CommandPalette
+		openRequest={commandPaletteOpenRequest}
+		onOpenChange={(open) => {
+			commandPaletteIsOpen = open;
+		}}
+		getCommandEntries={commandPaletteCommandEntries}
+		getFileEntries={quickOpenPaletteEntries}
+		{fileTreePanelOpen}
+	/>
 
 	{#if updateNoticeVisible && availableAppUpdate}
-		<div class="app-update-notice" role="status" aria-live="polite">
-			<div class="app-update-copy">
-				<span class="app-update-title">Update {availableAppUpdate.version}</span>
-				<span class="app-update-detail">
-					{updateCheckState === 'installing' ? 'Installing' : 'Ready to install'}
-				</span>
-			</div>
-
-			<Button
-				size="sm"
-				class="primary app-update-install"
-				onclick={installDesktopUpdate}
-				disabled={updateCheckState === 'installing'}
-			>
-				<DownloadIcon aria-hidden="true" />
-				<span>{updateCheckState === 'installing' ? 'Installing' : 'Install'}</span>
-			</Button>
-
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				class="icon-button app-update-dismiss"
-				aria-label="Dismiss update"
-				onclick={() => updateNoticeVisible = false}
-				disabled={updateCheckState === 'installing'}
-			>
-				<XIcon aria-hidden="true" />
-			</Button>
-		</div>
+		<UpdateNotice
+			bind:updateNoticeVisible
+			{availableAppUpdate}
+			{updateCheckState}
+			{installDesktopUpdate}
+		/>
 	{/if}
 
-		<Dialog.Root bind:open={wordCountDialogOpen}>
-			<Dialog.Content
-				class="settings-dialog word-count-dialog"
-				aria-labelledby="word-count-title"
-				showCloseButton={false}
-			>
-				<Dialog.Header class="settings-dialog-header">
-					<div>
-						<p class="eyebrow">Margin</p>
-						<Dialog.Title id="word-count-title">Word Count</Dialog.Title>
-					</div>
 
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						class="icon-button"
-						aria-label="Close word count"
-						onclick={closeWordCountDialog}
-					>
-						<XIcon aria-hidden="true" />
-					</Button>
-				</Dialog.Header>
+	<WordCountDialog
+		bind:open={wordCountDialogOpen}
+		{wordCountStats}
+		{closeWordCountDialog}
+		{formatCount}
+		{formatReadingTime}
+		{formatReviewProgress}
+		{formatTaskProgress}
+	/>
 
-				<section class="word-count-dashboard" aria-label="Document counts">
-					<div class="word-count-hero">
-						<div class="word-count-hero-copy">
-							<span class="word-count-kicker">Document</span>
-							<span class="word-count-primary-label">Words</span>
-						</div>
-						<strong data-word-count-value="document-words">{formatCount(wordCountStats.document.words)}</strong>
-					</div>
+	<PrintOptionsDialog
+		bind:open={printOptionsDialogOpen}
+		bind:includeMarginNotesAppendix
+		{printAppendixCandidateThreads}
+		{confirmPrintDocument}
+	/>
 
-					<dl class="word-count-grid">
-						<div class="word-count-metric reading-time">
-							<dt>Reading time</dt>
-							<dd data-word-count-value="reading-time">{formatReadingTime(wordCountStats.document.words)}</dd>
-						</div>
-						<div class="word-count-metric characters">
-							<dt>Characters</dt>
-							<dd data-word-count-value="document-characters">{formatCount(wordCountStats.document.characters)}</dd>
-						</div>
-						<div class="word-count-metric lines">
-							<dt>Lines</dt>
-							<dd data-word-count-value="document-lines">{formatCount(wordCountStats.document.lines)}</dd>
-						</div>
-						<div class="word-count-metric review">
-							<dt>Comments / suggestions</dt>
-							<dd data-word-count-value="review-progress">{formatReviewProgress(wordCountStats.review)}</dd>
-						</div>
-						<div class="word-count-metric tasks">
-							<dt>Tasks</dt>
-							<dd data-word-count-value="task-progress">{formatTaskProgress(wordCountStats.tasks)}</dd>
-						</div>
-					</dl>
-				</section>
+	<SettingsDialog
+		bind:open={settingsDialogOpen}
+		{themeOptions}
+		{settingsDraftTheme}
+		{settingsDraftLocalUserName}
+		{desktopShell}
+		{updateCheckState}
+		{updateStatusMessage}
+		{availableAppUpdate}
+		{settingsError}
+		{closeSettingsDialog}
+		{updateSettingsTheme}
+		{updateSettingsLocalUserName}
+		{checkForDesktopUpdate}
+		{installDesktopUpdate}
+	/>
 
-				{#if wordCountStats.selection}
-					<section class="word-count-panel word-count-selection" aria-label="Selection counts">
-						<Label>Selection</Label>
-						<dl class="word-count-grid compact">
-							<div class="word-count-metric selection-words">
-								<dt>Words</dt>
-								<dd data-word-count-value="selection-words">{formatCount(wordCountStats.selection.words)}</dd>
-							</div>
-							<div class="word-count-metric selection-characters">
-								<dt>Characters</dt>
-								<dd data-word-count-value="selection-characters">{formatCount(wordCountStats.selection.characters)}</dd>
-							</div>
-						</dl>
-					</section>
-				{/if}
-
-				<Dialog.Footer class="settings-actions">
-					<Button
-						size="sm"
-						class="primary"
-						onclick={closeWordCountDialog}
-					>Done</Button>
-				</Dialog.Footer>
-			</Dialog.Content>
-		</Dialog.Root>
-
-		<Dialog.Root bind:open={printOptionsDialogOpen}>
-			<Dialog.Content
-				class="settings-dialog print-options-dialog"
-				aria-labelledby="print-options-title"
-				showCloseButton={false}
-			>
-				<form onsubmit={(event) => {
-					event.preventDefault();
-					confirmPrintDocument();
-				}}>
-					<Dialog.Header class="settings-dialog-header">
-						<div>
-							<p class="eyebrow">Margin</p>
-							<Dialog.Title id="print-options-title">Print</Dialog.Title>
-						</div>
-
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							class="icon-button"
-							aria-label="Close print options"
-							onclick={() => printOptionsDialogOpen = false}
-						>
-							<XIcon aria-hidden="true" />
-						</Button>
-					</Dialog.Header>
-
-					<fieldset class="settings-fieldset print-options-fieldset">
-						<label class="print-option-checkbox" for="print-include-margin-notes">
-							<input
-								id="print-include-margin-notes"
-								type="checkbox"
-								bind:checked={includeMarginNotesAppendix}
-								disabled={printAppendixCandidateThreads.length === 0}
-							/>
-							<span>Include margin notes appendix</span>
-						</label>
-					</fieldset>
-
-					<Dialog.Footer class="settings-actions">
-						<Button
-							variant="outline"
-							size="sm"
-							class="ghost-button"
-							onclick={() => printOptionsDialogOpen = false}
-						>Cancel</Button>
-
-						<Button
-							size="sm"
-							class="primary"
-							type="submit"
-						>Print</Button>
-					</Dialog.Footer>
-				</form>
-			</Dialog.Content>
-		</Dialog.Root>
-
-		<Dialog.Root bind:open={settingsDialogOpen}>
-			<Dialog.Content
-				class="settings-dialog app-settings-dialog"
-				aria-labelledby="settings-title"
-				showCloseButton={false}
-			>
-				<div class="settings-window-layout">
-					<aside class="settings-sidebar" aria-label="Settings areas">
-						<div class="settings-sidebar-list">
-							<button class="settings-sidebar-item active" type="button" aria-current="page">
-								<span class="settings-sidebar-icon">
-									<SettingsIcon aria-hidden="true" />
-								</span>
-								<span>General</span>
-							</button>
-						</div>
-					</aside>
-
-					<section class="settings-pane" aria-labelledby="settings-title">
-						<Dialog.Header class="settings-dialog-header settings-pane-header">
-							<div>
-								<p class="eyebrow">Margin</p>
-								<Dialog.Title id="settings-title">General</Dialog.Title>
-							</div>
-
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								class="icon-button"
-								aria-label="Close settings"
-								onclick={closeSettingsDialog}
-							>
-								<XIcon aria-hidden="true" />
-							</Button>
-						</Dialog.Header>
-
-						<div class="settings-pane-body">
-							<section class="settings-group" aria-label="General settings">
-								<div class="settings-row">
-									<div class="settings-row-copy">
-										<Label>Theme</Label>
-									</div>
-
-									<div class="settings-row-control">
-										<ToggleGroup.Root
-											class="theme-segmented-control"
-											type="single"
-											aria-label="Theme"
-											value={settingsDraftTheme}
-										>
-											{#each themeOptions as theme}
-												<ToggleGroup.Item
-													class={`theme-option${settingsDraftTheme === theme ? ' active' : ''}`}
-													value={theme}
-													onclick={() => updateSettingsTheme(theme)}
-												>
-													<span>{theme === 'auto' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}</span>
-												</ToggleGroup.Item>
-											{/each}
-										</ToggleGroup.Root>
-									</div>
-								</div>
-
-								<div class="settings-row">
-									<div class="settings-row-copy">
-										<Label for="settings-local-user-name">Local name</Label>
-										<p>Shown on local comments and suggestions.</p>
-									</div>
-
-									<div class="settings-row-control">
-										<div class="settings-user-control">
-											<div class="avatar" style={avatarStyle(settingsDraftLocalUserName)}>{authorInitials(settingsDraftLocalUserName)}</div>
-											<input
-												id="settings-local-user-name"
-												class="settings-text-input"
-												value={settingsDraftLocalUserName}
-												oninput={(event) => updateSettingsLocalUserName((event.currentTarget as HTMLInputElement).value)}
-												autocomplete="name"
-												maxlength="80"
-											/>
-										</div>
-									</div>
-								</div>
-							</section>
-
-							{#if desktopShell}
-								<section class="settings-group" aria-label="Application updates">
-									<div class="settings-row">
-										<div class="settings-row-copy">
-											<Label id="settings-updates-title">Updates</Label>
-											<p class={`settings-update-status${updateCheckState === 'error' ? ' error' : ''}`}>
-												{updateStatusMessage || 'Check for newer desktop builds.'}
-											</p>
-										</div>
-
-										<div class="settings-row-control">
-											<Button
-												variant="outline"
-												size="sm"
-												class="ghost-button settings-update-check"
-												onclick={() => checkForDesktopUpdate(true)}
-												disabled={updateCheckState === 'checking' || updateCheckState === 'installing'}
-											>
-												<RefreshCwIcon aria-hidden="true" />
-												<span>{updateCheckState === 'checking' ? 'Checking' : 'Check'}</span>
-											</Button>
-										</div>
-									</div>
-
-									{#if availableAppUpdate}
-										<div class="settings-row">
-											<div class="settings-row-copy">
-												<Label>Available update</Label>
-												<p>Version {availableAppUpdate.version} is available.</p>
-											</div>
-
-											<div class="settings-row-control">
-												<div class="settings-update-available">
-													{#if availableAppUpdate.notes}
-														<p>{availableAppUpdate.notes}</p>
-													{/if}
-													<Button
-														size="sm"
-														class="primary settings-update-install"
-														onclick={installDesktopUpdate}
-														disabled={updateCheckState === 'installing'}
-													>
-														<DownloadIcon aria-hidden="true" />
-														<span>{updateCheckState === 'installing' ? 'Installing' : 'Install and Relaunch'}</span>
-													</Button>
-												</div>
-											</div>
-										</div>
-									{/if}
-								</section>
-							{/if}
-
-							{#if settingsError}
-								<p class="settings-error">{settingsError}</p>
-							{/if}
-						</div>
-					</section>
-				</div>
-			</Dialog.Content>
-		</Dialog.Root>
 	</main>
