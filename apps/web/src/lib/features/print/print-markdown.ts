@@ -4,18 +4,18 @@ import {
   markdownImageSizeCss,
   splitMarkdownDestination,
   type MarkdownImageAttributes
-} from './markdown-images';
+} from '../../markdown-images';
 import {
   isClosingMarkdownFence,
   openingMarkdownFence
-} from './markdown-code-fences';
+} from '../../markdown-code-fences';
 import {
   markdownTableAlignments,
   markdownTableCells,
   padMarkdownTableCells,
   type MarkdownTable,
   type MarkdownTableAlignment
-} from './markdown-tables';
+} from '../../markdown-tables';
 
 type PrintMarkdownOptions = {
   resolveImageSrc?: (src: string) => string;

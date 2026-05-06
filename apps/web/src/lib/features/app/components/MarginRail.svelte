@@ -6,7 +6,7 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
-	import { authorInitials, avatarStyle } from '$lib/local-identity';
+	import { authorInitials, avatarStyle } from '$lib/features/app/local-identity';
 	import type { MarginItem, ThreadView } from '$lib/app-types';
 
 	type MaybePromise<T = void> = T | Promise<T>;
