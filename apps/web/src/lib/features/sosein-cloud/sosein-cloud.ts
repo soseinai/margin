@@ -6,6 +6,23 @@ export const SOSEIN_BODY_TEXT_NAME = 'body';
 export type SoseinUser = {
   id: string;
   email: string;
+  name?: string | null;
+  displayName?: string | null;
+  display_name?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  picture?: string | null;
+  profileImageUrl?: string | null;
+  profile_image_url?: string | null;
+  profilePictureUrl?: string | null;
+  profile_picture_url?: string | null;
+};
+
+export type SoseinStoredUser = {
+  id: string;
+  email: string;
+  name?: string;
+  profilePictureUrl?: string;
 };
 
 export type SoseinWorkspace = {
@@ -23,7 +40,7 @@ export type SoseinAuthSession = {
 export type SoseinStoredSession = {
   serverUrl: string;
   sessionToken: string;
-  user: SoseinUser;
+  user: SoseinStoredUser;
   defaultWorkspace: SoseinWorkspace;
   expiresAt: string;
 };
@@ -243,10 +260,69 @@ export function storedSessionFromAuth(serverUrl: string, session: SoseinAuthSess
   return {
     serverUrl: normalizeSoseinServerUrl(serverUrl),
     sessionToken: session.session_token,
-    user: session.user,
+    user: storedUserFromSoseinUser(session.user),
     defaultWorkspace: session.default_workspace,
     expiresAt: session.expires_at
   };
+}
+
+export function storedUserFromSoseinUser(user: SoseinUser): SoseinStoredUser {
+  return mergedStoredUserFromSoseinUser(undefined, user);
+}
+
+export function mergedStoredUserFromSoseinUser(
+  existingUser: SoseinStoredUser | undefined,
+  user: SoseinUser
+): SoseinStoredUser {
+  const name = normalizeSoseinUserName(user.name)
+    ?? normalizeSoseinUserName(user.display_name)
+    ?? normalizeSoseinUserName(user.displayName)
+    ?? existingUser?.name;
+  const profilePictureUrl = normalizeSoseinProfilePictureUrl(user.profile_picture_url)
+    ?? normalizeSoseinProfilePictureUrl(user.profilePictureUrl)
+    ?? normalizeSoseinProfilePictureUrl(user.profile_image_url)
+    ?? normalizeSoseinProfilePictureUrl(user.profileImageUrl)
+    ?? normalizeSoseinProfilePictureUrl(user.image_url)
+    ?? normalizeSoseinProfilePictureUrl(user.imageUrl)
+    ?? normalizeSoseinProfilePictureUrl(user.picture)
+    ?? existingUser?.profilePictureUrl;
+
+  return {
+    id: user.id,
+    email: user.email,
+    ...(name ? { name } : {}),
+    ...(profilePictureUrl ? { profilePictureUrl } : {})
+  };
+}
+
+export function soseinStoredUserDisplayName(user: SoseinStoredUser) {
+  return user.name || user.email;
+}
+
+export function normalizeSoseinUserName(value: unknown) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+
+  return trimmed || null;
+}
+
+export function normalizeSoseinProfilePictureUrl(value: unknown) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeSoseinDocumentTitle(value: string) {

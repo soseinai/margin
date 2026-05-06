@@ -4,13 +4,15 @@
 
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { SoseinActiveDocument } from '$lib/app-types';
-	import type {
-		SoseinDocument,
-		SoseinDocumentSummary,
-		SoseinStoredSession
+	import {
+		soseinStoredUserDisplayName,
+		type SoseinDocument,
+		type SoseinDocumentSummary,
+		type SoseinStoredSession
 	} from '$lib/features/sosein-cloud/sosein-cloud';
 	import type { SoseinSyncStatus } from '$lib/features/sosein-cloud/sosein-codemirror-sync';
 	import { onDestroy } from 'svelte';
+	import SoseinAccountAvatar from './SoseinAccountAvatar.svelte';
 
 	type MaybePromise<T = void> = T | Promise<T>;
 
@@ -39,7 +41,7 @@
 	let activeResizeStop: (() => void) | null = null;
 
 	$: workspaceName = session?.defaultWorkspace.name || 'Cloud documents';
-	$: accountLabel = session ? session.user.email : 'Not connected';
+	$: accountLabel = session ? soseinStoredUserDisplayName(session.user) : 'Not connected';
 
 	onDestroy(() => {
 		activeResizeStop?.();
@@ -122,9 +124,13 @@
 		</header>
 
 		<div class="sosein-cloud-account-row">
-			<span class="sosein-cloud-account-icon" aria-hidden="true">
-				<CloudIcon />
-			</span>
+			{#if session}
+				<SoseinAccountAvatar user={session.user} />
+			{:else}
+				<span class="sosein-cloud-account-icon" aria-hidden="true">
+					<CloudIcon />
+				</span>
+			{/if}
 			<span class="sosein-cloud-account-text">{accountLabel}</span>
 
 			{#if session}

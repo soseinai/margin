@@ -1,4 +1,6 @@
 import {
+  normalizeSoseinProfilePictureUrl,
+  normalizeSoseinUserName,
   SOSEIN_CLOUD_API_BASE_URL,
   type SoseinStoredSession
 } from './sosein-cloud';
@@ -49,6 +51,27 @@ function normalizeStoredSession(value: unknown): SoseinStoredSession | null {
   }
 
   const serverUrl = storedSessionServerUrl(session.serverUrl);
+  const rawUser = session.user as Partial<SoseinStoredSession['user']> & {
+    displayName?: unknown;
+    display_name?: unknown;
+    imageUrl?: unknown;
+    image_url?: unknown;
+    picture?: unknown;
+    profileImageUrl?: unknown;
+    profile_image_url?: unknown;
+    profilePictureUrl?: unknown;
+    profile_picture_url?: unknown;
+  };
+  const name = normalizeSoseinUserName(session.user.name)
+    ?? normalizeSoseinUserName(rawUser.displayName)
+    ?? normalizeSoseinUserName(rawUser.display_name);
+  const profilePictureUrl = normalizeSoseinProfilePictureUrl(rawUser.profilePictureUrl)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.profile_picture_url)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.profileImageUrl)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.profile_image_url)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.imageUrl)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.image_url)
+    ?? normalizeSoseinProfilePictureUrl(rawUser.picture);
 
   if (!serverUrl) return null;
 
@@ -57,7 +80,9 @@ function normalizeStoredSession(value: unknown): SoseinStoredSession | null {
     sessionToken: session.sessionToken,
     user: {
       id: session.user.id,
-      email: session.user.email
+      email: session.user.email,
+      ...(name ? { name } : {}),
+      ...(profilePictureUrl ? { profilePictureUrl } : {})
     },
     defaultWorkspace: {
       id: session.defaultWorkspace.id,

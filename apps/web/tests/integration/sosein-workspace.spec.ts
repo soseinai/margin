@@ -4,7 +4,12 @@ import { editor, installTauriMock, tauriCalls } from './helpers';
 const storedSoseinSession = {
   serverUrl: 'https://api.sosein.ai',
   sessionToken: 'session',
-  user: { id: 'user-1', email: 'alice@example.com' },
+  user: {
+    id: 'user-1',
+    email: 'alice@example.com',
+    name: 'Alice Example',
+    profilePictureUrl: 'https://example.com/alice.png'
+  },
   defaultWorkspace: { id: 'workspace-1', name: 'Default' },
   expiresAt: '2026-05-06T12:00:00Z'
 };
@@ -17,7 +22,20 @@ async function installStoredSoseinSession(page: Page) {
   }, storedSoseinSession);
 }
 
+async function serveProfilePicture(page: Page) {
+  await page.route('https://example.com/alice.png', async (route) => {
+    await route.fulfill({
+      contentType: 'image/png',
+      body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+        'base64'
+      )
+    });
+  });
+}
+
 test('cloud workspace mode replaces the local file tree with cloud documents', async ({ page }) => {
+  await serveProfilePicture(page);
   await installTauriMock(page, {
     settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true },
     soseinDocuments: [
@@ -40,7 +58,8 @@ test('cloud workspace mode replaces the local file tree with cloud documents', a
 
   await expect(cloudPanel).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Default' })).toBeVisible();
-  await expect(cloudPanel.getByText('alice@example.com')).toBeVisible();
+  await expect(cloudPanel.getByText('Alice Example')).toBeVisible();
+  await expect(cloudPanel.locator('img.sosein-account-avatar')).toHaveAttribute('src', 'https://example.com/alice.png');
   await expect(cloudPanel.getByRole('button', { name: 'Cloud Plan' })).toBeVisible();
   await expect(page.locator('.doc-titlebar-shell')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Cloud Documents' })).toHaveCount(0);

@@ -193,6 +193,16 @@ struct AppSettings {
 struct SoseinOAuthUser {
     id: String,
     email: String,
+    #[serde(alias = "displayName")]
+    name: Option<String>,
+    display_name: Option<String>,
+    #[serde(alias = "profilePictureUrl")]
+    #[serde(alias = "profile_image_url")]
+    #[serde(alias = "profileImageUrl")]
+    #[serde(alias = "image_url")]
+    #[serde(alias = "imageUrl")]
+    #[serde(alias = "picture")]
+    profile_picture_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
