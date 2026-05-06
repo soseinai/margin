@@ -63,6 +63,23 @@ describe('draftMarkdownSuggestions', () => {
     expect(applySuggestionsByBaseLine(base, suggestions)).toBe(current);
   });
 
+  it('carries the active author image onto draft suggestions', () => {
+    const base = 'Target line';
+    const current = 'Updated line';
+    const specs: TextChange[] = [{ from: 0, to: base.length, insert: current }];
+
+    const suggestions = draftMarkdownSuggestions(ChangeSet.of(specs, base.length), base, current, [], {
+      author: 'Alice Example',
+      authorImageUrl: 'https://example.com/alice.png'
+    });
+
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({
+      author: 'Alice Example',
+      authorImageUrl: 'https://example.com/alice.png'
+    });
+  });
+
   it('property: random line replacements reconstruct the edited document', () => {
     fc.assert(
       fc.property(

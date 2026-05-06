@@ -12,6 +12,7 @@ export type DraftSuggestion = {
   id: string;
   kind: 'suggestion';
   author: string;
+  authorImageUrl?: string;
   quote: string;
   body: string;
   line: number;
@@ -28,6 +29,7 @@ export type DraftSuggestion = {
 
 export type DraftSuggestionOptions = {
   author?: string;
+  authorImageUrl?: string;
   syncedKeys?: ReadonlySet<string>;
 };
 
@@ -70,6 +72,7 @@ export function draftMarkdownSuggestions(
   const seenKeys = new Set<string>();
   const syncedKeys = options.syncedKeys ?? new Set<string>();
   const author = options.author ?? 'Me';
+  const authorImageUrl = options.authorImageUrl;
 
   changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
     const hunk = hunkFromTransactionRange(
@@ -100,6 +103,7 @@ export function draftMarkdownSuggestions(
       id: `pending-edit-${suggestion.line}-${suggestion.endLine}`,
       kind: 'suggestion',
       author,
+      ...(authorImageUrl ? { authorImageUrl } : {}),
       quote: suggestion.quote,
       body: suggestion.body,
       line: suggestion.line,

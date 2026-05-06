@@ -69,6 +69,7 @@ function isMarginComment(value: unknown): value is MarginComment {
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.author === 'string' &&
+    (candidate.author_image_url === undefined || typeof candidate.author_image_url === 'string') &&
     typeof candidate.body === 'string' &&
     typeof candidate.resolved === 'boolean' &&
     isMarginAnchor(candidate.anchor) &&
@@ -82,6 +83,7 @@ function isMarginSuggestion(value: unknown): value is MarginSuggestion {
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.author === 'string' &&
+    (candidate.author_image_url === undefined || typeof candidate.author_image_url === 'string') &&
     typeof candidate.original === 'string' &&
     typeof candidate.replacement === 'string' &&
     typeof candidate.applied === 'boolean' &&

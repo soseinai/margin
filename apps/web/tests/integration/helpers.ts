@@ -537,7 +537,10 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
                 return {
                   status: 200,
                   body: {
-                    user: { id: 'user-1', email: 'alice@example.com' },
+                    user: {
+                      id: 'user-1',
+                      email: 'alice@example.com'
+                    },
                     expires_at: '2026-05-06T12:00:00Z'
                   },
                   bodyText: '{"ok":true}'

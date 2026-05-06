@@ -20,6 +20,7 @@ export async function createSoseinCodeMirrorSync(args: {
   documentId: string;
   issueSyncTicket: () => Promise<string>;
   userName?: string;
+  userImage?: string;
   onStatus?: (status: SoseinSyncStatus) => void;
   onError?: (error: unknown) => void;
 }): Promise<SoseinCodeMirrorSync> {
@@ -41,7 +42,10 @@ export async function createSoseinCodeMirrorSync(args: {
   let destroyed = false;
   let refreshingTicket = false;
 
-  provider.awareness.setLocalStateField('user', { name: args.userName || 'Margin' });
+  provider.awareness.setLocalStateField('user', {
+    name: args.userName || 'Margin',
+    ...(args.userImage ? { image: args.userImage } : {})
+  });
 
   const refreshTicketAndReconnect = async () => {
     if (destroyed || refreshingTicket) return;

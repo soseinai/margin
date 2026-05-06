@@ -101,8 +101,10 @@
 		SOSEIN_CLOUD_API_BASE_URL,
 		SoseinCloudApiError,
 		SoseinCloudClient,
+		mergedStoredUserFromSoseinUser,
 		normalizeSoseinDocumentTitle,
 		soseinDocumentFileName,
+		soseinStoredUserDisplayName,
 		storedSessionFromAuth,
 		type SoseinAuthSession,
 		type SoseinCloudRequest,
@@ -273,6 +275,8 @@
 	let settingsDraftTheme: ThemeSetting = 'auto';
 	let settingsDraftLocalUserName = defaultLocalUserName();
 	let localAuthor = defaultLocalUserName();
+	let commentAuthor = defaultLocalUserName();
+	let commentAuthorImageUrl = '';
 	let workspaceMode: WorkspaceMode = { kind: 'local' };
 	const soseinCloudServerUrl = SOSEIN_CLOUD_API_BASE_URL;
 	let soseinSession: SoseinStoredSession | null = null;
@@ -845,6 +849,7 @@
 				id: comment.id,
 				kind: 'comment' as const,
 				author: comment.author,
+				authorImageUrl: comment.author_image_url,
 				quote: comment.anchor.quote,
 				body: comment.body,
 				line: comment.anchor.start_line,
@@ -858,6 +863,7 @@
 				id: suggestion.id,
 				kind: 'suggestion' as const,
 				author: suggestion.author,
+				authorImageUrl: suggestion.author_image_url,
 				quote: suggestion.original,
 				body: suggestion.replacement,
 				line: suggestion.anchor.start_line,
@@ -892,7 +898,7 @@
 	$: reportDesktopWindowTabState(desktopWindowHasTabs);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = workspaceMode.kind === 'sosein' && !soseinActiveDocument
-		? (soseinSession?.user.email || 'Sosein Cloud')
+		? (soseinSession ? soseinStoredUserDisplayName(soseinSession.user) : 'Sosein Cloud')
 		: documentLocationLabelFor(
 			soseinActiveDocument,
 			soseinSession,
@@ -917,6 +923,10 @@
 	$: activeThreadId = selectedThreadId || hoveredThreadId;
 	$: updateSaveProgressIndicator(saveState);
 	$: localAuthor = appSettings.localUserName;
+	$: commentAuthor = workspaceMode.kind === 'sosein' && soseinSession
+		? soseinStoredUserDisplayName(soseinSession.user)
+		: localAuthor;
+	$: commentAuthorImageUrl = workspaceMode.kind === 'sosein' ? (soseinSession?.user.profilePictureUrl ?? '') : '';
 
 	$: if (mainEditor) {
 		mainEditor.dispatch({
@@ -3032,7 +3042,7 @@
 							resetSuggestionDraftState(editorMarkdown);
 						} else if (editMode === 'suggest') {
 							draftChanges = composeDraftChanges(draftChanges, update);
-							pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: localAuthor, syncedKeys: syncedEditKeys });
+							pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: commentAuthor, authorImageUrl: commentAuthorImageUrl, syncedKeys: syncedEditKeys });
 						} else {
 							resetSuggestionDraftState(editorMarkdown);
 						}
@@ -4983,7 +4993,9 @@
 		soseinSession = session;
 		writeSoseinSession(session);
 		soseinDialogOpen = true;
-		if (workspaceMode.kind === 'sosein') enterSoseinWorkspaceMode(session);
+		await validateStoredSoseinSession({ updateWorkspaceMode: false });
+		if (!soseinSession) return;
+		if (workspaceMode.kind === 'sosein') enterSoseinWorkspaceMode(soseinSession);
 		await refreshSoseinDocuments();
 	}
 
@@ -4994,18 +5006,20 @@
 		window.history.replaceState({}, '', url.toString());
 	}
 
-	async function validateStoredSoseinSession() {
+	async function validateStoredSoseinSession(options: { updateWorkspaceMode?: boolean } = {}) {
 		if (!soseinSession) return;
 
 		try {
 			const validation = await soseinClientForSession().validateSession();
 			soseinSession = {
 				...soseinSession,
-				user: validation.user,
+				user: mergedStoredUserFromSoseinUser(soseinSession.user, validation.user),
 				expiresAt: validation.expires_at
 			};
 			writeSoseinSession(soseinSession);
-			if (workspaceMode.kind === 'sosein') enterSoseinWorkspaceMode(soseinSession);
+			if (options.updateWorkspaceMode !== false && workspaceMode.kind === 'sosein') {
+				enterSoseinWorkspaceMode(soseinSession);
+			}
 		} catch(err) {
 			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
 		}
@@ -5132,7 +5146,8 @@
 			const sync = await createSoseinCodeMirrorSync({
 				serverUrl: activeDocument.serverUrl,
 				documentId: activeDocument.id,
-				userName: soseinSession.user.email,
+				userName: soseinStoredUserDisplayName(soseinSession.user),
+				userImage: soseinSession.user.profilePictureUrl,
 				issueSyncTicket: async () => {
 					const response = await client.issueSyncTicket(activeDocument.id);
 
@@ -5245,7 +5260,7 @@
 
 		if (!session) return `Sosein Cloud / ${statusLabel}`;
 
-		return `${session.user.email} / ${statusLabel}`;
+		return `${soseinStoredUserDisplayName(session.user)} / ${statusLabel}`;
 	}
 
 	function handleSoseinCloudError(err: unknown, fallback: string) {
@@ -6516,7 +6531,7 @@
 
 		return {
 			...annotations,
-			author: localAuthor,
+			author: commentAuthor,
 			suggestions: [...annotations.suggestions, ...materializedSuggestions]
 		};
 	}
@@ -6528,6 +6543,7 @@
 		return {
 			id: `local-suggestion-${Date.now()}-${index}`,
 			author: thread.author,
+			...(thread.authorImageUrl ? { author_image_url: thread.authorImageUrl } : {}),
 			original: thread.quote,
 			replacement: thread.body,
 			applied: thread.status !== 'rejected',
@@ -6677,7 +6693,7 @@
 		return {
 			id: `local-annotations:${Date.now()}`,
 			fileName,
-			author: localAuthor,
+			author: commentAuthor,
 			comments: [],
 			suggestions: [],
 			created_at: new Date().toISOString()
@@ -6692,7 +6708,7 @@
 		return {
 			...fallback,
 			id: comments.annotations_id,
-			author: comments.author || localAuthor,
+			author: comments.author || commentAuthor,
 			comments: comments.comments,
 			suggestions: comments.suggestions,
 			created_at: comments.updated_at
@@ -6851,12 +6867,13 @@
 
 		annotations = {
 			...annotations,
-			author: localAuthor,
+			author: commentAuthor,
 			comments: [
 				...annotations.comments,
 				{
 					id: `local-comment-${Date.now()}`,
-					author: localAuthor,
+					author: commentAuthor,
+					...(commentAuthorImageUrl ? { author_image_url: commentAuthorImageUrl } : {}),
 					body: commentBody,
 					resolved: false,
 					anchor: localAnchorForSelection(selectedQuote),
@@ -6975,7 +6992,7 @@
 		});
 
 		editorMarkdown = mainEditor.state.doc.toString();
-		pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: localAuthor, syncedKeys: syncedEditKeys });
+		pendingEditThreads = draftMarkdownSuggestions(draftChanges, draftBaseMarkdown, editorMarkdown, persistedThreads, { author: commentAuthor, authorImageUrl: commentAuthorImageUrl, syncedKeys: syncedEditKeys });
 	}
 
 	function localAnchorForSelection(quote: string): MarginAnchor {
@@ -7230,7 +7247,8 @@
 					{activeThreadId}
 					{selectedThreadId}
 					{commentComposerAttention}
-					{localAuthor}
+					{commentAuthor}
+					{commentAuthorImageUrl}
 					selectionReady={Boolean(selectionReady)}
 					{editingCommentId}
 					{measureHeight}

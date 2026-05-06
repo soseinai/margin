@@ -17,6 +17,7 @@ export type MarginAnchor = {
 export type MarginComment = {
   id: string;
   author: string;
+  author_image_url?: string;
   body: string;
   resolved: boolean;
   anchor: MarginAnchor;
@@ -26,6 +27,7 @@ export type MarginComment = {
 export type MarginSuggestion = {
   id: string;
   author: string;
+  author_image_url?: string;
   original: string;
   replacement: string;
   applied: boolean;

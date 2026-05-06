@@ -6,12 +6,14 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import type { SoseinActiveDocument } from '$lib/app-types';
-	import type {
-		SoseinDocument,
-		SoseinDocumentSummary,
-		SoseinStoredSession
+	import {
+		soseinStoredUserDisplayName,
+		type SoseinDocument,
+		type SoseinDocumentSummary,
+		type SoseinStoredSession
 	} from '$lib/features/sosein-cloud/sosein-cloud';
 	import type { SoseinSyncStatus } from '$lib/features/sosein-cloud/sosein-codemirror-sync';
+	import SoseinAccountAvatar from './SoseinAccountAvatar.svelte';
 
 	type MaybePromise<T = void> = T | Promise<T>;
 
@@ -61,9 +63,15 @@
 		<div class="settings-pane-body">
 			<section class="settings-group" aria-label="Sosein Cloud connection">
 				<div class="settings-row sosein-session-row">
-					<div class="settings-row-copy">
-						<Label>Account</Label>
-						<p>{session ? session.user.email : 'Not connected'}</p>
+					<div class="settings-row-copy sosein-account-copy">
+						{#if session}
+							<SoseinAccountAvatar user={session.user} />
+						{/if}
+
+						<div>
+							<Label>Account</Label>
+							<p>{session ? soseinStoredUserDisplayName(session.user) : 'Not connected'}</p>
+						</div>
 					</div>
 
 					<div class="settings-row-control">

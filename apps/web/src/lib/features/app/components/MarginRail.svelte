@@ -17,7 +17,8 @@
 	export let activeThreadId = '';
 	export let selectedThreadId = '';
 	export let commentComposerAttention = false;
-	export let localAuthor = '';
+	export let commentAuthor = '';
+	export let commentAuthorImageUrl = '';
 	export let commentTextarea: HTMLElement | null = null;
 	export let commentBody = '';
 	export let selectionReady: unknown = false;
@@ -44,6 +45,18 @@
 	export let acceptSuggestion: (thread: ThreadView) => MaybePromise = () => {};
 	export let rejectSuggestion: (thread: ThreadView) => MaybePromise = () => {};
 	export let resolveSuggestion: (thread: ThreadView) => MaybePromise = () => {};
+
+	function avatarImageUrl(value: string | undefined) {
+		if (!value) return '';
+
+		try {
+			const url = new URL(value);
+
+			return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : '';
+		} catch {
+			return '';
+		}
+	}
 </script>
 
 <aside
@@ -112,8 +125,12 @@
 					use:measureHeight={item.id}
 				>
 					<div class="composer-author">
-						<div class="avatar" style={avatarStyle(localAuthor)}>{authorInitials(localAuthor)}</div>
-						<strong>{localAuthor}</strong>
+						{#if avatarImageUrl(commentAuthorImageUrl)}
+							<img class="avatar" src={avatarImageUrl(commentAuthorImageUrl)} alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer" />
+						{:else}
+							<div class="avatar" style={avatarStyle(commentAuthor)}>{authorInitials(commentAuthor)}</div>
+						{/if}
+						<strong>{commentAuthor}</strong>
 					</div>
 
 					<Textarea
@@ -176,7 +193,11 @@
 							aria-label="Edit comment"
 						>
 							<div class="composer-author">
-								<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
+								{#if avatarImageUrl(item.thread.authorImageUrl)}
+									<img class="avatar" src={avatarImageUrl(item.thread.authorImageUrl)} alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer" />
+								{:else}
+									<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
+								{/if}
 								<strong>{item.thread.author}</strong>
 							</div>
 
@@ -216,7 +237,11 @@
 						</section>
 					{:else}
 						<div class="thread-header">
-							<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
+							{#if avatarImageUrl(item.thread.authorImageUrl)}
+								<img class="avatar" src={avatarImageUrl(item.thread.authorImageUrl)} alt="" aria-hidden="true" draggable="false" referrerpolicy="no-referrer" />
+							{:else}
+								<div class="avatar" style={avatarStyle(item.thread.author)}>{authorInitials(item.thread.author)}</div>
+							{/if}
 
 							<div>
 								<strong>{item.thread.author}</strong>

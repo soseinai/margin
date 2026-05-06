@@ -1934,6 +1934,37 @@ button.settings-sidebar-item.active:not([data-slot]) {
   gap: 6px;
 }
 
+.sosein-account-copy {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.sosein-account-copy > div {
+  min-width: 0;
+}
+
+.sosein-account-avatar {
+  border: 1px solid var(--avatar-border, var(--rule));
+  border-radius: 5px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 24px;
+  object-fit: cover;
+  overflow: hidden;
+  width: 24px;
+}
+
+.sosein-account-avatar-fallback {
+  align-items: center;
+  background: var(--avatar-bg, var(--paper-sunk));
+  color: var(--avatar-fg, var(--fg-3));
+  font-family: var(--font-plex-mono);
+  font-size: 9.5px;
+  justify-content: center;
+  line-height: 1;
+}
+
 .sosein-document-group {
   align-content: start;
 }
@@ -2018,7 +2049,7 @@ button.settings-sidebar-item.active:not([data-slot]) {
   border-bottom: 1px solid color-mix(in srgb, var(--rule) 64%, transparent);
   display: grid;
   gap: 7px;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   min-height: 42px;
   padding: 4px 3px 9px 6px;
 }
@@ -4567,6 +4598,10 @@ button.markdown-image-resize-handle:focus-visible .markdown-image-resize-grip,
   height: 30px;
   justify-content: center;
   width: 30px;
+}
+
+img.avatar {
+  object-fit: cover;
 }
 
 blockquote {

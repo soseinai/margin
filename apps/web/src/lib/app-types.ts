@@ -182,6 +182,7 @@ export type ThreadView = {
 	id: string;
 	kind: 'comment' | 'suggestion';
 	author: string;
+	authorImageUrl?: string;
 	quote: string;
 	body: string;
 	line: number;

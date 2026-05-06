@@ -32,7 +32,12 @@ describe('Sosein session store', () => {
         serverUrl: `${SOSEIN_CLOUD_API_BASE_URL}/`,
         sessionToken: 'session',
         expiresAt: '2026-05-05T12:00:00Z',
-        user: { id: 'user-1', email: 'alice@example.com' },
+        user: {
+          id: 'user-1',
+          email: 'alice@example.com',
+          name: ' Alice   Example ',
+          profilePictureUrl: ' https://example.com/alice.png '
+        },
         defaultWorkspace: { id: 'workspace-1', name: 'Default' }
       },
       storage
@@ -42,7 +47,12 @@ describe('Sosein session store', () => {
       serverUrl: SOSEIN_CLOUD_API_BASE_URL,
       sessionToken: 'session',
       expiresAt: '2026-05-05T12:00:00Z',
-      user: { id: 'user-1', email: 'alice@example.com' },
+      user: {
+        id: 'user-1',
+        email: 'alice@example.com',
+        name: 'Alice Example',
+        profilePictureUrl: 'https://example.com/alice.png'
+      },
       defaultWorkspace: { id: 'workspace-1', name: 'Default' }
     });
 
@@ -65,5 +75,55 @@ describe('Sosein session store', () => {
     );
 
     expect(readSoseinSession(storage)).toBeNull();
+  });
+
+  it('drops invalid profile picture URLs from otherwise valid sessions', () => {
+    const storage = new MemoryStorage();
+
+    writeSoseinSession(
+      {
+        serverUrl: `${SOSEIN_CLOUD_API_BASE_URL}/`,
+        sessionToken: 'session',
+        expiresAt: '2026-05-05T12:00:00Z',
+        user: { id: 'user-1', email: 'alice@example.com', profilePictureUrl: 'javascript:alert(1)' },
+        defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+      },
+      storage
+    );
+
+    expect(readSoseinSession(storage)).toEqual({
+      serverUrl: SOSEIN_CLOUD_API_BASE_URL,
+      sessionToken: 'session',
+      expiresAt: '2026-05-05T12:00:00Z',
+      user: { id: 'user-1', email: 'alice@example.com' },
+      defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+    });
+  });
+
+  it('normalizes legacy stored profile image field aliases', () => {
+    const storage = new MemoryStorage();
+
+    storage.setItem(
+      'margin:sosein-cloud:session:v1',
+      JSON.stringify({
+        serverUrl: `${SOSEIN_CLOUD_API_BASE_URL}/`,
+        sessionToken: 'session',
+        expiresAt: '2026-05-05T12:00:00Z',
+        user: {
+          id: 'user-1',
+          email: 'alice@example.com',
+          display_name: 'Alice Alias',
+          profile_picture_url: 'https://example.com/alice.png'
+        },
+        defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+      })
+    );
+
+    expect(readSoseinSession(storage)?.user).toEqual({
+      id: 'user-1',
+      email: 'alice@example.com',
+      name: 'Alice Alias',
+      profilePictureUrl: 'https://example.com/alice.png'
+    });
   });
 });
