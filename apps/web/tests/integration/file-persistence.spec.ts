@@ -5,6 +5,7 @@ import {
   installFilePickerMock,
   openCleanApp,
   replaceEditorMarkdown,
+  runCommand,
   setFilePickerMarkdown
 } from './helpers';
 
@@ -18,12 +19,12 @@ test('opens and saves through browser file handles', async ({ page }) => {
   ]);
   await openCleanApp(page, '/', { preserveFilePicker: true });
 
-  await page.getByLabel('Open document', { exact: true }).click();
+  await runCommand(page, 'Open Document...');
   await expect(page.getByRole('heading', { name: 'Opened.md' })).toBeVisible();
   await expect(editor(page)).toContainText('Loaded from a browser file handle.');
 
   await replaceEditorMarkdown(page, '# Opened\n\nSaved through a writable handle.');
-  await page.getByLabel('Save document', { exact: true }).click();
+  await runCommand(page, 'Save Document');
 
   await expect.poll(async () => {
     const snapshot = await filePickerSnapshot(page);
@@ -41,7 +42,7 @@ test('autosaves writable browser handles without prompting', async ({ page }) =>
   ]);
   await openCleanApp(page, '/', { preserveFilePicker: true });
 
-  await page.getByLabel('Open document', { exact: true }).click();
+  await runCommand(page, 'Open Document...');
   await replaceEditorMarkdown(page, 'Autosaved body.');
   await expect.poll(async () => {
     const snapshot = await filePickerSnapshot(page);
@@ -62,10 +63,10 @@ test('detects browser file handle conflicts before overwriting', async ({ page }
   ]);
   await openCleanApp(page, '/', { preserveFilePicker: true });
 
-  await page.getByLabel('Open document', { exact: true }).click();
+  await runCommand(page, 'Open Document...');
   await setFilePickerMarkdown(page, 'Conflict.md', 'Changed outside Margin.');
   await replaceEditorMarkdown(page, 'Local unsaved body.');
-  await page.getByLabel('Save document', { exact: true }).click();
+  await runCommand(page, 'Save Document');
 
   await expect(page.getByText('This file changed outside Margin. Reopen it or use Save As to keep both versions.')).toBeVisible();
 

@@ -192,9 +192,37 @@ export async function platformModifier(page: Page): Promise<'Meta' | 'Control'> 
   return isMac ? 'Meta' : 'Control';
 }
 
+export async function openCommandPalette(page: Page) {
+  const commandButton = page.getByLabel('Open command palette').first();
+
+  if (await commandButton.isVisible().catch(() => false)) {
+    await commandButton.click();
+  } else {
+    await page.keyboard.press(`${await platformModifier(page)}+Shift+P`);
+  }
+
+  const dialog = page.getByRole('dialog', { name: 'Command Palette' });
+  await expect(dialog).toBeVisible();
+
+  return dialog;
+}
+
+export async function runCommand(page: Page, title: string) {
+  const dialog = await openCommandPalette(page);
+  const search = dialog.getByRole('combobox', { name: 'Command palette search' });
+  await search.fill(title);
+  await expect(dialog.locator('.command-palette-option.active')).toContainText(title);
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+}
+
 export async function saveViaDownload(page: Page) {
+  const dialog = await openCommandPalette(page);
+  const search = dialog.getByRole('combobox', { name: 'Command palette search' });
+  await search.fill('Save Document');
+  await expect(dialog.locator('.command-palette-option.active')).toContainText('Save Document');
   const downloadPromise = page.waitForEvent('download');
-  await page.getByLabel('Save document', { exact: true }).click();
+  await page.keyboard.press('Enter');
   return downloadPromise;
 }
 
