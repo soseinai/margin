@@ -1,0 +1,262 @@
+export const SOSEIN_CLOUD_API_BASE_URL = 'https://api.sosein.ai';
+export const DEFAULT_SOSEIN_SERVER_URL = SOSEIN_CLOUD_API_BASE_URL;
+export const SOSEIN_DEV_BOOTSTRAP_TOKEN = 'dev-bootstrap-token';
+export const SOSEIN_BODY_TEXT_NAME = 'body';
+
+export type SoseinUser = {
+  id: string;
+  email: string;
+};
+
+export type SoseinWorkspace = {
+  id: string;
+  name: string;
+};
+
+export type SoseinAuthSession = {
+  session_token: string;
+  user: SoseinUser;
+  default_workspace: SoseinWorkspace;
+  expires_at: string;
+};
+
+export type SoseinStoredSession = {
+  serverUrl: string;
+  sessionToken: string;
+  user: SoseinUser;
+  defaultWorkspace: SoseinWorkspace;
+  expiresAt: string;
+};
+
+export type SoseinDocumentSummary = {
+  id: string;
+  title: string;
+  content_type: string;
+  current_snapshot_version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SoseinLatestSnapshot = {
+  version: number;
+  yrs_state_hash: string;
+  markdown_content: string;
+  markdown_content_hash: string;
+};
+
+export type SoseinDocument = {
+  id: string;
+  title: string;
+  content_type: string;
+  latest_snapshot: SoseinLatestSnapshot;
+};
+
+export type SoseinSyncTicket = {
+  ticket: string;
+  expires_at: string;
+};
+
+export type SoseinSessionValidation = {
+  user: SoseinUser;
+  expires_at: string;
+};
+
+export type SoseinCloudRequest = {
+  baseUrl: string;
+  path: string;
+  method: string;
+  body?: unknown;
+  sessionToken?: string;
+  bootstrapToken?: string;
+  requireSession?: boolean;
+};
+
+export type SoseinCloudTransport = <T>(request: SoseinCloudRequest) => Promise<T>;
+
+export class SoseinCloudApiError extends Error {
+  status: number;
+  body: string;
+
+  constructor(status: number, body: string, message = `Sosein Cloud request failed with ${status}`) {
+    super(message);
+    this.name = 'SoseinCloudApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export class SoseinCloudClient {
+  readonly baseUrl: string;
+  readonly sessionToken?: string;
+  private readonly transport?: SoseinCloudTransport;
+
+  constructor(baseUrl = DEFAULT_SOSEIN_SERVER_URL, sessionToken?: string, transport?: SoseinCloudTransport) {
+    this.baseUrl = normalizeSoseinServerUrl(baseUrl);
+    this.sessionToken = sessionToken;
+    this.transport = transport;
+  }
+
+  withSession(sessionToken: string) {
+    return new SoseinCloudClient(this.baseUrl, sessionToken, this.transport);
+  }
+
+  async devSession(email: string, workspace = 'Default', bootstrapToken = SOSEIN_DEV_BOOTSTRAP_TOKEN) {
+    return this.requestJson<SoseinAuthSession>('/v1/auth/dev-session', {
+      method: 'POST',
+      bootstrapToken,
+      body: { email, workspace }
+    });
+  }
+
+  async exchangeOAuthHandoff(handoffCode: string) {
+    return this.requestJson<SoseinAuthSession>('/v1/auth/oauth/handoff/exchange', {
+      method: 'POST',
+      body: { handoff_code: handoffCode }
+    });
+  }
+
+  oauthLoginUrl(returnTo: string, providerId = 'google') {
+    const url = new URL(`/v1/auth/oauth/${encodeURIComponent(providerId)}/login`, `${this.baseUrl}/`);
+    url.searchParams.set('return_to', returnTo);
+
+    return url.toString();
+  }
+
+  async validateSession() {
+    return this.requestJson<SoseinSessionValidation>('/v1/auth/session/validate', {
+      method: 'POST',
+      requireSession: true
+    });
+  }
+
+  async listDocuments() {
+    return this.requestJson<{ documents: SoseinDocumentSummary[] }>('/v1/documents', {
+      requireSession: true
+    });
+  }
+
+  async createDocument(title: string) {
+    return this.requestJson<SoseinDocument>('/v1/documents', {
+      method: 'POST',
+      requireSession: true,
+      body: { title }
+    });
+  }
+
+  async getDocument(documentId: string) {
+    return this.requestJson<SoseinDocument>(`/v1/documents/${encodeURIComponent(documentId)}`, {
+      requireSession: true
+    });
+  }
+
+  async issueSyncTicket(documentId: string) {
+    return this.requestJson<SoseinSyncTicket>(`/v1/documents/${encodeURIComponent(documentId)}/sync-ticket`, {
+      method: 'POST',
+      requireSession: true
+    });
+  }
+
+  private async requestJson<T>(
+    path: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      bootstrapToken?: string;
+      requireSession?: boolean;
+    } = {}
+  ): Promise<T> {
+    const method = options.method ?? 'GET';
+    const sessionToken = this.sessionToken;
+
+    if (!options.bootstrapToken && !sessionToken && options.requireSession) {
+      throw new Error('No Sosein Cloud session is available');
+    }
+
+    if (this.transport) {
+      return this.transport<T>({
+        baseUrl: this.baseUrl,
+        path,
+        method,
+        body: options.body,
+        bootstrapToken: options.bootstrapToken,
+        sessionToken,
+        requireSession: Boolean(options.requireSession)
+      });
+    }
+
+    const headers = new Headers();
+
+    if (options.body !== undefined) headers.set('content-type', 'application/json');
+    if (options.bootstrapToken) {
+      headers.set('authorization', `Bearer ${options.bootstrapToken}`);
+    } else if (sessionToken) {
+      headers.set('authorization', `Bearer ${sessionToken}`);
+    }
+
+    const response = await fetch(new URL(path, `${this.baseUrl}/`), {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new SoseinCloudApiError(response.status, body);
+    }
+
+    return response.json() as Promise<T>;
+  }
+}
+
+export function normalizeSoseinServerUrl(value: unknown) {
+  const fallback = DEFAULT_SOSEIN_SERVER_URL;
+
+  if (typeof value !== 'string') return fallback;
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return fallback;
+
+  try {
+    const parsed = new URL(trimmed);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+
+    parsed.hash = '';
+    parsed.search = '';
+
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return fallback;
+  }
+}
+
+export function soseinWebSocketBaseUrl(serverUrl: string) {
+  const parsed = new URL(normalizeSoseinServerUrl(serverUrl));
+
+  parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+export function storedSessionFromAuth(serverUrl: string, session: SoseinAuthSession): SoseinStoredSession {
+  return {
+    serverUrl: normalizeSoseinServerUrl(serverUrl),
+    sessionToken: session.session_token,
+    user: session.user,
+    defaultWorkspace: session.default_workspace,
+    expiresAt: session.expires_at
+  };
+}
+
+export function normalizeSoseinDocumentTitle(value: string) {
+  const title = value.trim().replace(/\s+/g, ' ');
+
+  return title || 'Untitled';
+}
+
+export function soseinDocumentFileName(title: string) {
+  const cleanTitle = normalizeSoseinDocumentTitle(title);
+
+  return (/\.(md|markdown|txt)$/i).test(cleanTitle) ? cleanTitle : `${cleanTitle}.md`;
+}

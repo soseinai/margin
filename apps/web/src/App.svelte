@@ -69,10 +69,30 @@
 	import PrintDocument from './lib/components/app/PrintDocument.svelte';
 	import PrintOptionsDialog from './lib/components/app/PrintOptionsDialog.svelte';
 	import SettingsDialog from './lib/components/app/SettingsDialog.svelte';
+	import SoseinCloudDialog from './lib/components/app/SoseinCloudDialog.svelte';
 	import UpdateNotice from './lib/components/app/UpdateNotice.svelte';
 	import WordCountDialog from './lib/components/app/WordCountDialog.svelte';
 	import { draftMarkdownSuggestions, suggestionKey } from './lib/draft-suggestions';
 	import { defaultLocalUserName, normalizeLocalUserName } from './lib/local-identity';
+	import {
+		SOSEIN_CLOUD_API_BASE_URL,
+		SoseinCloudApiError,
+		SoseinCloudClient,
+		normalizeSoseinDocumentTitle,
+		soseinDocumentFileName,
+		storedSessionFromAuth,
+		type SoseinAuthSession,
+		type SoseinCloudRequest,
+		type SoseinDocument,
+		type SoseinDocumentSummary,
+		type SoseinStoredSession
+	} from './lib/sosein-cloud';
+	import type { SoseinCodeMirrorSync, SoseinSyncStatus } from './lib/sosein-codemirror-sync';
+	import {
+		clearSoseinSession,
+		readSoseinSession,
+		writeSoseinSession
+	} from './lib/sosein-session-store';
 	import {
 		compactLocalPath,
 		directoryPath,
@@ -164,10 +184,12 @@
 		NativeMarkdownDocument,
 		NativeMarkdownDocumentChange,
 		NativeOpenPathPayload,
+		NativeSoseinApiResponse,
 		PrintDocumentOptions,
 		ReviewCountStats,
 		SaveLocalMarkdownOptions,
 		SaveState,
+		SoseinActiveDocument,
 		SuggestionStatus,
 		SuggestionSurfaceKind,
 		TaskCountStats,
@@ -195,10 +217,28 @@
 	let editingCommentId = '';
 	let editingCommentBody = '';
 	let editMode: EditingMode = 'edit';
-	let appSettings: AppSettings = { theme: 'auto', localUserName: defaultLocalUserName() };
+	let appSettings: AppSettings = {
+		theme: 'auto',
+		localUserName: defaultLocalUserName(),
+		soseinCloudEnabled: false
+	};
 	let settingsDraftTheme: ThemeSetting = 'auto';
 	let settingsDraftLocalUserName = defaultLocalUserName();
 	let localAuthor = defaultLocalUserName();
+	const soseinCloudServerUrl = SOSEIN_CLOUD_API_BASE_URL;
+	let soseinSession: SoseinStoredSession | null = null;
+	let soseinDialogOpen = false;
+	let soseinDocuments: SoseinDocumentSummary[] = [];
+	let soseinDocumentsLoading = false;
+	let soseinAuthLoading = false;
+	let soseinDocumentOpening = false;
+	let soseinCloudError = '';
+	let soseinNewDocumentTitle = 'Untitled';
+	let soseinCloudVisible = false;
+	let soseinActiveDocument: SoseinActiveDocument | null = null;
+	let soseinEditorSync: SoseinCodeMirrorSync | null = null;
+	let soseinSyncStatus: SoseinSyncStatus = 'disconnected';
+	let soseinSyncRun = 0;
 	let settingsDialogOpen = false;
 	let printOptionsDialogOpen = false;
 	let wordCountDialogOpen = false;
@@ -1573,11 +1613,18 @@
 		pendingEditThreads,
 		localMetadataDirty,
 		saveState,
+		saveMessage,
 		externalChange,
+		soseinActiveDocument,
 		documentTabs.map((tab) => tab.id === activeDocumentTabId ? tabFromCurrentState(tab) : tab)
 	);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
-	$: documentLocationLabel = nativeFilePath ? compactLocalPath(directoryPath(nativeFilePath)) : '';
+	$: documentLocationLabel = documentLocationLabelFor(
+		soseinActiveDocument,
+		soseinSession,
+		soseinSyncStatus,
+		nativeFilePath
+	);
 	$: printAppendixCandidateThreads = threads.filter((thread) => !thread.resolved && thread.body.trim().length > 0);
 	$: titlebarEyebrowPlaceholder = localFileMode
 		&& !nativeFilePath
@@ -1617,6 +1664,8 @@
 		tauriShell = Boolean((window as TauriWindow).__TAURI__);
 		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
 		desktopShell = desktopPreview || (tauriShell && !mobileShell);
+		void initializeSoseinCloudVisibility();
+		initializeSoseinCloudState(searchParams);
 		const settingsReady = loadAppSettings();
 
 		const nativeListenersReady = setupNativeDesktopListeners();
@@ -1644,6 +1693,7 @@
 			clearAnchorPositionFrame();
 			clearLocalAutosaveTimer();
 			clearSaveProgressTimers();
+			destroySoseinEditorSync();
 			clearUpdateAutoCheckTimer();
 			clearCommentComposerAttention();
 			unlistenNativeInsertMenu?.();
@@ -1731,6 +1781,7 @@
 			externalChange,
 			saveState,
 			saveMessage,
+			soseinDocument: soseinActiveDocument,
 			documentSessionKey,
 			syncedEditKeys: [...syncedEditKeys]
 		};
@@ -1856,11 +1907,16 @@
 	}
 
 	function tabHasDiscardableWork(tab: DocumentTab) {
+		if (tab.soseinDocument) {
+			return tab.pendingEditThreads.length > 0 || tab.localMetadataDirty;
+		}
+
 		return tab.saveState === 'dirty' || tab.saveState === 'conflict' || tab.pendingEditThreads.length > 0 || tab.editorMarkdown !== tab.baseMarkdown || tab.localMetadataDirty && Boolean((tab.annotations?.comments.length ?? 0) + (tab.annotations?.suggestions.length ?? 0));
 	}
 
 	async function applyDocumentTab(nextTab: DocumentTab) {
 		clearLocalAutosaveTimer();
+		destroySoseinEditorSync();
 		activeDocumentTabId = nextTab.id;
 		documentData = { ...nextTab.documentData, markdown: nextTab.editorMarkdown };
 		annotations = nextTab.annotations;
@@ -1879,6 +1935,8 @@
 		externalChange = nextTab.externalChange;
 		saveState = nextTab.saveState;
 		saveMessage = nextTab.saveMessage;
+		soseinActiveDocument = nextTab.soseinDocument;
+		soseinSyncStatus = soseinActiveDocument ? 'connecting' : 'disconnected';
 		documentSessionKey = nextTab.documentSessionKey;
 		clearThreadFocus();
 		selectedQuote = '';
@@ -1893,6 +1951,7 @@
 		for (const key of nextTab.syncedEditKeys) syncedEditKeys.add(key);
 
 		scheduleLocalAutosave();
+		if (soseinActiveDocument) void connectSoseinEditorSyncForActiveDocument();
 		await tick();
 		updateAnchorPositions();
 	}
@@ -3439,25 +3498,26 @@
 
 	function codeMirrorLiveEditor(
 		node: HTMLElement,
-		options: { value: string; threads: ThreadView[]; documentKey: string }
+		options: { value: string; threads: ThreadView[]; documentKey: string; cloudSync: SoseinCodeMirrorSync | null }
 	) {
-		let lastExternalValue = options.value;
+		let lastExternalValue = editorInitialValue(options);
 		let lastDocumentKey = options.documentKey;
+		let lastCloudSync = options.cloudSync;
 		let applyingExternalValue = false;
-
-		const view = new EditorView({
-			parent: node,
-			state: EditorState.create({ doc: options.value, extensions: livePreviewExtensions() })
-		});
-
-		mainEditor = view;
-		view.dispatch({ effects: setThreadsEffect.of(options.threads) });
-		preloadMarkdownCodeLanguages(view);
-		updateSelectionFromEditor(view);
-		requestAnimationFrame(updateAnchorPositions);
+		let view = createEditorView(options);
 
 		return {
 			update(next: typeof options) {
+				if (next.cloudSync !== lastCloudSync) {
+					destroyEditorView(view);
+					view = createEditorView(next);
+					lastExternalValue = editorInitialValue(next);
+					lastDocumentKey = next.documentKey;
+					lastCloudSync = next.cloudSync;
+
+					return;
+				}
+
 				view.dispatch({ effects: setThreadsEffect.of(next.threads) });
 
 				const currentDoc = view.state.doc.toString();
@@ -3475,16 +3535,40 @@
 
 				lastExternalValue = next.value;
 				lastDocumentKey = next.documentKey;
+				lastCloudSync = next.cloudSync;
 			},
 
 			destroy() {
-				if (mainEditor === view) mainEditor = null;
-
-				view.destroy();
+				destroyEditorView(view);
 			}
 		};
 
-		function livePreviewExtensions(): Extension[] {
+		function createEditorView(next: typeof options) {
+			const nextView = new EditorView({
+				parent: node,
+				state: EditorState.create({ doc: editorInitialValue(next), extensions: livePreviewExtensions(next.cloudSync) })
+			});
+
+			mainEditor = nextView;
+			nextView.dispatch({ effects: setThreadsEffect.of(next.threads) });
+			preloadMarkdownCodeLanguages(nextView);
+			updateSelectionFromEditor(nextView);
+			requestAnimationFrame(updateAnchorPositions);
+
+			return nextView;
+		}
+
+		function destroyEditorView(editorView: EditorView) {
+			if (mainEditor === editorView) mainEditor = null;
+
+			editorView.destroy();
+		}
+
+		function editorInitialValue(next: typeof options) {
+			return next.cloudSync ? next.cloudSync.ytext.toString() : next.value;
+		}
+
+		function livePreviewExtensions(cloudSync: SoseinCodeMirrorSync | null): Extension[] {
 			return [
 				history(),
 				EditorState.tabSize.of(4),
@@ -3495,6 +3579,7 @@
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				syntaxHighlighting(marginHighlightStyle),
 				search({ top: true, createPanel: marginSearchPanel }),
+				...(cloudSync ? [cloudSync.extension] : []),
 				livePreviewField,
 				livePreviewBlockDecorationField,
 				livePreviewPlugin,
@@ -3660,12 +3745,19 @@
 							localEditRevision += 1;
 						}
 
-						if (localFileMode && !applyingExternalValue) {
+						if (soseinActiveDocument) {
+							if (documentData) documentData = { ...documentData, markdown: editorMarkdown };
+							baseMarkdown = editorMarkdown;
+							saveState = soseinSyncStatus === 'error' || soseinSyncStatus === 'disconnected' ? 'conflict' : 'saved';
+							saveMessage = soseinSyncStatusLabel(soseinSyncStatus);
+						} else if (localFileMode && !applyingExternalValue) {
 							refreshLocalSaveState(editorMarkdown);
 							scheduleLocalAutosave();
 						}
 
-						if (applyingExternalValue) {
+						if (soseinActiveDocument) {
+							resetSuggestionDraftState(editorMarkdown);
+						} else if (applyingExternalValue) {
 							resetSuggestionDraftState(editorMarkdown);
 						} else if (editMode === 'suggest') {
 							draftChanges = composeDraftChanges(draftChanges, update);
@@ -5400,18 +5492,18 @@
 		return desktopShell && !nativeMenuBridgeReady;
 	}
 
-async function openCommandPalette(mode: CommandPaletteMode) {
-	closeFindPanel();
-	printOptionsDialogOpen = false;
-	if (settingsDialogOpen) {
-		closeSettingsDialog();
-		if (settingsDialogOpen) return;
+	async function openCommandPalette(mode: CommandPaletteMode) {
+		closeFindPanel();
+		printOptionsDialogOpen = false;
+		if (soseinDialogOpen) closeSoseinDialog();
+		if (settingsDialogOpen) {
+			closeSettingsDialog();
+			if (settingsDialogOpen) return;
+		}
+
+		commandPaletteRequestId += 1;
+		commandPaletteOpenRequest = { id: commandPaletteRequestId, mode };
 	}
-
-	commandPaletteRequestId += 1;
-	commandPaletteOpenRequest = { id: commandPaletteRequestId, mode };
-}
-
 
 	function commandPaletteCommandEntries(): CommandPaletteEntry[] {
 		const commands: CommandPaletteEntry[] = [
@@ -5473,6 +5565,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 				group: 'File',
 				shortcut: shortcutLabel('S'),
 				keywords: ['write'],
+				disabled: Boolean(soseinActiveDocument),
 				action: () => saveLocalMarkdown()
 			},
 			{
@@ -5574,7 +5667,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 				subtitle: 'Editing Mode',
 				group: 'Editing Mode',
 				keywords: ['mode', 'track changes'],
-				disabled: editMode === 'suggest',
+				disabled: editMode === 'suggest' || Boolean(soseinActiveDocument),
 				action: () => setEditingMode('suggest')
 			},
 			{
@@ -5585,7 +5678,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 				group: 'Insert',
 				shortcut: shortcutLabel('Alt+M'),
 				keywords: ['annotation', 'note'],
-				disabled: !selectedQuote.trim(),
+				disabled: !selectedQuote.trim() || Boolean(soseinActiveDocument),
 				action: () => {
 					openCommentComposerForSelection();
 				}
@@ -5631,6 +5724,18 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 				action: () => insertMarkdownBlock('numbers')
 			}
 		];
+
+		if (soseinCloudVisible) {
+			commands.splice(4, 0, {
+				id: 'command:sosein-cloud',
+				kind: 'command',
+				title: 'Sosein Cloud',
+				subtitle: soseinSession ? soseinSession.user.email : 'Connect',
+				group: 'Suggested',
+				keywords: ['cloud', 'sosein', 'sync'],
+				action: openSoseinDialog
+			});
+		}
 
 		if (desktopShell) {
 			commands.push({
@@ -5823,7 +5928,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 			appSettings = normalizeSettings(loadedSettings);
 		} catch(err) {
 			console.warn('Unable to load settings', err);
-			appSettings = { theme: 'auto', localUserName: defaultLocalUserName() };
+			appSettings = { theme: 'auto', localUserName: defaultLocalUserName(), soseinCloudEnabled: false };
 		}
 
 		settingsDraftTheme = appSettings.theme;
@@ -5842,7 +5947,8 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 	function normalizeSettings(settings: Partial<AppSettings> | null | undefined): AppSettings {
 		return {
 			theme: normalizeTheme(settings?.theme),
-			localUserName: normalizeLocalUserName(settings?.localUserName, defaultLocalUserName())
+			localUserName: normalizeLocalUserName(settings?.localUserName, defaultLocalUserName()),
+			soseinCloudEnabled: settings?.soseinCloudEnabled === true
 		};
 	}
 
@@ -5869,6 +5975,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 		closeFindPanel();
 		printOptionsDialogOpen = false;
 		wordCountDialogOpen = false;
+		if (soseinDialogOpen) closeSoseinDialog();
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
@@ -5880,6 +5987,390 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 		settingsDraftTheme = appSettings.theme;
 		settingsDraftLocalUserName = appSettings.localUserName;
 		settingsError = '';
+	}
+
+	async function initializeSoseinCloudVisibility() {
+		try {
+			if (!desktopShell) {
+				soseinCloudVisible = false;
+
+				return;
+			}
+
+			soseinCloudVisible = Boolean(await tauriInvoke<boolean>('sosein_cloud_enabled'));
+		} catch(err) {
+			console.warn('Unable to read Sosein Cloud visibility', err);
+
+			soseinCloudVisible = false;
+		}
+	}
+
+	function initializeSoseinCloudState(searchParams: URLSearchParams) {
+		soseinSession = readSoseinSession();
+
+		if (searchParams.has('handoff_code')) {
+			void exchangeSoseinOAuthHandoff(searchParams.get('handoff_code') || '');
+		} else if (soseinSession) {
+			void validateStoredSoseinSession();
+		}
+	}
+
+	function openSoseinDialog() {
+		closeFindPanel();
+		printOptionsDialogOpen = false;
+		wordCountDialogOpen = false;
+		if (settingsDialogOpen) closeSettingsDialog();
+
+		soseinCloudError = '';
+		soseinDialogOpen = true;
+
+		if (soseinSession) void refreshSoseinDocuments();
+	}
+
+	function closeSoseinDialog() {
+		soseinDialogOpen = false;
+		soseinCloudError = '';
+	}
+
+	async function exchangeSoseinOAuthHandoff(handoffCode: string) {
+		if (!handoffCode) return;
+
+		soseinAuthLoading = true;
+		soseinCloudError = '';
+
+		try {
+			await finishSoseinOAuthLogin(await soseinCloudClient().exchangeOAuthHandoff(handoffCode));
+			removeSoseinHandoffCodeFromUrl();
+		} catch(err) {
+			handleSoseinCloudError(err, 'Unable to finish Sosein Cloud login');
+		} finally {
+			soseinAuthLoading = false;
+		}
+	}
+
+	async function startSoseinOAuthLogin() {
+		soseinCloudError = '';
+
+		if (desktopShell) {
+			soseinAuthLoading = true;
+
+			try {
+				const authSession = await tauriInvoke<SoseinAuthSession>('start_sosein_oauth_login', { serverUrl: soseinCloudServerUrl });
+
+				if (!authSession) {
+					throw new Error('Desktop OAuth login is unavailable in this Margin build.');
+				}
+
+				await finishSoseinOAuthLogin(authSession);
+			} catch(err) {
+				handleSoseinCloudError(err, 'Unable to start Sosein Cloud login');
+			} finally {
+				soseinAuthLoading = false;
+			}
+
+			return;
+		}
+
+		if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
+			soseinCloudError = 'OAuth login needs an HTTP return URL in this build.';
+
+			return;
+		}
+
+		window.location.href = soseinCloudClient().oauthLoginUrl(window.location.href);
+	}
+
+	async function finishSoseinOAuthLogin(authSession: SoseinAuthSession) {
+		const session = storedSessionFromAuth(soseinCloudServerUrl, authSession);
+
+		soseinSession = session;
+		writeSoseinSession(session);
+		soseinDialogOpen = true;
+		await refreshSoseinDocuments();
+	}
+
+	function removeSoseinHandoffCodeFromUrl() {
+		const url = new URL(window.location.href);
+
+		url.searchParams.delete('handoff_code');
+		window.history.replaceState({}, '', url.toString());
+	}
+
+	async function validateStoredSoseinSession() {
+		if (!soseinSession) return;
+
+		try {
+			const validation = await soseinClientForSession().validateSession();
+			soseinSession = {
+				...soseinSession,
+				user: validation.user,
+				expiresAt: validation.expires_at
+			};
+			writeSoseinSession(soseinSession);
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+		}
+	}
+
+	async function refreshSoseinDocuments() {
+		if (!soseinSession) return;
+
+		soseinDocumentsLoading = true;
+		soseinCloudError = '';
+
+		try {
+			soseinDocuments = (await soseinClientForSession().listDocuments()).documents;
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) {
+				disconnectSoseinSession();
+			}
+
+			handleSoseinCloudError(err, 'Unable to list Sosein Cloud documents');
+		} finally {
+			soseinDocumentsLoading = false;
+		}
+	}
+
+	async function createSoseinDocument() {
+		if (!soseinSession) return;
+
+		soseinDocumentOpening = true;
+		soseinCloudError = '';
+
+		try {
+			const document = await soseinClientForSession().createDocument(normalizeSoseinDocumentTitle(soseinNewDocumentTitle));
+
+			soseinNewDocumentTitle = 'Untitled';
+			await refreshSoseinDocuments();
+			await openSoseinDocument(document);
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+			handleSoseinCloudError(err, 'Unable to create Sosein Cloud document');
+		} finally {
+			soseinDocumentOpening = false;
+		}
+	}
+
+	async function openSoseinDocument(document: SoseinDocumentSummary | SoseinDocument) {
+		if (!soseinSession) return;
+
+		const session = soseinSession;
+
+		soseinDocumentOpening = true;
+		soseinCloudError = '';
+
+		try {
+			syncActiveDocumentTab();
+
+			const existingTab = documentTabs.find((tab) => {
+				const cloudDocument = tab.soseinDocument;
+
+				if (!cloudDocument) return false;
+
+				return cloudDocument.serverUrl === session.serverUrl
+					&& cloudDocument.id === document.id;
+			});
+
+			if (existingTab) {
+				closeSoseinDialog();
+				await applyDocumentTab(existingTab);
+
+				return;
+			}
+
+			const client = soseinClientForSession();
+			const fullDocument = 'latest_snapshot' in document
+				? document
+				: await client.getDocument(document.id);
+			const cloudDocument: SoseinActiveDocument = {
+				serverUrl: session.serverUrl,
+				id: fullDocument.id,
+				title: fullDocument.title,
+				contentType: fullDocument.content_type,
+				snapshotVersion: fullDocument.latest_snapshot.version
+			};
+			const nextDocumentSessionKey = `sosein:${cloudDocument.serverUrl}:${cloudDocument.id}`;
+
+			destroySoseinEditorSync();
+			clearLocalAutosaveTimer();
+			closeSoseinDialog();
+
+			soseinActiveDocument = cloudDocument;
+			soseinSyncStatus = 'connecting';
+			localFileMode = false;
+			localFileHandle = null;
+			localFileName = '';
+			localMetadataDirty = false;
+			nativeFilePath = '';
+			lastPersistedSerializedMarkdown = '';
+			externalChange = null;
+			saveState = 'saved';
+			saveMessage = soseinSyncStatusLabel(soseinSyncStatus);
+			documentSessionKey = nextDocumentSessionKey;
+			activeDocumentTabId = nextDocumentSessionKey;
+			documentData = {
+				id: nextDocumentSessionKey,
+				fileName: soseinDocumentFileName(cloudDocument.title),
+				markdown: ''
+			};
+			annotations = null;
+			editMode = 'edit';
+			resetDraftState('');
+			clearSelection();
+			syncActiveDocumentTab();
+			await connectSoseinEditorSyncForActiveDocument();
+			await tick();
+			updateAnchorPositions();
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+			handleSoseinCloudError(err, 'Unable to open Sosein Cloud document');
+		} finally {
+			soseinDocumentOpening = false;
+		}
+	}
+
+	async function connectSoseinEditorSyncForActiveDocument() {
+		if (!soseinSession || !soseinActiveDocument) return;
+
+		const run = ++soseinSyncRun;
+		const activeDocument = soseinActiveDocument;
+		const client = soseinClientForSession();
+
+		try {
+			const { createSoseinCodeMirrorSync } = await import('./lib/sosein-codemirror-sync');
+			const sync = await createSoseinCodeMirrorSync({
+				serverUrl: activeDocument.serverUrl,
+				documentId: activeDocument.id,
+				userName: soseinSession.user.email,
+				issueSyncTicket: async () => {
+					const response = await client.issueSyncTicket(activeDocument.id);
+
+					return response.ticket;
+				},
+				onStatus: updateSoseinSyncStatus,
+				onError: handleSoseinSyncError
+			});
+
+			if (run !== soseinSyncRun || soseinActiveDocument?.id !== activeDocument.id) {
+				sync.destroy();
+
+				return;
+			}
+
+			soseinEditorSync = sync;
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+			handleSoseinCloudError(err, 'Unable to start Sosein Cloud sync');
+			updateSoseinSyncStatus('error');
+		}
+	}
+
+	function handleSoseinSyncError(err: unknown) {
+		if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+
+		handleSoseinCloudError(err, 'Sosein Cloud sync failed');
+	}
+
+	function destroySoseinEditorSync() {
+		soseinSyncRun += 1;
+		soseinEditorSync?.destroy();
+		soseinEditorSync = null;
+	}
+
+	function clearSoseinActiveDocument() {
+		destroySoseinEditorSync();
+		soseinActiveDocument = null;
+		soseinSyncStatus = 'disconnected';
+	}
+
+	function disconnectSoseinSession() {
+		clearSoseinActiveDocument();
+		soseinSession = null;
+		soseinDocuments = [];
+		clearSoseinSession();
+	}
+
+	function soseinClientForSession() {
+		if (!soseinSession) throw new Error('No Sosein Cloud session is available');
+
+		return soseinCloudClient(soseinSession.sessionToken);
+	}
+
+	function soseinCloudClient(sessionToken?: string) {
+		return new SoseinCloudClient(
+			soseinCloudServerUrl,
+			sessionToken,
+			desktopShell ? nativeSoseinCloudTransport : undefined
+		);
+	}
+
+	async function nativeSoseinCloudTransport<T>(request: SoseinCloudRequest): Promise<T> {
+		const response = await tauriInvoke<NativeSoseinApiResponse>('sosein_api_request', {
+			serverUrl: request.baseUrl,
+			method: request.method,
+			path: request.path,
+			sessionToken: request.sessionToken ?? request.bootstrapToken ?? null,
+			body: request.body ?? null
+		});
+
+		if (!response) {
+			throw new Error('Desktop Sosein Cloud API bridge is unavailable.');
+		}
+
+		if (response.status < 200 || response.status >= 300) {
+			throw new SoseinCloudApiError(response.status, response.bodyText);
+		}
+
+		return response.body as T;
+	}
+
+	function updateSoseinSyncStatus(status: SoseinSyncStatus) {
+		soseinSyncStatus = status;
+
+		if (soseinActiveDocument) {
+			saveState = status === 'error' || status === 'disconnected' ? 'conflict' : 'saved';
+			saveMessage = soseinSyncStatusLabel(status);
+		}
+	}
+
+	function soseinSyncStatusLabel(status: SoseinSyncStatus) {
+		if (status === 'synced' || status === 'connected') return 'Cloud synced';
+		if (status === 'syncing') return 'Syncing...';
+		if (status === 'ticket' || status === 'connecting') return 'Connecting...';
+		if (status === 'disconnected') return 'Cloud disconnected';
+
+		return 'Cloud sync failed';
+	}
+
+	function documentLocationLabelFor(
+		activeDocument: SoseinActiveDocument | null,
+		session: SoseinStoredSession | null,
+		status: SoseinSyncStatus,
+		filePath: string
+	) {
+		if (!activeDocument) return filePath ? compactLocalPath(directoryPath(filePath)) : '';
+
+		const statusLabel = soseinSyncStatusLabel(status);
+
+		if (!session) return `Sosein Cloud / ${statusLabel}`;
+
+		return `${session.user.email} / ${statusLabel}`;
+	}
+
+	function handleSoseinCloudError(err: unknown, fallback: string) {
+		console.warn(fallback, err);
+
+		if (err instanceof SoseinCloudApiError) {
+			soseinCloudError = `${fallback}: ${err.status}`;
+
+			return;
+		}
+
+		soseinCloudError = err instanceof Error ? err.message : fallback;
+	}
+
+	function isSoseinUnauthorized(err: unknown) {
+		return err instanceof SoseinCloudApiError && err.status === 401;
 	}
 
 	function openWordCountDialog() {
@@ -6029,7 +6520,8 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 
 				const nextSettings: AppSettings = {
 					theme: settingsDraftTheme,
-					localUserName: settingsDraftLocalUserName.trim()
+					localUserName: settingsDraftLocalUserName.trim(),
+					soseinCloudEnabled: appSettings.soseinCloudEnabled
 				};
 
 				const request = desktopShell
@@ -6480,6 +6972,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 
 		if (!options.replaceActive) syncActiveDocumentTab();
 
+		clearSoseinActiveDocument();
 		localFileMode = true;
 		localFileHandle = null;
 		localFileName = fileName;
@@ -6626,6 +7119,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 
 		const nextDocumentSessionKey = `local:${nativeDocument.path}`;
 
+		clearSoseinActiveDocument();
 		localFileMode = true;
 		localFileHandle = null;
 		localFileName = fileName;
@@ -6678,6 +7172,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 
 		clearLocalAutosaveTimer();
 		syncActiveDocumentTab();
+		clearSoseinActiveDocument();
 		localFileMode = true;
 		localFileHandle = handle;
 		localFileName = fileName;
@@ -7211,6 +7706,7 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 
 	function setEditingMode(nextMode: EditingMode) {
 		if (editMode === nextMode) return;
+		if (soseinActiveDocument && nextMode === 'suggest') return;
 
 		if (editMode === 'suggest') {
 			materializePendingEditSuggestions();
@@ -7722,11 +8218,6 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 		{openCommandPalette}
 		{setEditingMode}
 		{handleLocalFileSelected}
-		{createNewDocument}
-		{openLocalMarkdown}
-		{saveLocalMarkdown}
-		{requestPrintDocument}
-		{openSettingsDialog}
 	/>
 
 	{#if error}
@@ -7807,7 +8298,8 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 								use:codeMirrorLiveEditor={{
 									value: documentData.markdown,
 									threads,
-									documentKey: documentSessionKey
+									documentKey: documentSessionKey,
+									cloudSync: soseinEditorSync
 								}}
 							></div>
 						{/if}
@@ -7905,6 +8397,26 @@ async function openCommandPalette(mode: CommandPaletteMode) {
 		bind:includeMarginNotesAppendix
 		{printAppendixCandidateThreads}
 		{confirmPrintDocument}
+	/>
+
+	<SoseinCloudDialog
+		bind:open={soseinDialogOpen}
+		bind:newDocumentTitle={soseinNewDocumentTitle}
+		session={soseinSession}
+		documents={soseinDocuments}
+		documentsLoading={soseinDocumentsLoading}
+		authLoading={soseinAuthLoading}
+		documentOpening={soseinDocumentOpening}
+		error={soseinCloudError}
+		activeDocument={soseinActiveDocument}
+		syncStatus={soseinSyncStatus}
+		closeDialog={closeSoseinDialog}
+		disconnectSession={disconnectSoseinSession}
+		startOAuthLogin={startSoseinOAuthLogin}
+		refreshDocuments={refreshSoseinDocuments}
+		createDocument={createSoseinDocument}
+		openDocument={openSoseinDocument}
+		syncStatusLabel={soseinSyncStatusLabel}
 	/>
 
 	<SettingsDialog

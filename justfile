@@ -67,6 +67,43 @@ run path="": build-desktop
       open "$app"
     fi
 
+# Enable the hidden Sosein Cloud UI for local desktop runs.
+enable-sosein-cloud:
+    @just _set-sosein-cloud true
+
+# Disable the hidden Sosein Cloud UI for local desktop runs.
+disable-sosein-cloud:
+    @just _set-sosein-cloud false
+
+_set-sosein-cloud enabled:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    settings="${MARGIN_SETTINGS_FILE:-$HOME/Library/Application Support/app.margin.desktop/settings.toml}"
+    mkdir -p "$(dirname "$settings")"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/margin-settings.XXXXXX")"
+    trap 'rm -f "$tmp"' EXIT
+    if [[ -f "$settings" ]]; then
+      awk -v enabled="{{enabled}}" '
+        BEGIN { updated = 0 }
+        /^[[:space:]]*sosein_cloud_enabled[[:space:]]*=/ {
+          print "sosein_cloud_enabled = " enabled
+          updated = 1
+          next
+        }
+        { print }
+        END {
+          if (!updated) {
+            print "sosein_cloud_enabled = " enabled
+          }
+        }
+      ' "$settings" > "$tmp"
+    else
+      printf 'sosein_cloud_enabled = %s\n' "{{enabled}}" > "$tmp"
+    fi
+    mv "$tmp" "$settings"
+    trap - EXIT
+    echo "Updated $settings"
+
 # Run all standard checks.
 check: format-rust-check check-rust lint-rust check-web
 

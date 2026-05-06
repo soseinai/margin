@@ -934,20 +934,6 @@ textarea:not([data-slot]):focus {
   min-width: 24px;
 }
 
-.topbar-actions {
-  align-items: center;
-  backdrop-filter: blur(18px) saturate(1.35);
-  -webkit-backdrop-filter: blur(18px) saturate(1.35);
-  background: var(--glass-control-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-  display: none;
-  flex: 0 0 auto;
-  gap: 1px;
-  padding: 2px;
-}
-
 .topbar-icon-button {
   border-color: transparent;
   border-radius: 9px;
@@ -961,6 +947,11 @@ textarea:not([data-slot]):focus {
 .topbar-icon-button:focus-visible {
   background: var(--glass-control-hover);
   border-color: transparent;
+  color: var(--fg);
+}
+
+.topbar-icon-button.active {
+  background: var(--glass-control-hover);
   color: var(--fg);
 }
 
@@ -1916,6 +1907,114 @@ button.settings-sidebar-item.active:not([data-slot]) {
   justify-self: end;
   min-height: 28px;
   padding: 0 10px;
+}
+
+.sosein-dialog {
+  max-width: 560px;
+  min-width: 480px;
+  width: min(calc(100vw - 40px), 560px);
+}
+
+.sosein-dialog-body {
+  display: grid;
+  gap: 12px;
+  max-height: min(650px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 14px 16px 16px;
+}
+
+.sosein-session-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.sosein-session-actions button {
+  gap: 6px;
+}
+
+.sosein-document-group {
+  align-content: start;
+}
+
+.sosein-document-toolbar {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--dialog-border) 72%, transparent);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 58px;
+  padding: 10px 12px 10px 16px;
+}
+
+.sosein-new-document {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--dialog-border) 72%, transparent);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px 12px;
+}
+
+.sosein-new-document .settings-text-input {
+  width: 100%;
+}
+
+.sosein-document-list {
+  display: grid;
+  max-height: 280px;
+  min-height: 104px;
+  overflow: auto;
+  padding: 4px;
+}
+
+.sosein-document-row {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--fg-2);
+  cursor: default;
+  display: grid;
+  font-family: var(--font-ui);
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 34px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.sosein-document-row:hover:not(:disabled),
+.sosein-document-row:focus-visible {
+  background: var(--dialog-control-hover);
+  color: var(--fg);
+  outline: 0;
+}
+
+.sosein-document-row.active {
+  background: var(--native-panel-selection-bg);
+  color: var(--fg);
+}
+
+.sosein-document-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sosein-document-row small {
+  color: var(--fg-4);
+  font-size: 11px;
+}
+
+.sosein-empty {
+  align-self: center;
+  color: var(--fg-4);
+  font-size: 12.5px;
+  justify-self: center;
+  margin: 0;
 }
 
 .settings-actions {
@@ -5229,11 +5328,6 @@ blockquote {
 @media (max-width: 760px) {
   body {
     min-width: 0;
-  }
-
-  .doc-app:not(.desktop-shell) .topbar-actions,
-  .mobile-shell .topbar-actions {
-    display: flex;
   }
 
   .doc-app:not(.desktop-shell) .window-drag-spacer,
