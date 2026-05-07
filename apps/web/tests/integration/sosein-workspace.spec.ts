@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import { editor, installTauriMock, runCommand, tauriCalls } from './helpers';
+import {
+  editor,
+  editorMarkdown,
+  installSoseinSyncMock,
+  installTauriMock,
+  replaceEditorMarkdown,
+  runCommand,
+  tauriCalls
+} from './helpers';
 
 const storedSoseinSession = {
   serverUrl: 'https://api.sosein.ai',
@@ -136,3 +144,102 @@ test('Sosein Cloud dialog uses the selected environment for desktop OAuth', asyn
     return loginCall?.args?.serverUrl;
   }).toBe('https://api-staging.sosein.ai');
 });
+
+test('cloud document sync hydrates the editor and publishes local edits to Yjs', async ({ page }) => {
+  await installSoseinSyncMock(page, {
+    initialMarkdownByDocumentId: {
+      'doc-1': '# Cloud Plan\n\nRemote body from Yjs.'
+    }
+  });
+  await installTauriMock(page, {
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true },
+    soseinDocuments: [
+      {
+        id: 'doc-1',
+        title: 'Cloud Plan',
+        content_type: 'text/markdown',
+        current_snapshot_version: 3,
+        created_at: '2026-05-06T10:00:00Z',
+        updated_at: '2026-05-06T11:00:00Z',
+        latest_snapshot: {
+          version: 3,
+          yrs_state_hash: 'test-yrs',
+          markdown_content: '# Cloud Plan\n\nSnapshot body should not win over Yjs.',
+          markdown_content_hash: 'test-md'
+        }
+      }
+    ]
+  });
+  await installStoredSoseinSession(page);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview&workspace=sosein');
+  await page.getByRole('button', { name: 'Cloud Plan' }).click();
+
+  await expect(editor(page)).toContainText('Remote body from Yjs.');
+  await expect.poll(() => editorMarkdown(page)).toBe('# Cloud Plan\n\nRemote body from Yjs.');
+  await expect(page.getByText('Cloud synced', { exact: true })).toBeVisible();
+
+  await replaceEditorMarkdown(page, '# Cloud Plan\n\nEdited locally in Margin.');
+
+  await expect.poll(async () => {
+    return page.evaluate(() =>
+      (
+        window as typeof window & {
+          __marginSoseinSync: {
+            snapshot: (documentId: string) => { text: string };
+          };
+        }
+      ).__marginSoseinSync.snapshot('doc-1').text
+    );
+  }).toBe('# Cloud Plan\n\nEdited locally in Margin.');
+});
+
+test('cloud document sync refreshes its ticket after disconnect', async ({ page }) => {
+  await installSoseinSyncMock(page, {
+    initialMarkdownByDocumentId: {
+      'doc-1': '# Cloud Plan\n\nRemote body.'
+    }
+  });
+  await installTauriMock(page, {
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true },
+    soseinDocuments: [
+      {
+        id: 'doc-1',
+        title: 'Cloud Plan',
+        content_type: 'text/markdown',
+        current_snapshot_version: 3,
+        created_at: '2026-05-06T10:00:00Z',
+        updated_at: '2026-05-06T11:00:00Z'
+      }
+    ]
+  });
+  await installStoredSoseinSession(page);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview&workspace=sosein');
+  await page.getByRole('button', { name: 'Cloud Plan' }).click();
+  await expect(editor(page)).toContainText('Remote body.');
+
+  await expect.poll(async () => syncTicketCallCount(page)).toBe(1);
+
+  await page.evaluate(() => {
+    (
+      window as typeof window & {
+        __marginSoseinSync: { disconnect: (documentId: string) => void };
+      }
+    ).__marginSoseinSync.disconnect('doc-1');
+  });
+
+  await expect.poll(async () => syncTicketCallCount(page)).toBeGreaterThanOrEqual(2);
+  await expect(page.getByText('Cloud synced', { exact: true })).toBeVisible();
+});
+
+async function syncTicketCallCount(page: Page) {
+  return (await tauriCalls(page)).filter(
+    (call) =>
+      call.command === 'sosein_api_request'
+      && call.args?.method === 'POST'
+      && call.args?.path === '/v1/documents/doc-1/sync-ticket'
+  ).length;
+}

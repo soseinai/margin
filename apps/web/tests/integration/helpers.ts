@@ -46,12 +46,22 @@ type TauriMockOptions = {
     current_snapshot_version: number;
     created_at: string;
     updated_at: string;
+    latest_snapshot?: {
+      version: number;
+      yrs_state_hash: string;
+      markdown_content: string;
+      markdown_content_hash: string;
+    };
   }>;
   soseinDocumentsStatus?: number;
   update?: { currentVersion: string; version: string; notes?: string | null } | null;
   confirmClose?: boolean;
   writeSettingsError?: string;
   checkUpdateError?: string;
+};
+
+type SoseinSyncMockOptions = {
+  initialMarkdownByDocumentId?: Record<string, string>;
 };
 
 export async function openCleanApp(
@@ -587,7 +597,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
                     id: document.id,
                     title: document.title,
                     content_type: document.content_type,
-                    latest_snapshot: {
+                    latest_snapshot: document.latest_snapshot ?? {
                       version: document.current_snapshot_version,
                       yrs_state_hash: 'test-yrs',
                       markdown_content: '',
@@ -645,6 +655,124 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
             }
           })
         }
+      }
+    });
+  }, options);
+}
+
+export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockOptions = {}) {
+  await page.addInitScript((mockOptions: SoseinSyncMockOptions) => {
+    type Handler = (...args: unknown[]) => void;
+    type Provider = {
+      documentId: string;
+      ydoc: {
+        getText: (name: string) => {
+          length: number;
+          insert: (index: number, text: string) => void;
+          delete: (index: number, length: number) => void;
+          toString: () => string;
+        };
+      };
+      awareness: {
+        setLocalStateField: (field: string, value: unknown) => void;
+      };
+      params: { ticket?: string };
+      wsconnected: boolean;
+      connect: () => void;
+      disconnect: () => void;
+      destroy: () => void;
+      on: (eventName: string, handler: Handler) => void;
+      emit: (eventName: string, ...args: unknown[]) => void;
+    };
+
+    const providers = new Map<string, Provider>();
+    const initialMarkdownByDocumentId = mockOptions.initialMarkdownByDocumentId ?? {};
+
+    function providerFor(documentId: string) {
+      const provider = providers.get(documentId);
+
+      if (!provider) throw new Error(`No Sosein sync provider for ${documentId}`);
+
+      return provider;
+    }
+
+    Object.assign(window, {
+      __marginSoseinSync: {
+        snapshot(documentId: string) {
+          const provider = providerFor(documentId);
+
+          return {
+            documentId,
+            text: provider.ydoc.getText('body').toString(),
+            ticket: provider.params.ticket ?? '',
+            wsconnected: provider.wsconnected
+          };
+        },
+        remoteReplace(documentId: string, markdown: string) {
+          const ytext = providerFor(documentId).ydoc.getText('body');
+
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, markdown);
+        },
+        disconnect(documentId: string) {
+          providerFor(documentId).disconnect();
+        },
+        emitConnectionError(documentId: string) {
+          providerFor(documentId).emit('connection-error', new Event('error'));
+        }
+      },
+      __marginSoseinSyncProviderFactory: ({
+        documentId,
+        ydoc,
+        awareness,
+        ticket
+      }: {
+        documentId: string;
+        ydoc: Provider['ydoc'];
+        awareness: Provider['awareness'];
+        ticket: string;
+      }) => {
+        const handlers = new Map<string, Handler[]>();
+        const ytext = ydoc.getText('body');
+        const provider: Provider = {
+          documentId,
+          ydoc,
+          awareness,
+          params: { ticket },
+          wsconnected: false,
+          connect() {
+            provider.wsconnected = true;
+            const initialMarkdown = initialMarkdownByDocumentId[documentId];
+
+            if (typeof initialMarkdown === 'string' && ytext.length === 0) {
+              ytext.insert(0, initialMarkdown);
+            }
+
+            provider.emit('status', { status: 'connected' });
+            provider.emit('sync', true);
+          },
+          disconnect() {
+            provider.wsconnected = false;
+            provider.emit('status', { status: 'disconnected' });
+          },
+          destroy() {
+            provider.wsconnected = false;
+            providers.delete(documentId);
+          },
+          on(eventName, handler) {
+            const eventHandlers = handlers.get(eventName) ?? [];
+
+            eventHandlers.push(handler);
+            handlers.set(eventName, eventHandlers);
+          },
+          emit(eventName, ...args) {
+            for (const handler of handlers.get(eventName) ?? []) handler(...args);
+          }
+        };
+
+        providers.set(documentId, provider);
+
+        return provider;
       }
     });
   }, options);
