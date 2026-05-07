@@ -116,7 +116,7 @@ test('local windows open the Sosein workspace in a separate desktop window', asy
   }).toBe(true);
 });
 
-test('Sosein Cloud dialog uses the selected environment for desktop OAuth', async ({ page }) => {
+test('Sosein Cloud dialog uses the selected environment for desktop OIDC', async ({ page }) => {
   await installTauriMock(page, {
     settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true }
   });
@@ -139,7 +139,7 @@ test('Sosein Cloud dialog uses the selected environment for desktop OAuth', asyn
 
   await expect.poll(async () => {
     const calls = await tauriCalls(page);
-    const loginCall = calls.find((call) => call.command === 'start_sosein_oauth_login');
+    const loginCall = calls.find((call) => call.command === 'start_sosein_oidc_login');
 
     return loginCall?.args?.serverUrl;
   }).toBe('https://api-staging.sosein.ai');

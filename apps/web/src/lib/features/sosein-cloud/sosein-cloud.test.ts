@@ -37,6 +37,33 @@ describe('Sosein Cloud helpers', () => {
     expect(normalizeKnownSoseinServerUrl('http://127.0.0.1:18787')).toBeNull();
   });
 
+  it('builds OIDC login and handoff exchange requests', async () => {
+    const client = new SoseinCloudClient('https://api.sosein.ai');
+    const loginUrl = new URL(client.oidcLoginUrl('https://margin.local/return?tab=cloud'));
+
+    expect(`${loginUrl.origin}${loginUrl.pathname}`).toBe('https://api.sosein.ai/v1/auth/oidc/google/login');
+    expect(loginUrl.searchParams.get('return_to')).toBe('https://margin.local/return?tab=cloud');
+
+    const transport: SoseinCloudTransport = async <T,>(request: SoseinCloudRequest) => {
+      expect(request).toMatchObject({
+        baseUrl: 'https://api.sosein.ai',
+        path: '/v1/auth/oidc/handoff/exchange',
+        method: 'POST',
+        body: { handoff_code: 'handoff' }
+      });
+
+      return {
+        session_token: 'session',
+        expires_at: '2026-05-05T12:00:00Z',
+        user: { id: 'user-1', email: 'alice@example.com' },
+        default_workspace: { id: 'workspace-1', name: 'Default' }
+      } as T;
+    };
+
+    await expect(new SoseinCloudClient('https://api.sosein.ai', undefined, transport).exchangeOidcHandoff('handoff'))
+      .resolves.toMatchObject({ session_token: 'session' });
+  });
+
   it('normalizes document titles and file names', () => {
     expect(normalizeSoseinDocumentTitle('  Planning   Notes  ')).toBe('Planning Notes');
     expect(normalizeSoseinDocumentTitle('')).toBe('Untitled');

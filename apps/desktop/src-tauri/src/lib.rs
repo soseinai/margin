@@ -53,7 +53,7 @@ const UPDATER_ENDPOINT: &str =
 #[cfg(not(target_os = "ios"))]
 const UPDATER_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3NTk2MUZGN0I5NzA0QzkKUldUSkJKZDcvMkZabHcrNXlvcEJFeFUxOHZ3TTI0ZnBsbDQxUzJ0cDFNNEs0SHV5QzVZMHpBTzYK";
 #[cfg(not(target_os = "ios"))]
-const SOSEIN_OAUTH_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const SOSEIN_OIDC_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[cfg(not(target_os = "ios"))]
 const SOSEIN_WORKSPACE_WINDOW_LABEL: &str = "sosein-cloud";
 #[cfg(target_os = "macos")]
@@ -190,7 +190,7 @@ struct AppSettings {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SoseinOAuthUser {
+struct SoseinOidcUser {
     id: String,
     email: String,
     #[serde(alias = "displayName")]
@@ -206,22 +206,22 @@ struct SoseinOAuthUser {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SoseinOAuthWorkspace {
+struct SoseinOidcWorkspace {
     id: String,
     name: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct SoseinOAuthSession {
+struct SoseinOidcSession {
     session_token: String,
-    user: SoseinOAuthUser,
-    default_workspace: SoseinOAuthWorkspace,
+    user: SoseinOidcUser,
+    default_workspace: SoseinOidcWorkspace,
     expires_at: String,
 }
 
 #[cfg(not(target_os = "ios"))]
 #[derive(Serialize)]
-struct SoseinOAuthHandoffExchangeRequest<'a> {
+struct SoseinOidcHandoffExchangeRequest<'a> {
     handoff_code: &'a str,
 }
 
@@ -648,16 +648,16 @@ fn sosein_cloud_enabled(app: AppHandle) -> bool {
 
 #[cfg(not(target_os = "ios"))]
 #[tauri::command]
-async fn start_sosein_oauth_login(server_url: String) -> Result<SoseinOAuthSession, String> {
-    tauri::async_runtime::spawn_blocking(move || run_sosein_oauth_loopback(server_url))
+async fn start_sosein_oidc_login(server_url: String) -> Result<SoseinOidcSession, String> {
+    tauri::async_runtime::spawn_blocking(move || run_sosein_oidc_loopback(server_url))
         .await
         .map_err(|err| format!("Unable to run Sosein Cloud login: {err}"))?
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
-async fn start_sosein_oauth_login(_server_url: String) -> Result<SoseinOAuthSession, String> {
-    Err("Sosein Cloud OAuth login is not available on iOS.".to_string())
+async fn start_sosein_oidc_login(_server_url: String) -> Result<SoseinOidcSession, String> {
+    Err("Sosein Cloud login is not available on iOS.".to_string())
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -1394,29 +1394,29 @@ mod native_document_tests {
 
     #[cfg(not(target_os = "ios"))]
     #[test]
-    fn builds_and_parses_sosein_oauth_loopback_values() {
+    fn builds_and_parses_sosein_oidc_loopback_values() {
         assert_eq!(
             normalized_sosein_api_base(" https://api.sosein.ai/ "),
             Ok("https://api.sosein.ai".to_string())
         );
-        assert!(normalized_sosein_api_base("margin://oauth").is_err());
+        assert!(normalized_sosein_api_base("margin://oidc").is_err());
         assert_eq!(
-            percent_encode_query_value("http://127.0.0.1:49152/oauth/callback"),
-            "http%3A%2F%2F127.0.0.1%3A49152%2Foauth%2Fcallback"
+            percent_encode_query_value("http://127.0.0.1:49152/oidc/callback"),
+            "http%3A%2F%2F127.0.0.1%3A49152%2Foidc%2Fcallback"
         );
-        let callback_target = "/oauth/callback?state=ignored&handoff_code=abc%2B123";
+        let callback_target = "/oidc/callback?state=ignored&handoff_code=abc%2B123";
 
-        assert!(sosein_oauth_callback_path_matches(callback_target));
-        assert!(!sosein_oauth_callback_path_matches(
-            "/oauth/callback-extra?handoff_code=abc%2B123"
+        assert!(sosein_oidc_callback_path_matches(callback_target));
+        assert!(!sosein_oidc_callback_path_matches(
+            "/oidc/callback-extra?handoff_code=abc%2B123"
         ));
         assert_eq!(
-            sosein_api_url("https://api.sosein.ai", "/v1/auth/oauth/handoff/exchange"),
-            Ok("https://api.sosein.ai/v1/auth/oauth/handoff/exchange".to_string())
+            sosein_api_url("https://api.sosein.ai", "/v1/auth/oidc/handoff/exchange"),
+            Ok("https://api.sosein.ai/v1/auth/oidc/handoff/exchange".to_string())
         );
         assert!(normalized_sosein_api_path("https://api.sosein.ai/v1/documents").is_err());
         assert_eq!(
-            oauth_query_value(callback_target, "handoff_code"),
+            oidc_query_value(callback_target, "handoff_code"),
             Ok(Some("abc+123".to_string()))
         );
     }
@@ -1529,7 +1529,7 @@ fn linux_app_state_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[cfg(not(target_os = "ios"))]
-fn run_sosein_oauth_loopback(server_url: String) -> Result<SoseinOAuthSession, String> {
+fn run_sosein_oidc_loopback(server_url: String) -> Result<SoseinOidcSession, String> {
     let api_base = normalized_sosein_api_base(&server_url)?;
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|err| format!("Unable to start Sosein Cloud login listener: {err}"))?;
@@ -1537,9 +1537,9 @@ fn run_sosein_oauth_loopback(server_url: String) -> Result<SoseinOAuthSession, S
         .local_addr()
         .map_err(|err| format!("Unable to read Sosein Cloud login listener address: {err}"))?
         .port();
-    let callback_url = format!("http://127.0.0.1:{port}/oauth/callback");
+    let callback_url = format!("http://127.0.0.1:{port}/oidc/callback");
     let login_url = format!(
-        "{api_base}/v1/auth/oauth/google/login?return_to={}",
+        "{api_base}/v1/auth/oidc/google/login?return_to={}",
         percent_encode_query_value(&callback_url)
     );
 
@@ -1547,19 +1547,19 @@ fn run_sosein_oauth_loopback(server_url: String) -> Result<SoseinOAuthSession, S
         .set_nonblocking(true)
         .map_err(|err| format!("Unable to configure Sosein Cloud login listener: {err}"))?;
     open_system_browser(&login_url)?;
-    let handoff_code = wait_for_sosein_oauth_callback(listener)?;
+    let handoff_code = wait_for_sosein_oidc_callback(listener)?;
 
-    exchange_sosein_oauth_handoff(&api_base, &handoff_code)
+    exchange_sosein_oidc_handoff(&api_base, &handoff_code)
 }
 
 #[cfg(not(target_os = "ios"))]
-fn wait_for_sosein_oauth_callback(listener: TcpListener) -> Result<String, String> {
-    let deadline = Instant::now() + SOSEIN_OAUTH_TIMEOUT;
+fn wait_for_sosein_oidc_callback(listener: TcpListener) -> Result<String, String> {
+    let deadline = Instant::now() + SOSEIN_OIDC_TIMEOUT;
 
     loop {
         match listener.accept() {
             Ok((stream, _address)) => {
-                if let Some(handoff_code) = handle_sosein_oauth_connection(stream)? {
+                if let Some(handoff_code) = handle_sosein_oidc_connection(stream)? {
                     return Ok(handoff_code);
                 }
             }
@@ -1580,7 +1580,7 @@ fn wait_for_sosein_oauth_callback(listener: TcpListener) -> Result<String, Strin
 }
 
 #[cfg(not(target_os = "ios"))]
-fn handle_sosein_oauth_connection(mut stream: TcpStream) -> Result<Option<String>, String> {
+fn handle_sosein_oidc_connection(mut stream: TcpStream) -> Result<Option<String>, String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .map_err(|err| format!("Unable to configure Sosein Cloud login callback: {err}"))?;
@@ -1596,27 +1596,27 @@ fn handle_sosein_oauth_connection(mut stream: TcpStream) -> Result<Option<String
     let target = request_parts.next().unwrap_or("");
 
     if method != "GET" {
-        write_oauth_http_response(
+        write_oidc_http_response(
             &mut stream,
             "405 Method Not Allowed",
-            "Margin can only receive Sosein Cloud OAuth GET callbacks.",
+            "Margin can only receive Sosein Cloud login GET callbacks.",
         )?;
 
         return Ok(None);
     }
 
-    if !sosein_oauth_callback_path_matches(target) {
-        write_oauth_http_response(
+    if !sosein_oidc_callback_path_matches(target) {
+        write_oidc_http_response(
             &mut stream,
             "404 Not Found",
-            "Unknown Margin OAuth callback.",
+            "Unknown Margin Sosein Cloud login callback.",
         )?;
 
         return Ok(None);
     }
 
-    if let Some(error) = oauth_query_value(target, "error")? {
-        write_oauth_http_response(
+    if let Some(error) = oidc_query_value(target, "error")? {
+        write_oidc_http_response(
             &mut stream,
             "400 Bad Request",
             "Sosein Cloud login did not complete.",
@@ -1625,8 +1625,8 @@ fn handle_sosein_oauth_connection(mut stream: TcpStream) -> Result<Option<String
         return Err(format!("Sosein Cloud login failed: {error}"));
     }
 
-    let Some(handoff_code) = oauth_query_value(target, "handoff_code")? else {
-        write_oauth_http_response(
+    let Some(handoff_code) = oidc_query_value(target, "handoff_code")? else {
+        write_oidc_http_response(
             &mut stream,
             "400 Bad Request",
             "Sosein Cloud login callback did not include a handoff code.",
@@ -1635,7 +1635,7 @@ fn handle_sosein_oauth_connection(mut stream: TcpStream) -> Result<Option<String
         return Err("Sosein Cloud login callback did not include a handoff code.".to_string());
     };
 
-    write_oauth_http_response(
+    write_oidc_http_response(
         &mut stream,
         "200 OK",
         "Sosein Cloud login finished. You can return to Margin.",
@@ -1645,7 +1645,7 @@ fn handle_sosein_oauth_connection(mut stream: TcpStream) -> Result<Option<String
 }
 
 #[cfg(not(target_os = "ios"))]
-fn write_oauth_http_response(
+fn write_oidc_http_response(
     stream: &mut TcpStream,
     status: &str,
     message: &str,
@@ -1679,22 +1679,22 @@ fn normalized_sosein_api_base(server_url: &str) -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "ios"))]
-fn sosein_oauth_callback_path_matches(target: &str) -> bool {
-    target.split_once('?').map_or(target, |(path, _query)| path) == "/oauth/callback"
+fn sosein_oidc_callback_path_matches(target: &str) -> bool {
+    target.split_once('?').map_or(target, |(path, _query)| path) == "/oidc/callback"
 }
 
 #[cfg(not(target_os = "ios"))]
-fn exchange_sosein_oauth_handoff(
+fn exchange_sosein_oidc_handoff(
     api_base: &str,
     handoff_code: &str,
-) -> Result<SoseinOAuthSession, String> {
+) -> Result<SoseinOidcSession, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|err| format!("Unable to prepare Sosein Cloud login exchange: {err}"))?;
     let response = client
-        .post(sosein_api_url(api_base, "/v1/auth/oauth/handoff/exchange")?)
-        .json(&SoseinOAuthHandoffExchangeRequest { handoff_code })
+        .post(sosein_api_url(api_base, "/v1/auth/oidc/handoff/exchange")?)
+        .json(&SoseinOidcHandoffExchangeRequest { handoff_code })
         .send()
         .map_err(|err| format!("Unable to exchange Sosein Cloud login handoff: {err}"))?;
     let status = response.status();
@@ -1798,7 +1798,7 @@ fn compact_response_suffix(body: &str) -> String {
 }
 
 #[cfg(not(target_os = "ios"))]
-fn oauth_query_value(target: &str, key: &str) -> Result<Option<String>, String> {
+fn oidc_query_value(target: &str, key: &str) -> Result<Option<String>, String> {
     let Some((_, query)) = target.split_once('?') else {
         return Ok(None);
     };
@@ -3026,7 +3026,7 @@ pub fn run() {
             read_settings,
             write_settings,
             sosein_cloud_enabled,
-            start_sosein_oauth_login,
+            start_sosein_oidc_login,
             sosein_api_request,
             check_for_app_update,
             install_app_update,
