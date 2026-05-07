@@ -33,9 +33,24 @@ type SoseinDocument = {
   content_type: string;
 };
 
+type NativeSoseinApiRequest = {
+  serverUrl?: string;
+  method?: string;
+  path?: string;
+  sessionToken?: string | null;
+  body?: unknown;
+};
+
+type NativeSoseinApiResponse = {
+  status: number;
+  body: unknown;
+  bodyText: string;
+};
+
 test.describe('Sosein Cloud live E2E', () => {
   test.skip(!liveServerUrl, 'Set MARGIN_SOSEIN_LIVE_URL to run live Sosein Cloud E2E tests.');
   test.skip(!e2eAuthToken, 'Set MARGIN_SOSEIN_E2E_AUTH_TOKEN to mint a live Sosein Cloud E2E session.');
+  test.setTimeout(90_000);
 
   test('syncs a cloud document between two Margin clients', async ({ browser, request }) => {
     const authSession = await mintE2eSession(request);
@@ -44,8 +59,8 @@ test.describe('Sosein Cloud live E2E', () => {
     const document = await createDocument(request, authSession.session_token, documentTitle);
     const syncedBody = `${document.id} ${randomSuffix()}`;
     const markdown = `# Margin live E2E\n\n${syncedBody}`;
-    const firstPage = await openCloudWorkspacePage(browser, storedSession);
-    const secondPage = await openCloudWorkspacePage(browser, storedSession);
+    const firstPage = await openCloudWorkspacePage(browser, request, storedSession);
+    const secondPage = await openCloudWorkspacePage(browser, request, storedSession);
 
     try {
       await openCloudDocument(firstPage, document.title);
@@ -56,8 +71,8 @@ test.describe('Sosein Cloud live E2E', () => {
 
       await expect(editor(firstPage)).toContainText(syncedBody);
       await expect(editor(secondPage)).toContainText(syncedBody, { timeout: 30_000 });
-      await expect(firstPage.getByText('Cloud synced')).toBeVisible({ timeout: 30_000 });
-      await expect(secondPage.getByText('Cloud synced')).toBeVisible({ timeout: 30_000 });
+      await expect(cloudSyncStatus(firstPage)).toBeVisible({ timeout: 30_000 });
+      await expect(cloudSyncStatus(secondPage)).toBeVisible({ timeout: 30_000 });
     } finally {
       await Promise.all([
         firstPage.context().close(),
@@ -101,21 +116,116 @@ async function responseJsonOrThrow<T>(
   throw new Error(`${message}: ${response.status()} ${await response.text()}`);
 }
 
-async function openCloudWorkspacePage(browser: Browser, session: SoseinStoredSession) {
+async function openCloudWorkspacePage(
+  browser: Browser,
+  request: APIRequestContext,
+  session: SoseinStoredSession
+) {
   const context = await browser.newContext();
 
+  await context.exposeBinding(
+    'marginLiveSoseinApiRequest',
+    async (_source, apiRequest: NativeSoseinApiRequest) => requestSoseinApi(request, apiRequest)
+  );
+
   await context.addInitScript(({ storageKey, storedSession }) => {
+    type LiveTauriWindow = Window & {
+      __TAURI__?: {
+        core: {
+          invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+          convertFileSrc: (filePath: string) => string;
+        };
+        event: {
+          listen: (
+            eventName: string,
+            handler: (event: { payload: unknown }) => void
+          ) => Promise<() => void>;
+        };
+        webview: {
+          getCurrentWebview: () => {
+            onDragDropEvent: (handler: (event: { payload: unknown }) => void) => Promise<() => void>;
+          };
+        };
+      };
+      marginLiveSoseinApiRequest?: (
+        request: NativeSoseinApiRequest
+      ) => Promise<NativeSoseinApiResponse>;
+    };
+    const liveWindow = window as LiveTauriWindow;
+
     window.localStorage.clear();
     window.sessionStorage.setItem('__marginTestStorageCleared', 'true');
     window.localStorage.setItem(storageKey, JSON.stringify(storedSession));
+
+    liveWindow.__TAURI__ = {
+      core: {
+        invoke: async (command: string, args?: Record<string, unknown>) => {
+          if (command === 'read_settings') {
+            return { theme: 'auto', localUserName: 'Margin E2E', soseinCloudEnabled: true };
+          }
+
+          if (command === 'read_recent_documents') return [];
+          if (command === 'write_recent_documents') return [];
+          if (command === 'take_pending_open_urls') return [];
+          if (command === 'set_window_tab_state') return undefined;
+          if (command === 'check_for_app_update') return null;
+          if (command === 'sosein_cloud_enabled') return true;
+          if (command === 'open_sosein_workspace_window') return undefined;
+
+          if (command === 'sosein_api_request') {
+            if (!liveWindow.marginLiveSoseinApiRequest) {
+              throw new Error('Live Sosein API bridge is unavailable.');
+            }
+
+            return liveWindow.marginLiveSoseinApiRequest(args ?? {});
+          }
+
+          throw new Error(`Unexpected Tauri command ${command}`);
+        },
+        convertFileSrc: (filePath: string) => `asset://${filePath}`
+      },
+      event: {
+        listen: async () => () => {}
+      },
+      webview: {
+        getCurrentWebview: () => ({
+          onDragDropEvent: async () => () => {}
+        })
+      }
+    };
   }, { storageKey: soseinSessionStorageKey, storedSession: session });
 
   const page = await context.newPage();
 
-  await page.goto('/?workspace=sosein');
+  await page.goto('/?desktop-preview&workspace=sosein');
   await expect(page.getByLabel('Sosein Cloud documents')).toBeVisible();
 
   return page;
+}
+
+async function requestSoseinApi(
+  request: APIRequestContext,
+  apiRequest: NativeSoseinApiRequest
+): Promise<NativeSoseinApiResponse> {
+  const method = apiRequest.method ?? 'GET';
+  const path = apiRequest.path ?? '/';
+  const headers: Record<string, string> = {};
+
+  if (apiRequest.body !== null && apiRequest.body !== undefined) headers['content-type'] = 'application/json';
+  if (apiRequest.sessionToken) headers.authorization = `Bearer ${apiRequest.sessionToken}`;
+
+  const response = await request.fetch(new URL(path, `${apiRequest.serverUrl ?? liveServerUrl}/`).toString(), {
+    method,
+    headers,
+    data: apiRequest.body === null ? undefined : apiRequest.body
+  });
+  const bodyText = await response.text();
+
+  return {
+    status: response.status(),
+    body: parseJsonOrNull(bodyText),
+    bodyText
+  };
 }
 
 async function openCloudDocument(page: Page, title: string) {
@@ -125,11 +235,15 @@ async function openCloudDocument(page: Page, title: string) {
   await expect(documentButton).toBeVisible({ timeout: 30_000 });
   await documentButton.click();
   await expect(editor(page)).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('Cloud synced')).toBeVisible({ timeout: 30_000 });
+  await expect(cloudSyncStatus(page)).toBeVisible({ timeout: 30_000 });
 }
 
 function editor(page: Page) {
   return page.locator('.cm-content[contenteditable="true"]').first();
+}
+
+function cloudSyncStatus(page: Page) {
+  return page.getByText('Cloud synced', { exact: true });
 }
 
 function storedSessionFromAuth(session: SoseinAuthSession): SoseinStoredSession {
@@ -158,6 +272,16 @@ function normalizedOptionalString(value: unknown) {
   const normalized = value.trim().replace(/\s+/g, ' ');
 
   return normalized || null;
+}
+
+function parseJsonOrNull(value: string) {
+  if (!value) return null;
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 function soseinApiUrl(path: string) {
