@@ -1,16 +1,36 @@
 import type { Extension } from '@codemirror/state';
 import { yCollab } from 'y-codemirror.next';
 import { WebsocketProvider } from 'y-websocket';
+import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { SOSEIN_BODY_TEXT_NAME, soseinWebSocketBaseUrl } from './sosein-cloud';
 
 export type SoseinSyncStatus = 'ticket' | 'connecting' | 'connected' | 'disconnected' | 'syncing' | 'synced' | 'error';
 
+export type SoseinSyncProvider = {
+  awareness: Awareness;
+  params: { ticket?: string };
+  wsconnected: boolean;
+  connect: () => void;
+  disconnect: () => void;
+  destroy: () => void;
+  on: (eventName: string, handler: (...args: any[]) => void) => void;
+};
+
+export type SoseinSyncProviderFactory = (args: {
+  serverUrl: string;
+  room: string;
+  documentId: string;
+  ydoc: Y.Doc;
+  awareness: Awareness;
+  ticket: string;
+}) => SoseinSyncProvider;
+
 export type SoseinCodeMirrorSync = {
   documentId: string;
   ydoc: Y.Doc;
   ytext: Y.Text;
-  provider: WebsocketProvider;
+  provider: SoseinSyncProvider;
   extension: Extension;
   destroy: () => void;
 };
@@ -19,6 +39,7 @@ export async function createSoseinCodeMirrorSync(args: {
   serverUrl: string;
   documentId: string;
   issueSyncTicket: () => Promise<string>;
+  providerFactory?: SoseinSyncProviderFactory;
   userName?: string;
   userImage?: string;
   onStatus?: (status: SoseinSyncStatus) => void;
@@ -29,15 +50,17 @@ export async function createSoseinCodeMirrorSync(args: {
   const ticket = await args.issueSyncTicket();
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText(SOSEIN_BODY_TEXT_NAME);
-  const provider = new WebsocketProvider(
-    soseinWebSocketBaseUrl(args.serverUrl),
-    `v1/documents/${args.documentId}/sync`,
+  const room = `v1/documents/${args.documentId}/sync`;
+  const awareness = new Awareness(ydoc);
+  const providerFactory = args.providerFactory ?? testProviderFactory() ?? defaultProviderFactory;
+  const provider = providerFactory({
+    serverUrl: args.serverUrl,
+    room,
+    documentId: args.documentId,
     ydoc,
-    {
-      connect: false,
-      params: { ticket }
-    }
-  );
+    awareness,
+    ticket
+  });
 
   let destroyed = false;
   let refreshingTicket = false;
@@ -109,4 +132,18 @@ export async function createSoseinCodeMirrorSync(args: {
       ydoc.destroy();
     }
   };
+}
+
+const defaultProviderFactory: SoseinSyncProviderFactory = ({ serverUrl, room, ydoc, ticket }) =>
+  new WebsocketProvider(soseinWebSocketBaseUrl(serverUrl), room, ydoc, {
+    connect: false,
+    params: { ticket }
+  }) as SoseinSyncProvider;
+
+function testProviderFactory() {
+  return (
+    globalThis as typeof globalThis & {
+      __marginSoseinSyncProviderFactory?: SoseinSyncProviderFactory;
+    }
+  ).__marginSoseinSyncProviderFactory;
 }
