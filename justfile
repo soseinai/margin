@@ -141,26 +141,87 @@ test-web-unit:
 test-web-integration:
     npm run test:web:integration
 
-# Run web end-to-end tests. Live Sosein tests skip unless URL and E2E auth token are set.
+# Run web end-to-end tests. Loads user-level Sosein E2E config when present.
 test-web-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{justfile_directory()}}/scripts/load-sosein-e2e-env.sh"
+    load_margin_sosein_e2e_env
     npm run test:web:e2e
+
+# Check the local Sosein E2E config without running the browser suite.
+doctor-sosein-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{justfile_directory()}}/scripts/load-sosein-e2e-env.sh"
+    load_margin_sosein_e2e_env
+
+    if [[ -z "${MARGIN_SOSEIN_E2E_AUTH_TOKEN:-}" ]]; then
+      echo "Set MARGIN_SOSEIN_E2E_AUTH_TOKEN before running live Sosein E2E tests." >&2
+      echo "Recommended local config: ${MARGIN_SOSEIN_E2E_ENV_FILE}" >&2
+      echo "  MARGIN_SOSEIN_E2E_AUTH_TOKEN=..." >&2
+      echo "  # optional: MARGIN_SOSEIN_LIVE_URL=${MARGIN_SOSEIN_LIVE_URL}" >&2
+      exit 2
+    fi
+
+    node --input-type=module <<'NODE'
+    const serverUrl = process.env.MARGIN_SOSEIN_LIVE_URL;
+    const token = process.env.MARGIN_SOSEIN_E2E_AUTH_TOKEN;
+
+    let endpoint;
+    try {
+      endpoint = new URL('/v1/e2e/session', `${serverUrl}/`);
+      if (endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:') {
+        throw new Error('must start with http:// or https://');
+      }
+    } catch (err) {
+      console.error(`Invalid MARGIN_SOSEIN_LIVE_URL: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(2);
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const bodyText = await response.text();
+
+    if (!response.ok) {
+      console.error(`Unable to mint Sosein E2E session from ${serverUrl}: ${response.status} ${bodyText}`);
+      process.exit(1);
+    }
+
+    let body;
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
+      console.error(`Sosein E2E session response from ${serverUrl} was not JSON.`);
+      process.exit(1);
+    }
+
+    if (!body.session_token || !body.user?.id || !body.default_workspace?.id || !body.expires_at) {
+      console.error(`Sosein E2E session response from ${serverUrl} did not match the expected auth shape.`);
+      process.exit(1);
+    }
+
+    console.log(`Sosein E2E config ok: ${serverUrl}`);
+    NODE
 
 # Run the live Sosein Cloud pre-release E2E gate.
 release-preflight-sosein:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -z "${MARGIN_SOSEIN_LIVE_URL:-}" ]]; then
-      echo "Set MARGIN_SOSEIN_LIVE_URL to a local or staging Sosein Cloud server before release preflight." >&2
-      echo "Example: MARGIN_SOSEIN_LIVE_URL=http://127.0.0.1:18787 MARGIN_SOSEIN_E2E_AUTH_TOKEN=... just release-preflight-sosein" >&2
-      exit 2
-    fi
+    source "{{justfile_directory()}}/scripts/load-sosein-e2e-env.sh"
+    load_margin_sosein_e2e_env
 
     if [[ -z "${MARGIN_SOSEIN_E2E_AUTH_TOKEN:-}" ]]; then
       echo "Set MARGIN_SOSEIN_E2E_AUTH_TOKEN before release preflight." >&2
-      echo "Example: MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai MARGIN_SOSEIN_E2E_AUTH_TOKEN=... just release-preflight-sosein" >&2
+      echo "Recommended local config: ${MARGIN_SOSEIN_E2E_ENV_FILE}" >&2
+      echo "  MARGIN_SOSEIN_E2E_AUTH_TOKEN=..." >&2
+      echo "  # optional: MARGIN_SOSEIN_LIVE_URL=${MARGIN_SOSEIN_LIVE_URL}" >&2
       exit 2
     fi
 
+    echo "Running live Sosein E2E against ${MARGIN_SOSEIN_LIVE_URL}"
     npm run test:web:e2e
 
 # Run the local release preflight gate before triggering the GitHub release workflow.

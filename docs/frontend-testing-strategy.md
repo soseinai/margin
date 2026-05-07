@@ -117,23 +117,44 @@ Reserve E2E for flows that include the real outer systems, such as the Tauri des
 The Sosein live E2E lane is opt-in. It authenticates through the Sosein Cloud E2E session mint contract:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+mkdir -p ~/.config/margin
+$EDITOR ~/.config/margin/sosein-e2e.env
+```
+
+Use shell env syntax in that user-local file:
+
+```sh
+MARGIN_SOSEIN_E2E_AUTH_TOKEN=...
+# Optional; defaults to staging:
+# MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai
+```
+
+Check the config without launching the browser suite:
+
+```sh
+just doctor-sosein-e2e
+```
+
+Then run:
+
+```sh
 just test-web-e2e
 ```
 
 Release preflight should exercise the same live lane through:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
 just release-preflight
 ```
 
 Required live E2E variables:
 
-- `MARGIN_SOSEIN_LIVE_URL`
 - `MARGIN_SOSEIN_E2E_AUTH_TOKEN`
+
+Optional live E2E variables:
+
+- `MARGIN_SOSEIN_LIVE_URL`, defaulting to `https://api-staging.sosein.ai`
+- `MARGIN_SOSEIN_E2E_ENV_FILE`, defaulting to `~/.config/margin/sosein-e2e.env`
 
 The GitHub release workflow runs `just release-preflight-sosein` before creating a release tag. It reads `MARGIN_SOSEIN_E2E_AUTH_TOKEN` from repository secrets and defaults `MARGIN_SOSEIN_LIVE_URL` to `https://api-staging.sosein.ai` unless a repository variable overrides it.
 
