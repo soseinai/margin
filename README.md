@@ -112,6 +112,8 @@ just release-preflight
 
 That runs the normal lint/test/build gates plus the live Sosein Cloud E2E sync smoke test. The E2E auth token must match the token configured on the target Sosein Cloud server.
 
+The GitHub release workflow runs the same live Sosein Cloud E2E gate before it bumps versions or pushes a release tag. Configure the repository secret `MARGIN_SOSEIN_E2E_AUTH_TOKEN` with the staging E2E token. The workflow uses `https://api-staging.sosein.ai` by default; set the repository variable `MARGIN_SOSEIN_LIVE_URL` only if the release gate should target a different Sosein Cloud server.
+
 ### Updates
 
 Margin uses Tauri's updater against GitHub Releases. The app checks `https://github.com/soseinai/margin/releases/latest/download/latest.json`, and the release workflow publishes that file with the signed `.app.tar.gz` updater archive.

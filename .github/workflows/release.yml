@@ -4,7 +4,8 @@ name: Release
 # Margin's macOS DMG for now. Until we have a Developer ID Application
 # certificate, the release DMG is ad-hoc signed and not notarized.
 #
-# 1. workflow_dispatch bumps version files, commits to main, and pushes vX.Y.Z.
+# 1. workflow_dispatch runs the live Sosein E2E gate, bumps version files,
+#    commits to main, and pushes vX.Y.Z.
 # 2. push tags ["v*"] builds the DMG, updater archive, and latest.json,
 #    then attaches them to a GitHub release.
 
@@ -25,7 +26,38 @@ permissions:
   contents: write
 
 jobs:
+  sosein-live-e2e:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npm --workspace @margin/web exec playwright -- install --with-deps chromium
+
+      - name: Run live Sosein E2E preflight
+        env:
+          MARGIN_SOSEIN_LIVE_URL: ${{ vars.MARGIN_SOSEIN_LIVE_URL || 'https://api-staging.sosein.ai' }}
+          MARGIN_SOSEIN_E2E_AUTH_TOKEN: ${{ secrets.MARGIN_SOSEIN_E2E_AUTH_TOKEN }}
+        run: just release-preflight-sosein
+
   bump-and-tag:
+    needs: sosein-live-e2e
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

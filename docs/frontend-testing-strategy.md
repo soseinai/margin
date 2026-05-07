@@ -135,6 +135,8 @@ Required live E2E variables:
 - `MARGIN_SOSEIN_LIVE_URL`
 - `MARGIN_SOSEIN_E2E_AUTH_TOKEN`
 
+The GitHub release workflow runs `just release-preflight-sosein` before creating a release tag. It reads `MARGIN_SOSEIN_E2E_AUTH_TOKEN` from repository secrets and defaults `MARGIN_SOSEIN_LIVE_URL` to `https://api-staging.sosein.ai` unless a repository variable overrides it.
+
 ### Sosein Cloud Staging Handoff
 
 Margin expects Sosein Cloud to provide the same E2E auth shape locally and in staging:
