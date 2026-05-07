@@ -1,4 +1,5 @@
 set dotenv-load := true
+set dotenv-filename := ".env.local"
 
 # Show available commands.
 default:

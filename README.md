@@ -69,12 +69,12 @@ npm run test:web:e2e
 `test:web:e2e` contains opt-in live E2E coverage under `apps/web/tests/e2e`. It expects a Sosein Cloud server that supports the E2E session mint contract:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=http://127.0.0.1:18787 \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
-npm run test:web:e2e
+cp .env.local.example .env.local
+# Fill in MARGIN_SOSEIN_E2E_AUTH_TOKEN in .env.local.
+just test-web-e2e
 ```
 
-Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
+`just` loads `.env.local` automatically. Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
 
 ### Performance Profiling
 
@@ -105,8 +105,8 @@ That produces `target/release/bundle/macos/Margin.app`. To create a shareable un
 Before triggering the GitHub release workflow, run the local release preflight against a real local or staging Sosein Cloud server:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+cp .env.local.example .env.local
+# Fill in MARGIN_SOSEIN_E2E_AUTH_TOKEN in .env.local.
 just release-preflight
 ```
 

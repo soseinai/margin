@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const host = '127.0.0.1';
 const port = process.env.MARGIN_WEB_E2E_PORT ?? '5174';
-const runLiveSoseinE2e = Boolean(process.env.MARGIN_SOSEIN_LIVE_URL);
+const runLiveSoseinE2e = Boolean(process.env.MARGIN_SOSEIN_LIVE_URL && process.env.MARGIN_SOSEIN_E2E_AUTH_TOKEN);
 
 export default defineConfig({
   testDir: './tests/e2e',

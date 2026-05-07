@@ -117,16 +117,16 @@ Reserve E2E for flows that include the real outer systems, such as the Tauri des
 The Sosein live E2E lane is opt-in. It authenticates through the Sosein Cloud E2E session mint contract:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=http://127.0.0.1:18787 \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
-npm run test:web:e2e
+cp .env.local.example .env.local
+# Fill in MARGIN_SOSEIN_E2E_AUTH_TOKEN in .env.local.
+just test-web-e2e
 ```
 
 Release preflight should exercise the same live lane through:
 
 ```sh
-MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
-MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+cp .env.local.example .env.local
+# Fill in MARGIN_SOSEIN_E2E_AUTH_TOKEN in .env.local.
 just release-preflight
 ```
 
