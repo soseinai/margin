@@ -5,6 +5,5 @@ playwright-report/
 test-results/
 .DS_Store
 .env
-.env.sosein-live.local
 apps/web/src/lib/generated/
 apps/desktop/src-tauri/gen/

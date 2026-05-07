@@ -1,5 +1,4 @@
 set dotenv-load := true
-set dotenv-filename := ".env.sosein-live.local"
 
 # Show available commands.
 default:
