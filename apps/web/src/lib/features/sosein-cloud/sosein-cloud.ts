@@ -1,7 +1,14 @@
 export const SOSEIN_CLOUD_API_BASE_URL = 'https://api.sosein.ai';
+export const SOSEIN_CLOUD_STAGING_API_BASE_URL = 'https://api-staging.sosein.ai';
 export const DEFAULT_SOSEIN_SERVER_URL = SOSEIN_CLOUD_API_BASE_URL;
 export const SOSEIN_DEV_BOOTSTRAP_TOKEN = 'dev-bootstrap-token';
 export const SOSEIN_BODY_TEXT_NAME = 'body';
+export const SOSEIN_CLOUD_ENVIRONMENTS = [
+  { environment: 'prod', label: 'Prod', serverUrl: SOSEIN_CLOUD_API_BASE_URL },
+  { environment: 'staging', label: 'Staging', serverUrl: SOSEIN_CLOUD_STAGING_API_BASE_URL }
+] as const;
+
+export type SoseinCloudEnvironment = (typeof SOSEIN_CLOUD_ENVIRONMENTS)[number]['environment'];
 
 export type SoseinUser = {
   id: string;
@@ -228,24 +235,27 @@ export class SoseinCloudClient {
 export function normalizeSoseinServerUrl(value: unknown) {
   const fallback = DEFAULT_SOSEIN_SERVER_URL;
 
-  if (typeof value !== 'string') return fallback;
+  return normalizeSoseinServerUrlOrNull(value) ?? fallback;
+}
 
-  const trimmed = value.trim();
+export function normalizeKnownSoseinServerUrl(value: unknown) {
+  const normalized = normalizeSoseinServerUrlOrNull(value);
 
-  if (!trimmed) return fallback;
+  if (!normalized) return null;
 
-  try {
-    const parsed = new URL(trimmed);
+  return SOSEIN_CLOUD_ENVIRONMENTS.some((option) => option.serverUrl === normalized) ? normalized : null;
+}
 
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+export function soseinServerUrlForEnvironment(environment: SoseinCloudEnvironment) {
+  return SOSEIN_CLOUD_ENVIRONMENTS.find((option) => option.environment === environment)?.serverUrl
+    ?? DEFAULT_SOSEIN_SERVER_URL;
+}
 
-    parsed.hash = '';
-    parsed.search = '';
+export function soseinEnvironmentForServerUrl(serverUrl: unknown): SoseinCloudEnvironment {
+  const normalized = normalizeKnownSoseinServerUrl(serverUrl);
+  const option = SOSEIN_CLOUD_ENVIRONMENTS.find((environment) => environment.serverUrl === normalized);
 
-    return parsed.toString().replace(/\/+$/, '');
-  } catch {
-    return fallback;
-  }
+  return option?.environment ?? 'prod';
 }
 
 export function soseinWebSocketBaseUrl(serverUrl: string) {
@@ -335,4 +345,25 @@ export function soseinDocumentFileName(title: string) {
   const cleanTitle = normalizeSoseinDocumentTitle(title);
 
   return (/\.(md|markdown|txt)$/i).test(cleanTitle) ? cleanTitle : `${cleanTitle}.md`;
+}
+
+function normalizeSoseinServerUrlOrNull(value: unknown) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+
+    parsed.hash = '';
+    parsed.search = '';
+
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
 }

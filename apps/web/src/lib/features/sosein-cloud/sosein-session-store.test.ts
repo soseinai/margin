@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SOSEIN_CLOUD_API_BASE_URL } from './sosein-cloud';
+import { SOSEIN_CLOUD_API_BASE_URL, SOSEIN_CLOUD_STAGING_API_BASE_URL } from './sosein-cloud';
 import {
   clearSoseinSession,
   readSoseinSession,
@@ -24,7 +24,7 @@ class MemoryStorage implements SoseinBrowserStorage {
 }
 
 describe('Sosein session store', () => {
-  it('persists and clears valid sessions', () => {
+  it('persists and clears valid prod sessions', () => {
     const storage = new MemoryStorage();
 
     writeSoseinSession(
@@ -60,7 +60,30 @@ describe('Sosein session store', () => {
     expect(readSoseinSession(storage)).toBeNull();
   });
 
-  it('rejects sessions from non-constant server URLs', () => {
+  it('persists valid staging sessions', () => {
+    const storage = new MemoryStorage();
+
+    writeSoseinSession(
+      {
+        serverUrl: `${SOSEIN_CLOUD_STAGING_API_BASE_URL}/`,
+        sessionToken: 'session',
+        expiresAt: '2026-05-05T12:00:00Z',
+        user: { id: 'user-1', email: 'alice@example.com' },
+        defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+      },
+      storage
+    );
+
+    expect(readSoseinSession(storage)).toEqual({
+      serverUrl: SOSEIN_CLOUD_STAGING_API_BASE_URL,
+      sessionToken: 'session',
+      expiresAt: '2026-05-05T12:00:00Z',
+      user: { id: 'user-1', email: 'alice@example.com' },
+      defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+    });
+  });
+
+  it('rejects sessions from unknown server URLs', () => {
     const storage = new MemoryStorage();
 
     writeSoseinSession(

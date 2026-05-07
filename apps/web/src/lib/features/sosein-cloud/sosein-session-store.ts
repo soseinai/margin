@@ -1,7 +1,7 @@
 import {
+  normalizeKnownSoseinServerUrl,
   normalizeSoseinProfilePictureUrl,
   normalizeSoseinUserName,
-  SOSEIN_CLOUD_API_BASE_URL,
   type SoseinStoredSession
 } from './sosein-cloud';
 
@@ -93,20 +93,7 @@ function normalizeStoredSession(value: unknown): SoseinStoredSession | null {
 }
 
 function storedSessionServerUrl(value: unknown) {
-  if (typeof value !== 'string') return null;
-
-  try {
-    const parsed = new URL(value.trim());
-
-    parsed.hash = '';
-    parsed.search = '';
-
-    const normalized = parsed.toString().replace(/\/+$/, '');
-
-    return normalized === SOSEIN_CLOUD_API_BASE_URL ? normalized : null;
-  } catch {
-    return null;
-  }
+  return normalizeKnownSoseinServerUrl(value);
 }
 
 function browserStorage(): SoseinBrowserStorage | null {

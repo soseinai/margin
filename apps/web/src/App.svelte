@@ -98,15 +98,17 @@
 	} from './lib/features/documents/local-document-session';
 	import { registerNativeDesktopBridge } from './lib/features/native-shell/native-bridge';
 	import {
-		SOSEIN_CLOUD_API_BASE_URL,
 		SoseinCloudApiError,
 		SoseinCloudClient,
 		mergedStoredUserFromSoseinUser,
 		normalizeSoseinDocumentTitle,
+		soseinEnvironmentForServerUrl,
 		soseinDocumentFileName,
 		soseinStoredUserDisplayName,
+		soseinServerUrlForEnvironment,
 		storedSessionFromAuth,
 		type SoseinAuthSession,
+		type SoseinCloudEnvironment,
 		type SoseinCloudRequest,
 		type SoseinDocument,
 		type SoseinDocumentSummary,
@@ -278,7 +280,8 @@
 	let commentAuthor = defaultLocalUserName();
 	let commentAuthorImageUrl = '';
 	let workspaceMode: WorkspaceMode = { kind: 'local' };
-	const soseinCloudServerUrl = SOSEIN_CLOUD_API_BASE_URL;
+	let soseinCloudEnvironment: SoseinCloudEnvironment = 'prod';
+	let soseinCloudServerUrl: string = soseinServerUrlForEnvironment(soseinCloudEnvironment);
 	let soseinSession: SoseinStoredSession | null = null;
 	let soseinDialogOpen = false;
 	let soseinDocuments: SoseinDocumentSummary[] = [];
@@ -306,6 +309,8 @@
 	let updateNoticeVisible = false;
 	let updateAutoCheckTimer: ReturnType<typeof setTimeout> | null = null;
 	let error = '';
+
+	$: soseinCloudServerUrl = soseinServerUrlForEnvironment(soseinCloudEnvironment);
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
 	let commentTextarea: HTMLElement | null = null;
@@ -948,6 +953,11 @@
 		tauriShell = Boolean((window as TauriWindow).__TAURI__);
 		mobileShell = mobilePreview || (tauriShell && isIOSLikeWebView() && !desktopPreview);
 		desktopShell = desktopPreview || (tauriShell && !mobileShell);
+		const initialSoseinEnvironment = soseinEnvironmentFromSearchParams(searchParams);
+		if (initialSoseinEnvironment) {
+			soseinCloudEnvironment = initialSoseinEnvironment;
+			soseinCloudServerUrl = soseinServerUrlForEnvironment(initialSoseinEnvironment);
+		}
 		workspaceMode = workspaceModeFromSearchParams(searchParams);
 		if (workspaceMode.kind === 'sosein') fileTreePanelOpen = true;
 		void initializeSoseinCloudVisibility();
@@ -1004,6 +1014,14 @@
 			workspaceId: '',
 			userEmail: ''
 		};
+	}
+
+	function soseinEnvironmentFromSearchParams(searchParams: URLSearchParams): SoseinCloudEnvironment | null {
+		const environment = searchParams.get('sosein_cloud_environment');
+
+		if (environment === 'prod' || environment === 'staging') return environment;
+
+		return null;
 	}
 
 	function enterLocalWorkspaceMode(rootPath?: string) {
@@ -4892,11 +4910,22 @@
 	}
 
 	function initializeSoseinCloudState(searchParams: URLSearchParams) {
+		const handoffEnvironment = soseinEnvironmentFromSearchParams(searchParams);
+
+		if (handoffEnvironment) {
+			soseinCloudEnvironment = handoffEnvironment;
+			soseinCloudServerUrl = soseinServerUrlForEnvironment(handoffEnvironment);
+		}
+
 		soseinSession = readSoseinSession();
 
 		if (searchParams.has('handoff_code')) {
-			void exchangeSoseinOAuthHandoff(searchParams.get('handoff_code') || '');
+			const serverUrl = soseinServerUrlForEnvironment(handoffEnvironment ?? soseinCloudEnvironment);
+
+			void exchangeSoseinOAuthHandoff(searchParams.get('handoff_code') || '', serverUrl);
 		} else if (soseinSession) {
+			soseinCloudEnvironment = soseinEnvironmentForServerUrl(soseinSession.serverUrl);
+			soseinCloudServerUrl = soseinSession.serverUrl;
 			void validateStoredSoseinSession();
 			if (workspaceMode.kind === 'sosein') void refreshSoseinDocuments();
 		}
@@ -4939,14 +4968,14 @@
 		enterSoseinWorkspaceMode();
 	}
 
-	async function exchangeSoseinOAuthHandoff(handoffCode: string) {
+	async function exchangeSoseinOAuthHandoff(handoffCode: string, serverUrl = soseinCloudServerUrl) {
 		if (!handoffCode) return;
 
 		soseinAuthLoading = true;
 		soseinCloudError = '';
 
 		try {
-			await finishSoseinOAuthLogin(await soseinCloudClient().exchangeOAuthHandoff(handoffCode));
+			await finishSoseinOAuthLogin(await soseinCloudClient(undefined, serverUrl).exchangeOAuthHandoff(handoffCode), serverUrl);
 			removeSoseinHandoffCodeFromUrl();
 		} catch(err) {
 			handleSoseinCloudError(err, 'Unable to finish Sosein Cloud login');
@@ -4957,18 +4986,19 @@
 
 	async function startSoseinOAuthLogin() {
 		soseinCloudError = '';
+		const serverUrl = soseinCloudServerUrl;
 
 		if (desktopShell) {
 			soseinAuthLoading = true;
 
 			try {
-				const authSession = await tauriInvoke<SoseinAuthSession>('start_sosein_oauth_login', { serverUrl: soseinCloudServerUrl });
+				const authSession = await tauriInvoke<SoseinAuthSession>('start_sosein_oauth_login', { serverUrl });
 
 				if (!authSession) {
 					throw new Error('Desktop OAuth login is unavailable in this Margin build.');
 				}
 
-				await finishSoseinOAuthLogin(authSession);
+				await finishSoseinOAuthLogin(authSession, serverUrl);
 			} catch(err) {
 				handleSoseinCloudError(err, 'Unable to start Sosein Cloud login');
 			} finally {
@@ -4984,12 +5014,14 @@
 			return;
 		}
 
-		window.location.href = soseinCloudClient().oauthLoginUrl(window.location.href);
+		window.location.href = soseinCloudClient(undefined, serverUrl).oauthLoginUrl(soseinOAuthReturnUrl());
 	}
 
-	async function finishSoseinOAuthLogin(authSession: SoseinAuthSession) {
-		const session = storedSessionFromAuth(soseinCloudServerUrl, authSession);
+	async function finishSoseinOAuthLogin(authSession: SoseinAuthSession, serverUrl = soseinCloudServerUrl) {
+		const session = storedSessionFromAuth(serverUrl, authSession);
 
+		soseinCloudEnvironment = soseinEnvironmentForServerUrl(session.serverUrl);
+		soseinCloudServerUrl = session.serverUrl;
 		soseinSession = session;
 		writeSoseinSession(session);
 		soseinDialogOpen = true;
@@ -5003,7 +5035,17 @@
 		const url = new URL(window.location.href);
 
 		url.searchParams.delete('handoff_code');
+		url.searchParams.delete('sosein_cloud_environment');
 		window.history.replaceState({}, '', url.toString());
+	}
+
+	function soseinOAuthReturnUrl() {
+		const url = new URL(window.location.href);
+
+		url.searchParams.delete('handoff_code');
+		url.searchParams.set('sosein_cloud_environment', soseinCloudEnvironment);
+
+		return url.toString();
 	}
 
 	async function validateStoredSoseinSession(options: { updateWorkspaceMode?: boolean } = {}) {
@@ -5199,12 +5241,12 @@
 	function soseinClientForSession() {
 		if (!soseinSession) throw new Error('No Sosein Cloud session is available');
 
-		return soseinCloudClient(soseinSession.sessionToken);
+		return soseinCloudClient(soseinSession.sessionToken, soseinSession.serverUrl);
 	}
 
-	function soseinCloudClient(sessionToken?: string) {
+	function soseinCloudClient(sessionToken?: string, serverUrl = soseinCloudServerUrl) {
 		return new SoseinCloudClient(
-			soseinCloudServerUrl,
+			serverUrl,
 			sessionToken,
 			desktopShell ? nativeSoseinCloudTransport : undefined
 		);
@@ -7332,6 +7374,7 @@
 
 	<SoseinCloudDialog
 		bind:open={soseinDialogOpen}
+		bind:environment={soseinCloudEnvironment}
 		bind:newDocumentTitle={soseinNewDocumentTitle}
 		session={soseinSession}
 		documents={soseinDocuments}

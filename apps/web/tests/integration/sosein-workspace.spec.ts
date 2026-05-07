@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { editor, installTauriMock, tauriCalls } from './helpers';
+import { editor, installTauriMock, runCommand, tauriCalls } from './helpers';
 
 const storedSoseinSession = {
   serverUrl: 'https://api.sosein.ai',
@@ -106,4 +106,33 @@ test('local windows open the Sosein workspace in a separate desktop window', asy
 
     return calls.some((call) => call.command === 'open_sosein_workspace_window');
   }).toBe(true);
+});
+
+test('Sosein Cloud dialog uses the selected environment for desktop OAuth', async ({ page }) => {
+  await installTauriMock(page, {
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true }
+  });
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview');
+  await expect(editor(page)).toBeVisible();
+
+  await runCommand(page, 'Connect Sosein Cloud');
+
+  const dialog = page.getByRole('dialog', { name: 'Cloud Documents' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('https://api.sosein.ai')).toBeVisible();
+
+  await dialog.getByRole('radio', { name: 'Staging' }).click();
+  await expect(dialog.getByRole('radio', { name: 'Staging' })).toHaveAttribute('aria-checked', 'true');
+  await expect(dialog.getByText('https://api-staging.sosein.ai')).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Connect with Google' }).click();
+
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+    const loginCall = calls.find((call) => call.command === 'start_sosein_oauth_login');
+
+    return loginCall?.args?.serverUrl;
+  }).toBe('https://api-staging.sosein.ai');
 });
