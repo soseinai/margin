@@ -66,7 +66,15 @@ npm run test:web:integration
 npm run test:web:e2e
 ```
 
-`test:web:e2e` is intentionally empty until Margin has automated coverage against the real desktop shell, filesystem/native commands, or a cloud backend. Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
+`test:web:e2e` contains opt-in live E2E coverage under `apps/web/tests/e2e`. It expects a Sosein Cloud server that supports the E2E session mint contract:
+
+```sh
+MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
+MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+just test-web-e2e
+```
+
+Run `just setup-web-integration` once locally if Playwright needs to install Chromium.
 
 ### Performance Profiling
 
@@ -93,6 +101,18 @@ just package-mac-app
 ```
 
 That produces `target/release/bundle/macos/Margin.app`. To create a shareable unsigned disk image instead, run `just package-mac-dmg`; it stages the app with an Applications symlink and creates `target/release/bundle/dmg/Margin_<version>_<arch>.dmg`. Signing and notarization are intentionally left for a release pipeline.
+
+Before triggering the GitHub release workflow, run the local release preflight against a real local or staging Sosein Cloud server:
+
+```sh
+MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
+MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+just release-preflight
+```
+
+That runs the normal lint/test/build gates plus the live Sosein Cloud E2E sync smoke test. The E2E auth token must match the token configured on the target Sosein Cloud server.
+
+The GitHub release workflow runs the same live Sosein Cloud E2E gate before it bumps versions or pushes a release tag. Configure the repository secret `MARGIN_SOSEIN_E2E_AUTH_TOKEN` with the staging E2E token. The workflow uses `https://api-staging.sosein.ai` by default; set the repository variable `MARGIN_SOSEIN_LIVE_URL` only if the release gate should target a different Sosein Cloud server.
 
 ### Updates
 

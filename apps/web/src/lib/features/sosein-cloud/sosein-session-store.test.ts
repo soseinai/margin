@@ -83,12 +83,35 @@ describe('Sosein session store', () => {
     });
   });
 
+  it('persists valid local development sessions', () => {
+    const storage = new MemoryStorage();
+
+    writeSoseinSession(
+      {
+        serverUrl: 'http://127.0.0.1:18787/',
+        sessionToken: 'session',
+        expiresAt: '2026-05-05T12:00:00Z',
+        user: { id: 'user-1', email: 'alice@example.com' },
+        defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+      },
+      storage
+    );
+
+    expect(readSoseinSession(storage)).toEqual({
+      serverUrl: 'http://127.0.0.1:18787',
+      sessionToken: 'session',
+      expiresAt: '2026-05-05T12:00:00Z',
+      user: { id: 'user-1', email: 'alice@example.com' },
+      defaultWorkspace: { id: 'workspace-1', name: 'Default' }
+    });
+  });
+
   it('rejects sessions from unknown server URLs', () => {
     const storage = new MemoryStorage();
 
     writeSoseinSession(
       {
-        serverUrl: 'http://127.0.0.1:18787',
+        serverUrl: 'https://example.com',
         sessionToken: 'session',
         expiresAt: '2026-05-05T12:00:00Z',
         user: { id: 'user-1', email: 'alice@example.com' },

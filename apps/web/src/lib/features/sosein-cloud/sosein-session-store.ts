@@ -93,7 +93,36 @@ function normalizeStoredSession(value: unknown): SoseinStoredSession | null {
 }
 
 function storedSessionServerUrl(value: unknown) {
-  return normalizeKnownSoseinServerUrl(value);
+  return normalizeKnownSoseinServerUrl(value) ?? normalizeLocalSoseinServerUrl(value);
+}
+
+function normalizeLocalSoseinServerUrl(value: unknown) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (!isLocalhost(parsed.hostname)) return null;
+
+    parsed.hash = '';
+    parsed.search = '';
+
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function isLocalhost(hostname: string) {
+  return hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+    || hostname === '[::1]';
 }
 
 function browserStorage(): SoseinBrowserStorage | null {

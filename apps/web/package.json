@@ -20,7 +20,8 @@
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "pretest:integration": "npm run build:markdown-core",
     "test:integration": "playwright test --config playwright.integration.config.ts",
-    "test:e2e": "node -e \"console.log('No e2e tests configured yet')\""
+    "pretest:e2e": "npm run build:markdown-core",
+    "test:e2e": "playwright test --config playwright.e2e.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

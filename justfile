@@ -141,9 +141,30 @@ test-web-unit:
 test-web-integration:
     npm run test:web:integration
 
-# Run web end-to-end tests. Empty by design for now.
+# Run web end-to-end tests. Live Sosein tests skip unless URL and E2E auth token are set.
 test-web-e2e:
     npm run test:web:e2e
+
+# Run the live Sosein Cloud pre-release E2E gate.
+release-preflight-sosein:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -z "${MARGIN_SOSEIN_LIVE_URL:-}" ]]; then
+      echo "Set MARGIN_SOSEIN_LIVE_URL to a local or staging Sosein Cloud server before release preflight." >&2
+      echo "Example: MARGIN_SOSEIN_LIVE_URL=http://127.0.0.1:18787 MARGIN_SOSEIN_E2E_AUTH_TOKEN=... just release-preflight-sosein" >&2
+      exit 2
+    fi
+
+    if [[ -z "${MARGIN_SOSEIN_E2E_AUTH_TOKEN:-}" ]]; then
+      echo "Set MARGIN_SOSEIN_E2E_AUTH_TOKEN before release preflight." >&2
+      echo "Example: MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai MARGIN_SOSEIN_E2E_AUTH_TOKEN=... just release-preflight-sosein" >&2
+      exit 2
+    fi
+
+    npm run test:web:e2e
+
+# Run the local release preflight gate before triggering the GitHub release workflow.
+release-preflight: setup lints test build-web release-preflight-sosein
 
 # Install Playwright browsers for web integration tests.
 setup-web-integration:
