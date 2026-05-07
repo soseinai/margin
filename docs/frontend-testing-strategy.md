@@ -32,7 +32,7 @@ npm run test:web:integration
 npm run test:web:e2e
 ```
 
-`test:web:e2e` is intentionally empty for now. Install the browser used by integration tests with `just setup-web-integration` on local machines; CI installs Chromium before running the test gate.
+`test:web:e2e` is reserved for real outer-system coverage. It currently runs the opt-in live Sosein Cloud tests in `apps/web/tests/e2e`, and skips unless `MARGIN_SOSEIN_LIVE_URL` and `MARGIN_SOSEIN_E2E_AUTH_TOKEN` are set. Install the browser used by Playwright tests with `just setup-web-integration` on local machines; CI installs Chromium before running the test gate.
 
 ## Performance Profiling
 
@@ -110,11 +110,42 @@ Command: `npm run test:web:integration`.
 
 ### E2E Tests
 
-No tests belong in this group yet.
+E2E tests live in `apps/web/tests/e2e` and use `apps/web/playwright.e2e.config.ts`.
 
-Reserve E2E for flows that include the real outer systems, such as the Tauri desktop shell, filesystem/native commands, or a future real cloud backend. Until those are part of the automated path, browser-level Playwright coverage should stay classified as integration testing.
+Reserve E2E for flows that include the real outer systems, such as the Tauri desktop shell, filesystem/native commands, or a real cloud backend. Browser-level Playwright coverage with mocked native/cloud adapters belongs in integration testing.
 
-Command: `npm run test:web:e2e`, currently a no-op placeholder.
+The Sosein live E2E lane is opt-in. It authenticates through the Sosein Cloud E2E session mint contract:
+
+```sh
+MARGIN_SOSEIN_LIVE_URL=http://127.0.0.1:18787 \
+MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+npm run test:web:e2e
+```
+
+Release preflight should exercise the same live lane through:
+
+```sh
+MARGIN_SOSEIN_LIVE_URL=https://api-staging.sosein.ai \
+MARGIN_SOSEIN_E2E_AUTH_TOKEN=... \
+just release-preflight
+```
+
+Required live E2E variables:
+
+- `MARGIN_SOSEIN_LIVE_URL`
+- `MARGIN_SOSEIN_E2E_AUTH_TOKEN`
+
+### Sosein Cloud Staging Handoff
+
+Margin expects Sosein Cloud to provide the same E2E auth shape locally and in staging:
+
+- `POST /v1/e2e/session` with `Authorization: Bearer <token>` should mint a normal short-lived user session for release E2E.
+- The mechanism should be disabled by default, enabled for local/staging E2E, and impossible to enable accidentally in production.
+- Public staging should authenticate the E2E mint path with a high-entropy secret stored outside the repo.
+- The mint path should create sessions only for a fixed E2E account/workspace, not accept arbitrary email or workspace input from the caller.
+- The minted session should have ordinary user privileges only, with no admin or internal-admin capabilities.
+- The session and any E2E-created documents should be easy to identify and clean up, for example by a fixed workspace plus `e2e-` document prefixes.
+- The API should log/audit mint requests with request id and account/workspace/user ids.
 
 ## Native Boundary
 
@@ -128,7 +159,7 @@ The web app should not need a real Tauri shell for most tests. Treat native func
 
 - Unit: pure Markdown/editor model changes and isolated components should add or update Vitest coverage.
 - Integration: flows spanning several components, app state, adapter behavior, CodeMirror interactions, selections, and decorations should get integration coverage.
-- E2E: leave empty for now unless the change intentionally automates real desktop shell, native filesystem, or future cloud backend behavior.
+- E2E: use only when the change intentionally automates real desktop shell, native filesystem, or cloud backend behavior.
 - File persistence change: test the serialized Markdown body and embedded comment/suggestion block round trip.
 - Future cloud storage change: test provider contracts separately from local embedded comment blocks. In cloud mode, cloud state remains the source of truth; embedded Markdown metadata is only a local/export compatibility format.
 
