@@ -132,15 +132,15 @@ export class SoseinCloudClient {
     });
   }
 
-  async exchangeOAuthHandoff(handoffCode: string) {
-    return this.requestJson<SoseinAuthSession>('/v1/auth/oauth/handoff/exchange', {
+  async exchangeOidcHandoff(handoffCode: string) {
+    return this.requestJson<SoseinAuthSession>('/v1/auth/oidc/handoff/exchange', {
       method: 'POST',
       body: { handoff_code: handoffCode }
     });
   }
 
-  oauthLoginUrl(returnTo: string, providerId = 'google') {
-    const url = new URL(`/v1/auth/oauth/${encodeURIComponent(providerId)}/login`, `${this.baseUrl}/`);
+  oidcLoginUrl(returnTo: string, providerId = 'google') {
+    const url = new URL(`/v1/auth/oidc/${encodeURIComponent(providerId)}/login`, `${this.baseUrl}/`);
     url.searchParams.set('return_to', returnTo);
 
     return url.toString();

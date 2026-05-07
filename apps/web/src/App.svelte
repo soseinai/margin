@@ -4922,7 +4922,7 @@
 		if (searchParams.has('handoff_code')) {
 			const serverUrl = soseinServerUrlForEnvironment(handoffEnvironment ?? soseinCloudEnvironment);
 
-			void exchangeSoseinOAuthHandoff(searchParams.get('handoff_code') || '', serverUrl);
+			void exchangeSoseinOidcHandoff(searchParams.get('handoff_code') || '', serverUrl);
 		} else if (soseinSession) {
 			soseinCloudEnvironment = soseinEnvironmentForServerUrl(soseinSession.serverUrl);
 			soseinCloudServerUrl = soseinSession.serverUrl;
@@ -4968,14 +4968,14 @@
 		enterSoseinWorkspaceMode();
 	}
 
-	async function exchangeSoseinOAuthHandoff(handoffCode: string, serverUrl = soseinCloudServerUrl) {
+	async function exchangeSoseinOidcHandoff(handoffCode: string, serverUrl = soseinCloudServerUrl) {
 		if (!handoffCode) return;
 
 		soseinAuthLoading = true;
 		soseinCloudError = '';
 
 		try {
-			await finishSoseinOAuthLogin(await soseinCloudClient(undefined, serverUrl).exchangeOAuthHandoff(handoffCode), serverUrl);
+			await finishSoseinOidcLogin(await soseinCloudClient(undefined, serverUrl).exchangeOidcHandoff(handoffCode), serverUrl);
 			removeSoseinHandoffCodeFromUrl();
 		} catch(err) {
 			handleSoseinCloudError(err, 'Unable to finish Sosein Cloud login');
@@ -4984,7 +4984,7 @@
 		}
 	}
 
-	async function startSoseinOAuthLogin() {
+	async function startSoseinOidcLogin() {
 		soseinCloudError = '';
 		const serverUrl = soseinCloudServerUrl;
 
@@ -4992,13 +4992,13 @@
 			soseinAuthLoading = true;
 
 			try {
-				const authSession = await tauriInvoke<SoseinAuthSession>('start_sosein_oauth_login', { serverUrl });
+				const authSession = await tauriInvoke<SoseinAuthSession>('start_sosein_oidc_login', { serverUrl });
 
 				if (!authSession) {
-					throw new Error('Desktop OAuth login is unavailable in this Margin build.');
+					throw new Error('Desktop Sosein Cloud login is unavailable in this Margin build.');
 				}
 
-				await finishSoseinOAuthLogin(authSession, serverUrl);
+				await finishSoseinOidcLogin(authSession, serverUrl);
 			} catch(err) {
 				handleSoseinCloudError(err, 'Unable to start Sosein Cloud login');
 			} finally {
@@ -5009,15 +5009,15 @@
 		}
 
 		if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
-			soseinCloudError = 'OAuth login needs an HTTP return URL in this build.';
+			soseinCloudError = 'Sosein Cloud login needs an HTTP return URL in this build.';
 
 			return;
 		}
 
-		window.location.href = soseinCloudClient(undefined, serverUrl).oauthLoginUrl(soseinOAuthReturnUrl());
+		window.location.href = soseinCloudClient(undefined, serverUrl).oidcLoginUrl(soseinOidcReturnUrl());
 	}
 
-	async function finishSoseinOAuthLogin(authSession: SoseinAuthSession, serverUrl = soseinCloudServerUrl) {
+	async function finishSoseinOidcLogin(authSession: SoseinAuthSession, serverUrl = soseinCloudServerUrl) {
 		const session = storedSessionFromAuth(serverUrl, authSession);
 
 		soseinCloudEnvironment = soseinEnvironmentForServerUrl(session.serverUrl);
@@ -5039,7 +5039,7 @@
 		window.history.replaceState({}, '', url.toString());
 	}
 
-	function soseinOAuthReturnUrl() {
+	function soseinOidcReturnUrl() {
 		const url = new URL(window.location.href);
 
 		url.searchParams.delete('handoff_code');
@@ -7212,7 +7212,7 @@
 				syncStatus={soseinSyncStatus}
 				bind:width={fileTreePanelWidth}
 				disconnectSession={disconnectSoseinSession}
-				startOAuthLogin={startSoseinOAuthLogin}
+				startOidcLogin={startSoseinOidcLogin}
 				refreshDocuments={refreshSoseinDocuments}
 				createDocument={createSoseinDocument}
 				openDocument={openSoseinDocument}
@@ -7386,7 +7386,7 @@
 		syncStatus={soseinSyncStatus}
 		closeDialog={closeSoseinDialog}
 		disconnectSession={disconnectSoseinSession}
-		startOAuthLogin={startSoseinOAuthLogin}
+		startOidcLogin={startSoseinOidcLogin}
 		openWorkspace={openSoseinWorkspace}
 		refreshDocuments={refreshSoseinDocuments}
 		createDocument={createSoseinDocument}

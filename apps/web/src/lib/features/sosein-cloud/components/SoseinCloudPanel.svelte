@@ -31,7 +31,7 @@
 	export let syncStatus: SoseinSyncStatus = 'disconnected';
 	export let width = 300;
 	export let disconnectSession: () => void = () => {};
-	export let startOAuthLogin: () => MaybePromise = () => {};
+	export let startOidcLogin: () => MaybePromise = () => {};
 	export let refreshDocuments: () => MaybePromise = () => {};
 	export let createDocument: () => MaybePromise = () => {};
 	export let openDocument: (document: SoseinDocumentSummary | SoseinDocument) => MaybePromise = () => {};
@@ -144,7 +144,7 @@
 				<Button
 					size="sm"
 					class="primary"
-					onclick={startOAuthLogin}
+					onclick={startOidcLogin}
 					disabled={authLoading}
 				>
 					<span>{authLoading ? 'Connecting' : 'Connect'}</span>

@@ -33,7 +33,7 @@
 	export let syncStatus: SoseinSyncStatus = 'disconnected';
 	export let closeDialog: () => void = () => {};
 	export let disconnectSession: () => void = () => {};
-	export let startOAuthLogin: () => MaybePromise = () => {};
+	export let startOidcLogin: () => MaybePromise = () => {};
 	export let openWorkspace: () => MaybePromise = () => {};
 	export let refreshDocuments: () => MaybePromise = () => {};
 	export let createDocument: () => MaybePromise = () => {};
@@ -125,7 +125,7 @@
 							<Button
 								size="sm"
 								class="primary"
-								onclick={startOAuthLogin}
+								onclick={startOidcLogin}
 								disabled={authLoading}
 							>
 								<span>{authLoading ? 'Connecting' : 'Connect with Google'}</span>
