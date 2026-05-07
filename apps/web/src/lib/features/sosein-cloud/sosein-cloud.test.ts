@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SOSEIN_SERVER_URL,
   SoseinCloudClient,
+  SOSEIN_CLOUD_API_BASE_URL,
+  SOSEIN_CLOUD_STAGING_API_BASE_URL,
   mergedStoredUserFromSoseinUser,
+  normalizeKnownSoseinServerUrl,
   normalizeSoseinDocumentTitle,
   normalizeSoseinProfilePictureUrl,
   normalizeSoseinUserName,
   normalizeSoseinServerUrl,
+  soseinEnvironmentForServerUrl,
   soseinDocumentFileName,
+  soseinServerUrlForEnvironment,
   soseinWebSocketBaseUrl,
   storedSessionFromAuth,
   type SoseinCloudRequest,
@@ -23,6 +28,13 @@ describe('Sosein Cloud helpers', () => {
     expect(normalizeSoseinServerUrl('ftp://example.com')).toBe(DEFAULT_SOSEIN_SERVER_URL);
     expect(soseinWebSocketBaseUrl('https://cloud.sosein.ai')).toBe('wss://cloud.sosein.ai');
     expect(soseinWebSocketBaseUrl('http://127.0.0.1:18787')).toBe('ws://127.0.0.1:18787');
+  });
+
+  it('maps Sosein Cloud environments to known server URLs', () => {
+    expect(soseinServerUrlForEnvironment('prod')).toBe(SOSEIN_CLOUD_API_BASE_URL);
+    expect(soseinServerUrlForEnvironment('staging')).toBe(SOSEIN_CLOUD_STAGING_API_BASE_URL);
+    expect(soseinEnvironmentForServerUrl(`${SOSEIN_CLOUD_STAGING_API_BASE_URL}/`)).toBe('staging');
+    expect(normalizeKnownSoseinServerUrl('http://127.0.0.1:18787')).toBeNull();
   });
 
   it('normalizes document titles and file names', () => {

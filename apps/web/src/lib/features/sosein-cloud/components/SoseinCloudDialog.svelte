@@ -5,9 +5,12 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
 	import type { SoseinActiveDocument } from '$lib/app-types';
 	import {
+		SOSEIN_CLOUD_ENVIRONMENTS,
 		soseinStoredUserDisplayName,
+		type SoseinCloudEnvironment,
 		type SoseinDocument,
 		type SoseinDocumentSummary,
 		type SoseinStoredSession
@@ -18,6 +21,7 @@
 	type MaybePromise<T = void> = T | Promise<T>;
 
 	export let open = false;
+	export let environment: SoseinCloudEnvironment = 'prod';
 	export let session: SoseinStoredSession | null = null;
 	export let documents: SoseinDocumentSummary[] = [];
 	export let documentsLoading = false;
@@ -35,6 +39,9 @@
 	export let createDocument: () => MaybePromise = () => {};
 	export let openDocument: (document: SoseinDocumentSummary | SoseinDocument) => MaybePromise = () => {};
 	export let syncStatusLabel: (status: SoseinSyncStatus) => string = (status) => status;
+
+	$: selectedEnvironment = SOSEIN_CLOUD_ENVIRONMENTS.find((option) => option.environment === environment)
+		?? SOSEIN_CLOUD_ENVIRONMENTS[0];
 </script>
 
 <Dialog.Root bind:open>
@@ -62,6 +69,30 @@
 
 		<div class="settings-pane-body">
 			<section class="settings-group" aria-label="Sosein Cloud connection">
+				<div class="settings-row">
+					<div class="settings-row-copy">
+						<Label>Environment</Label>
+						<p>{selectedEnvironment.serverUrl}</p>
+					</div>
+
+					<div class="settings-row-control">
+						<ToggleGroup.Root
+							class="theme-segmented-control sosein-environment-control"
+							type="single"
+							aria-label="Sosein Cloud environment"
+							bind:value={environment}
+						>
+							{#each SOSEIN_CLOUD_ENVIRONMENTS as option}
+								<ToggleGroup.Item
+									class={`theme-option sosein-environment-option${environment === option.environment ? ' active' : ''}`}
+									value={option.environment}
+									disabled={Boolean(session) || authLoading}
+								>{option.label}</ToggleGroup.Item>
+							{/each}
+						</ToggleGroup.Root>
+					</div>
+				</div>
+
 				<div class="settings-row sosein-session-row">
 					<div class="settings-row-copy sosein-account-copy">
 						{#if session}

@@ -1965,6 +1965,20 @@ button.settings-sidebar-item.active:not([data-slot]) {
   line-height: 1;
 }
 
+.theme-segmented-control.sosein-environment-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 164px;
+}
+
+.sosein-environment-option {
+  padding: 0 8px;
+}
+
+.sosein-environment-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .sosein-document-group {
   align-content: start;
 }
@@ -5817,6 +5831,7 @@ blockquote {
   }
 
   .settings-row .theme-segmented-control,
+  .settings-row .sosein-environment-control,
   .settings-user-control,
   .settings-text-input {
     width: 100%;

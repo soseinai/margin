@@ -529,6 +529,15 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
 
             if (command === 'sosein_cloud_enabled') return settings.soseinCloudEnabled === true;
 
+            if (command === 'start_sosein_oauth_login') {
+              return {
+                session_token: 'session',
+                user: { id: 'user-1', email: 'alice@example.com' },
+                default_workspace: { id: 'workspace-1', name: 'Default' },
+                expires_at: '2026-05-06T12:00:00Z'
+              };
+            }
+
             if (command === 'sosein_api_request') {
               const path = args?.path as string;
               const method = args?.method as string;
