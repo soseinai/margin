@@ -38,7 +38,7 @@ The standalone editor does not require an API server.
 Margin uses [`just`](https://github.com/casey/just) as the project CLI. Run `just` to list commands.
 
 ```sh
-just check
+just lints
 just test
 just build
 just deploy local
@@ -51,12 +51,12 @@ just deploy local
 The frontend testing strategy is documented in [docs/frontend-testing-strategy.md](docs/frontend-testing-strategy.md). The standard local gates are:
 
 ```sh
-just check
+just lints
 just test
 npm run build:web
 ```
 
-`just check` includes Rust formatting, Rust compile checks, Clippy, and the Svelte typecheck. `npm run build:web` is a buildability gate rather than a test.
+`just lints` includes Rust formatting, Rust compile checks, Clippy, and the Svelte typecheck. `npm run build:web` is a buildability gate rather than a test.
 
 Web tests are split into:
 
