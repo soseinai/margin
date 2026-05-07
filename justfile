@@ -104,8 +104,8 @@ _set-sosein-cloud enabled:
     trap - EXIT
     echo "Updated $settings"
 
-# Run all standard checks.
-check: format-rust-check check-rust lint-rust check-web
+# Run all lint and static-analysis gates.
+lints: format-rust-check check-rust lint-rust check-web
 
 # Check Rust formatting.
 format-rust-check:
