@@ -54,6 +54,7 @@ type TauriMockOptions = {
     };
   }>;
   soseinDocumentsStatus?: number;
+  soseinDocumentStatuses?: Record<string, number>;
   update?: { currentVersion: string; version: string; notes?: string | null } | null;
   confirmClose?: boolean;
   writeSettingsError?: string;
@@ -404,6 +405,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
     let recentDocuments = mockOptions.recentDocuments ?? [];
     let soseinDocuments = mockOptions.soseinDocuments ?? [];
     let soseinDocumentsStatus = mockOptions.soseinDocumentsStatus ?? 200;
+    const soseinDocumentStatuses = mockOptions.soseinDocumentStatuses ?? {};
     let update = mockOptions.update ?? null;
     let confirmClose = mockOptions.confirmClose ?? true;
     let writeSettingsError = mockOptions.writeSettingsError ?? '';
@@ -585,7 +587,22 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
               const documentMatch = /^\/v1\/documents\/([^/]+)$/.exec(path);
 
               if (documentMatch && method === 'GET') {
-                const document = soseinDocuments.find((candidate) => candidate.id === decodeURIComponent(documentMatch[1]));
+                const documentId = decodeURIComponent(documentMatch[1]);
+                const documentStatus = soseinDocumentStatuses[documentId] ?? 200;
+
+                if (documentStatus < 200 || documentStatus >= 300) {
+                  return {
+                    status: documentStatus,
+                    body: null,
+                    bodyText: documentStatus === 403
+                      ? 'Forbidden'
+                      : documentStatus === 404
+                        ? 'Not found'
+                        : `Sosein error ${documentStatus}`
+                  };
+                }
+
+                const document = soseinDocuments.find((candidate) => candidate.id === documentId);
 
                 if (!document) {
                   return { status: 404, body: null, bodyText: 'Not found' };

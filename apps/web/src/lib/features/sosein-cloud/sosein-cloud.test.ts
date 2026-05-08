@@ -3,6 +3,7 @@ import {
   DEFAULT_SOSEIN_SERVER_URL,
   SoseinCloudClient,
   SOSEIN_CLOUD_API_BASE_URL,
+  SOSEIN_CLOUD_LOCAL_API_BASE_URL,
   SOSEIN_CLOUD_STAGING_API_BASE_URL,
   mergedStoredUserFromSoseinUser,
   normalizeKnownSoseinServerUrl,
@@ -33,8 +34,13 @@ describe('Sosein Cloud helpers', () => {
   it('maps Sosein Cloud environments to known server URLs', () => {
     expect(soseinServerUrlForEnvironment('prod')).toBe(SOSEIN_CLOUD_API_BASE_URL);
     expect(soseinServerUrlForEnvironment('staging')).toBe(SOSEIN_CLOUD_STAGING_API_BASE_URL);
+    expect(soseinServerUrlForEnvironment('local')).toBe(SOSEIN_CLOUD_LOCAL_API_BASE_URL);
     expect(soseinEnvironmentForServerUrl(`${SOSEIN_CLOUD_STAGING_API_BASE_URL}/`)).toBe('staging');
-    expect(normalizeKnownSoseinServerUrl('http://127.0.0.1:18787')).toBeNull();
+    expect(soseinEnvironmentForServerUrl(`${SOSEIN_CLOUD_LOCAL_API_BASE_URL}/`)).toBe('local');
+    expect(normalizeKnownSoseinServerUrl('http://127.0.0.1:18787')).toBe(SOSEIN_CLOUD_LOCAL_API_BASE_URL);
+    expect(normalizeKnownSoseinServerUrl('http://localhost:18787/')).toBe(SOSEIN_CLOUD_LOCAL_API_BASE_URL);
+    expect(soseinEnvironmentForServerUrl('http://localhost:18787')).toBe('local');
+    expect(normalizeKnownSoseinServerUrl('http://localhost:18787/api')).toBeNull();
   });
 
   it('builds OIDC login and handoff exchange requests', async () => {

@@ -1,11 +1,13 @@
 export const SOSEIN_CLOUD_API_BASE_URL = 'https://api.sosein.ai';
 export const SOSEIN_CLOUD_STAGING_API_BASE_URL = 'https://api-staging.sosein.ai';
+export const SOSEIN_CLOUD_LOCAL_API_BASE_URL = 'http://127.0.0.1:18787';
 export const DEFAULT_SOSEIN_SERVER_URL = SOSEIN_CLOUD_API_BASE_URL;
 export const SOSEIN_DEV_BOOTSTRAP_TOKEN = 'dev-bootstrap-token';
 export const SOSEIN_BODY_TEXT_NAME = 'body';
 export const SOSEIN_CLOUD_ENVIRONMENTS = [
   { environment: 'prod', label: 'Prod', serverUrl: SOSEIN_CLOUD_API_BASE_URL },
-  { environment: 'staging', label: 'Staging', serverUrl: SOSEIN_CLOUD_STAGING_API_BASE_URL }
+  { environment: 'staging', label: 'Staging', serverUrl: SOSEIN_CLOUD_STAGING_API_BASE_URL },
+  { environment: 'local', label: 'Local', serverUrl: SOSEIN_CLOUD_LOCAL_API_BASE_URL }
 ] as const;
 
 export type SoseinCloudEnvironment = (typeof SOSEIN_CLOUD_ENVIRONMENTS)[number]['environment'];
@@ -243,7 +245,9 @@ export function normalizeKnownSoseinServerUrl(value: unknown) {
 
   if (!normalized) return null;
 
-  return SOSEIN_CLOUD_ENVIRONMENTS.some((option) => option.serverUrl === normalized) ? normalized : null;
+  if (SOSEIN_CLOUD_ENVIRONMENTS.some((option) => option.serverUrl === normalized)) return normalized;
+
+  return normalizeLocalSoseinEnvironmentUrl(normalized);
 }
 
 export function soseinServerUrlForEnvironment(environment: SoseinCloudEnvironment) {
@@ -347,7 +351,7 @@ export function soseinDocumentFileName(title: string) {
   return (/\.(md|markdown|txt)$/i).test(cleanTitle) ? cleanTitle : `${cleanTitle}.md`;
 }
 
-function normalizeSoseinServerUrlOrNull(value: unknown) {
+export function normalizeSoseinServerUrlOrNull(value: unknown) {
   if (typeof value !== 'string') return null;
 
   const trimmed = value.trim();
@@ -363,6 +367,20 @@ function normalizeSoseinServerUrlOrNull(value: unknown) {
     parsed.search = '';
 
     return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLocalSoseinEnvironmentUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+
+    if (parsed.protocol !== 'http:' || parsed.port !== '18787' || parsed.pathname !== '/') return null;
+
+    return ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+      ? SOSEIN_CLOUD_LOCAL_API_BASE_URL
+      : null;
   } catch {
     return null;
   }

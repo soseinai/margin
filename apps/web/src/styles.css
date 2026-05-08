@@ -1966,8 +1966,8 @@ button.settings-sidebar-item.active:not([data-slot]) {
 }
 
 .theme-segmented-control.sosein-environment-control {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 164px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 246px;
 }
 
 .sosein-environment-option {
@@ -2175,6 +2175,100 @@ button.settings-sidebar-item.active:not([data-slot]) {
 .inline-composer .primary:hover:not(:disabled),
 .inline-composer .primary:focus-visible {
   background: var(--primary-button-hover-bg);
+}
+
+.app-notice-dialog {
+  display: block;
+  gap: 0;
+  max-width: 372px;
+  min-width: 310px;
+  width: min(calc(100vw - 48px), 372px);
+}
+
+.app-notice-body {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  padding: 20px 20px 15px;
+}
+
+.app-notice-icon {
+  align-items: center;
+  color: var(--fg-4);
+  display: flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.app-notice-icon svg {
+  height: 25px;
+  width: 25px;
+}
+
+.app-notice-copy {
+  min-width: 0;
+}
+
+.app-notice-copy h2 {
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.28;
+  margin: 0 0 7px;
+}
+
+.app-notice-message {
+  color: var(--fg-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-notice-detail {
+  color: var(--fg-4);
+  font-family: var(--font-plex-mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  margin: 9px 0 0;
+}
+
+.app-notice-actions {
+  align-items: center;
+  background: transparent;
+  border-top: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 18px 18px 56px;
+}
+
+.app-notice-actions .app-notice-confirm {
+  background: #0a84ff;
+  border-color: transparent;
+  border-radius: 7px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 500;
+  min-height: 26px;
+  min-width: 68px;
+  padding: 0 14px;
+}
+
+.app-notice-actions .app-notice-confirm:hover:not(:disabled),
+.app-notice-actions .app-notice-confirm:focus-visible {
+  background: #0077ed;
+  border-color: transparent;
+  color: #fff;
+}
+
+.app-notice-actions .app-notice-confirm:focus-visible {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, #0a84ff 28%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
+  outline: none;
 }
 
 .word-count-dialog {
