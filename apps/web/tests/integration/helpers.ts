@@ -535,6 +535,7 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
             if (command === 'confirm_close_tab') return confirmClose;
             if (command === 'quit_app') return undefined;
             if (command === 'set_window_tab_state') return undefined;
+            if (command === 'set_window_workspace_mode') return undefined;
             if (command === 'close_last_tab_or_quit_app') return undefined;
             if (command === 'print_window') return undefined;
             if (command === 'open_sosein_workspace_window') return undefined;

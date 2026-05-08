@@ -87,6 +87,11 @@ test('cloud workspace mode replaces the local file tree with cloud documents', a
   await expect(page.locator('.doc-titlebar-shell')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Cloud Documents' })).toHaveCount(0);
   await expect(page.getByText('Open a folder to browse Markdown documents.')).toHaveCount(0);
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+
+    return [...calls].reverse().find((call) => call.command === 'set_window_workspace_mode')?.args;
+  }).toEqual({ mode: 'sosein' });
 });
 
 test('cloud workspace reports incomplete account setup when documents return 404', async ({ page }) => {
@@ -108,6 +113,25 @@ test('cloud workspace reports incomplete account setup when documents return 404
     cloudPanel.getByText('Sosein Cloud account setup is incomplete. Disconnect and connect again to finish workspace setup.')
   ).toBeVisible();
   await expect(page.getByText('Unable to list Sosein Cloud documents: 404')).toHaveCount(0);
+});
+
+test('cloud workspace does not consume pending local file opens', async ({ page }) => {
+  await installTauriMock(page, {
+    pendingOpenUrls: ['file:///tmp/Local.md'],
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true }
+  });
+  await installStoredSoseinSession(page);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview&workspace=sosein');
+
+  await expect(page.getByLabel('Sosein Cloud documents')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Local.md' })).toHaveCount(0);
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+
+    return calls.some((call) => call.command === 'take_pending_open_urls' || call.command === 'open_native_path');
+  }).toBe(false);
 });
 
 test('local windows open the Sosein workspace in a separate desktop window', async ({ page }) => {

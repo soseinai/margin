@@ -60,7 +60,7 @@ export async function registerNativeDesktopBridge(
 			runFocused(handlers.createNewDocument);
 		}));
 		cleanup.push(await listen<string[]>('margin://open-urls', (event: TauriEvent<string[]>) => {
-			handlers.handleNativeOpenUrls(event.payload);
+			runFocused(() => handlers.handleNativeOpenUrls(event.payload));
 		}));
 		cleanup.push(await listen<NativeMarkdownDocumentChange>('margin://document-changed', (event: TauriEvent<NativeMarkdownDocumentChange>) => {
 			handlers.handleNativeDocumentChanged(event.payload);
