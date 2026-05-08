@@ -64,6 +64,7 @@
 	import CommandPalette from './lib/features/app/components/CommandPalette.svelte';
 	import EditorTitlebar from './lib/features/app/components/EditorTitlebar.svelte';
 	import MarginRail from './lib/features/app/components/MarginRail.svelte';
+	import AppNoticeDialog from './lib/features/app/components/AppNoticeDialog.svelte';
 	import PrintDocument from './lib/features/app/components/PrintDocument.svelte';
 	import PrintOptionsDialog from './lib/features/app/components/PrintOptionsDialog.svelte';
 	import SettingsDialog from './lib/features/app/components/SettingsDialog.svelte';
@@ -101,7 +102,9 @@
 		SoseinCloudApiError,
 		SoseinCloudClient,
 		mergedStoredUserFromSoseinUser,
+		normalizeKnownSoseinServerUrl,
 		normalizeSoseinDocumentTitle,
+		normalizeSoseinServerUrlOrNull,
 		soseinEnvironmentForServerUrl,
 		soseinDocumentFileName,
 		soseinStoredUserDisplayName,
@@ -309,6 +312,10 @@
 	let updateNoticeVisible = false;
 	let updateAutoCheckTimer: ReturnType<typeof setTimeout> | null = null;
 	let error = '';
+	let appNoticeDialogOpen = false;
+	let appNoticeDialogTitle = '';
+	let appNoticeDialogMessage = '';
+	let appNoticeDialogDetail = '';
 
 	$: soseinCloudServerUrl = soseinServerUrlForEnvironment(soseinCloudEnvironment);
 	let documentSurface: HTMLElement;
@@ -1019,7 +1026,7 @@
 	function soseinEnvironmentFromSearchParams(searchParams: URLSearchParams): SoseinCloudEnvironment | null {
 		const environment = searchParams.get('sosein_cloud_environment');
 
-		if (environment === 'prod' || environment === 'staging') return environment;
+		if (environment === 'prod' || environment === 'staging' || environment === 'local') return environment;
 
 		return null;
 	}
@@ -4701,6 +4708,20 @@
 		return invoke ? invoke<T>(command, args) : null;
 	}
 
+	async function showAppNoticeDialog(title: string, message: string, detail = '') {
+		appNoticeDialogTitle = title;
+		appNoticeDialogMessage = message;
+		appNoticeDialogDetail = detail;
+		appNoticeDialogOpen = true;
+	}
+
+	function closeAppNoticeDialog() {
+		appNoticeDialogOpen = false;
+		appNoticeDialogTitle = '';
+		appNoticeDialogMessage = '';
+		appNoticeDialogDetail = '';
+	}
+
 	function shouldHandleWebNativeShortcut() {
 		return desktopShell && !nativeMenuBridgeReady && document.hasFocus();
 	}
@@ -5652,7 +5673,188 @@
 			}
 		}
 
+		if (action === 'sosein') {
+			await handleSoseinDeepLink(url, pathSegments);
+
+			return;
+		}
+
 		error = `Margin link received, but no handler exists for "${action}" yet.`;
+	}
+
+	async function handleSoseinDeepLink(url: URL, pathSegments: string[]) {
+		const resource = pathSegments[0] || 'workspace';
+
+		if (resource === 'workspace' || resource === 'open') {
+			await openSoseinWorkspace();
+
+			return;
+		}
+
+		if (resource !== 'document' && resource !== 'documents') {
+			error = `Margin link received, but no Sosein Cloud handler exists for "${resource}" yet.`;
+
+			return;
+		}
+
+		const documentId = soseinDocumentIdFromDeepLink(url, pathSegments);
+
+		if (!documentId) {
+			error = 'Sosein Cloud document link is missing document_id.';
+
+			return;
+		}
+
+		const serverUrl = soseinServerUrlFromDeepLink(url);
+
+		if (!serverUrl) {
+			error = 'Sosein Cloud document link has an invalid server_url.';
+
+			return;
+		}
+
+		await openSoseinDocumentFromDeepLink(serverUrl, documentId);
+	}
+
+	function soseinDocumentIdFromDeepLink(url: URL, pathSegments: string[]) {
+		return normalizedSoseinDeepLinkValue(
+			url.searchParams.get('document_id')
+				|| url.searchParams.get('documentId')
+				|| url.searchParams.get('id')
+				|| pathSegments[1]
+		);
+	}
+
+	function soseinServerUrlFromDeepLink(url: URL) {
+		const rawServerUrl = normalizedSoseinDeepLinkValue(
+			url.searchParams.get('server_url')
+				|| url.searchParams.get('serverUrl')
+				|| url.searchParams.get('server')
+		);
+
+		if (!rawServerUrl) return soseinServerUrlForEnvironment('prod');
+
+		return normalizeSoseinDeepLinkServerUrl(rawServerUrl);
+	}
+
+	function normalizedSoseinDeepLinkValue(value: string | null | undefined) {
+		const trimmed = value?.trim();
+
+		return trimmed || null;
+	}
+
+	function normalizeSoseinDeepLinkServerUrl(value: string) {
+		return normalizeKnownSoseinServerUrl(value) ?? normalizeSoseinServerUrlOrNull(value);
+	}
+
+	async function openSoseinDocumentFromDeepLink(serverUrl: string, documentId: string) {
+		const session = soseinSessionForDeepLink(serverUrl);
+
+		if (!session) {
+			soseinCloudEnvironment = soseinEnvironmentForServerUrl(serverUrl);
+			soseinCloudServerUrl = serverUrl;
+			openSoseinDialog();
+			soseinCloudError = `Connect to ${serverUrl} before opening this Sosein Cloud document.`;
+
+			return;
+		}
+
+		if (normalizeSoseinDeepLinkServerUrl(session.serverUrl) !== serverUrl) {
+			await showAppNoticeDialog(
+				'Different Sosein Cloud Server',
+				`This link points to ${serverUrl}, but Margin is connected to ${session.serverUrl}.`
+			);
+
+			return;
+		}
+
+		soseinCloudEnvironment = soseinEnvironmentForServerUrl(serverUrl);
+		soseinCloudServerUrl = serverUrl;
+		soseinCloudError = '';
+		error = '';
+
+		try {
+			const document = await soseinCloudClient(session.sessionToken, serverUrl).getDocument(documentId);
+
+			await openSoseinDocument(document);
+		} catch(err) {
+			const linkError = soseinDocumentDeepLinkError(err);
+
+			if (linkError) {
+				if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+				await showAppNoticeDialog(linkError.title, linkError.message);
+
+				return;
+			}
+
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+			const fallbackError = soseinDocumentDeepLinkFallbackError(err);
+			await showAppNoticeDialog(
+				'Document Link Unavailable',
+				fallbackError.message,
+				fallbackError.detail
+			);
+		}
+	}
+
+	function soseinDocumentDeepLinkError(err: unknown) {
+		if (!(err instanceof SoseinCloudApiError)) return null;
+
+		if (err.status === 401) {
+			return {
+				title: 'Sign In to Open Link',
+				message: 'Sign in with an account that can access this Sosein Cloud document.'
+			};
+		}
+
+		if (err.status === 403) {
+			return {
+				title: 'Document Link Unavailable',
+				message: 'This Sosein Cloud document is not available to the connected account.'
+			};
+		}
+
+		if (err.status === 404) {
+			return {
+				title: 'Document Link Unavailable',
+				message: 'This Sosein Cloud document may have been moved, deleted, or opened from a different server.'
+			};
+		}
+
+		return null;
+	}
+
+	function soseinDocumentDeepLinkFallbackError(err: unknown) {
+		if (err instanceof SoseinCloudApiError) {
+			return {
+				message: 'Margin could not open this Sosein Cloud link.',
+				detail: `Code ${err.status}`
+			};
+		}
+
+		return {
+			message: err instanceof Error ? err.message : 'The Sosein Cloud link could not be opened.',
+			detail: ''
+		};
+	}
+
+	function soseinSessionForDeepLink(serverUrl: string) {
+		const currentSession = soseinSession;
+		const storedSession = readSoseinSession();
+
+		if (storedSession) {
+			soseinSession = storedSession;
+
+			if (normalizeSoseinDeepLinkServerUrl(storedSession.serverUrl) === serverUrl) {
+				return storedSession;
+			}
+		}
+
+		if (currentSession && normalizeSoseinDeepLinkServerUrl(currentSession.serverUrl) === serverUrl) {
+			return currentSession;
+		}
+
+		return storedSession ?? currentSession;
 	}
 
 	function filePathFromFileUrl(url: URL) {
@@ -7370,6 +7572,14 @@
 		bind:includeMarginNotesAppendix
 		{printAppendixCandidateThreads}
 		{confirmPrintDocument}
+	/>
+
+	<AppNoticeDialog
+		bind:open={appNoticeDialogOpen}
+		title={appNoticeDialogTitle}
+		message={appNoticeDialogMessage}
+		detail={appNoticeDialogDetail}
+		closeDialog={closeAppNoticeDialog}
 	/>
 
 	<SoseinCloudDialog
