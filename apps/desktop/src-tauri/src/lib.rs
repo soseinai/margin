@@ -37,6 +37,8 @@ use tauri_plugin_updater::{Updater, UpdaterExt};
 #[cfg(not(target_os = "ios"))]
 const RECENT_MENU_ID: &str = "file_open_recent";
 #[cfg(not(target_os = "ios"))]
+const LOCAL_WORKSPACE_WINDOW_LABEL: &str = "main";
+#[cfg(not(target_os = "ios"))]
 const RECENT_MENU_ITEM_PREFIX: &str = "file_recent_";
 #[cfg(not(target_os = "ios"))]
 const CLEAR_RECENT_MENU_ITEM_PREFIX: &str = "file_clear_recent_";
@@ -273,6 +275,14 @@ struct RecentDocumentsMenuState {
 #[derive(Default)]
 struct WindowDocumentState {
     has_tabs_by_window: Mutex<HashMap<String, bool>>,
+    mode_by_window: Mutex<HashMap<String, WindowWorkspaceMode>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum WindowWorkspaceMode {
+    Local,
+    Sosein,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -514,6 +524,19 @@ fn set_window_tab_state(
 }
 
 #[tauri::command]
+fn set_window_workspace_mode(
+    window: tauri::WebviewWindow,
+    state: State<WindowDocumentState>,
+    mode: WindowWorkspaceMode,
+) {
+    state
+        .mode_by_window
+        .lock()
+        .expect("window workspace mode state poisoned")
+        .insert(window.label().to_string(), mode);
+}
+
+#[tauri::command]
 fn close_last_tab_or_quit_app(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -561,7 +584,10 @@ fn print_window(window: tauri::WebviewWindow) -> Result<(), String> {
 #[cfg(not(target_os = "ios"))]
 #[tauri::command]
 fn open_sosein_workspace_window(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<WindowDocumentState>();
+
     if let Some(window) = app.get_webview_window(SOSEIN_WORKSPACE_WINDOW_LABEL) {
+        set_window_workspace_mode_for_label(&state, window.label(), WindowWorkspaceMode::Sosein);
         window
             .show()
             .map_err(|err| format!("Unable to show Sosein Cloud window: {err}"))?;
@@ -587,9 +613,10 @@ fn open_sosein_workspace_window(app: AppHandle) -> Result<(), String> {
         .title_bar_style(TitleBarStyle::Overlay)
         .traffic_light_position(LogicalPosition::new(22.0, 30.0));
 
-    builder
+    let window = builder
         .build()
         .map_err(|err| format!("Unable to open Sosein Cloud window: {err}"))?;
+    set_window_workspace_mode_for_label(&state, window.label(), WindowWorkspaceMode::Sosein);
 
     Ok(())
 }
@@ -2449,17 +2476,37 @@ fn dispatch_native_open_urls(app: &AppHandle, urls: Vec<String>) {
     }
 
     #[cfg(not(target_os = "ios"))]
+    let target = match open_or_focus_local_workspace_window(app) {
+        Ok((window, created)) => Some((window, created)),
+        Err(err) => {
+            eprintln!("{err}");
+            None
+        }
+    };
+
+    let state = app.state::<NativeOpenState>();
+    let window_state = app.state::<WindowDocumentState>();
+    #[cfg(not(target_os = "ios"))]
     {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
+        if let Some((window, false)) = target {
+            set_window_workspace_mode_for_label(
+                &window_state,
+                window.label(),
+                WindowWorkspaceMode::Local,
+            );
+            if state.frontend_ready.load(Ordering::SeqCst) {
+                let _ = window.emit("margin://open-urls", urls);
+                return;
+            }
         }
     }
 
-    let state = app.state::<NativeOpenState>();
-    if state.frontend_ready.load(Ordering::SeqCst) {
-        let _ = app.emit("margin://open-urls", urls);
-        return;
+    #[cfg(target_os = "ios")]
+    {
+        if state.frontend_ready.load(Ordering::SeqCst) {
+            let _ = app.emit("margin://open-urls", urls);
+            return;
+        }
     }
 
     let mut pending_urls = state
@@ -2467,6 +2514,92 @@ fn dispatch_native_open_urls(app: &AppHandle, urls: Vec<String>) {
         .lock()
         .expect("pending open URL state poisoned");
     pending_urls.extend(urls);
+}
+
+#[cfg(not(target_os = "ios"))]
+fn open_or_focus_local_workspace_window(
+    app: &AppHandle,
+) -> Result<(tauri::WebviewWindow, bool), String> {
+    let state = app.state::<WindowDocumentState>();
+
+    if let Some(window) = local_workspace_window(app, &state) {
+        window
+            .show()
+            .map_err(|err| format!("Unable to show local Margin window: {err}"))?;
+        window
+            .set_focus()
+            .map_err(|err| format!("Unable to focus local Margin window: {err}"))?;
+
+        return Ok((window, false));
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        app,
+        LOCAL_WORKSPACE_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Margin")
+    .inner_size(1280.0, 820.0)
+    .min_inner_size(980.0, 680.0);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .hidden_title(true)
+        .title_bar_style(TitleBarStyle::Overlay)
+        .traffic_light_position(LogicalPosition::new(22.0, 30.0));
+
+    let window = builder
+        .build()
+        .map_err(|err| format!("Unable to open local Margin window: {err}"))?;
+    set_window_workspace_mode_for_label(&state, window.label(), WindowWorkspaceMode::Local);
+    window
+        .show()
+        .map_err(|err| format!("Unable to show local Margin window: {err}"))?;
+    window
+        .set_focus()
+        .map_err(|err| format!("Unable to focus local Margin window: {err}"))?;
+
+    Ok((window, true))
+}
+
+#[cfg(not(target_os = "ios"))]
+fn local_workspace_window(
+    app: &AppHandle,
+    state: &State<WindowDocumentState>,
+) -> Option<tauri::WebviewWindow> {
+    let windows = app.webview_windows();
+    let open_window_labels = windows.keys().cloned().collect::<HashSet<_>>();
+
+    let local_label = {
+        let mut mode_by_window = state
+            .mode_by_window
+            .lock()
+            .expect("window workspace mode state poisoned");
+        mode_by_window.retain(|label, _| open_window_labels.contains(label));
+
+        mode_by_window
+            .iter()
+            .find_map(|(label, mode)| (*mode == WindowWorkspaceMode::Local).then(|| label.clone()))
+    }
+    .or_else(|| {
+        windows
+            .contains_key(LOCAL_WORKSPACE_WINDOW_LABEL)
+            .then(|| LOCAL_WORKSPACE_WINDOW_LABEL.to_string())
+    });
+
+    local_label.and_then(|label| windows.get(&label).cloned())
+}
+
+fn set_window_workspace_mode_for_label(
+    state: &State<WindowDocumentState>,
+    label: &str,
+    mode: WindowWorkspaceMode,
+) {
+    state
+        .mode_by_window
+        .lock()
+        .expect("window workspace mode state poisoned")
+        .insert(label.to_string(), mode);
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -3019,6 +3152,7 @@ pub fn run() {
             confirm_close_tab,
             quit_app,
             set_window_tab_state,
+            set_window_workspace_mode,
             close_last_tab_or_quit_app,
             print_window,
             open_sosein_workspace_window,

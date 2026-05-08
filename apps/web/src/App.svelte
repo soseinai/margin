@@ -368,6 +368,7 @@
 	let visibleDocumentTabs: DocumentTab[] = [];
 	let activeDocumentTabId = '';
 	let lastReportedDesktopWindowHasTabs: boolean | null = null;
+	let lastReportedDesktopWindowMode: WorkspaceMode['kind'] | null = null;
 	let recentDocuments: RecentDocument[] = [];
 	let dragActive = false;
 	let printDocumentHtml = '';
@@ -900,6 +901,7 @@
 	$: workspaceNavigatorLabel = workspaceMode.kind === 'sosein' ? 'cloud documents' : 'file tree';
 	$: showDocumentTitlebar = workspaceMode.kind !== 'sosein' || Boolean(documentData);
 	$: desktopWindowHasTabs = documentTabs.length > 0;
+	$: reportDesktopWindowWorkspaceMode(workspaceModeKind);
 	$: reportDesktopWindowTabState(desktopWindowHasTabs);
 	$: documentTitleLabel = localFileName || documentData?.fileName || 'Untitled.md';
 	$: documentLocationLabel = workspaceMode.kind === 'sosein' && !soseinActiveDocument
@@ -1162,6 +1164,21 @@
 		request.catch((err) => {
 			console.warn('Unable to report desktop window tab state', err);
 			lastReportedDesktopWindowHasTabs = null;
+		});
+	}
+
+	function reportDesktopWindowWorkspaceMode(mode: WorkspaceMode['kind']) {
+		if (!desktopShell || lastReportedDesktopWindowMode === mode) return;
+
+		lastReportedDesktopWindowMode = mode;
+
+		const request = tauriInvoke<void>('set_window_workspace_mode', { mode });
+
+		if (!request) return;
+
+		request.catch((err) => {
+			console.warn('Unable to report desktop window workspace mode', err);
+			lastReportedDesktopWindowMode = null;
 		});
 	}
 
@@ -5574,6 +5591,7 @@
 
 	async function flushPendingNativeOpenUrls() {
 		if (!tauriShell) return false;
+		if (workspaceMode.kind === 'sosein') return false;
 
 		const request = tauriInvoke<string[]>('take_pending_open_urls');
 

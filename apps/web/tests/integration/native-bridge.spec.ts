@@ -84,7 +84,9 @@ test('routes native menu events through the frontend contract', async ({ page })
 });
 
 test('ignores native menu events in an unfocused desktop window', async ({ page }) => {
-  await installTauriMock(page);
+  await installTauriMock(page, {
+    documents: [{ path: '/tmp/OtherWindow.md', name: 'OtherWindow.md', markdown: 'Opened elsewhere.' }]
+  });
   await page.addInitScript(() => {
     Object.defineProperty(document, 'hasFocus', {
       configurable: true,
@@ -98,6 +100,13 @@ test('ignores native menu events in an unfocused desktop window', async ({ page 
 
   await emitTauriEvent(page, 'margin://open-command-palette');
   await expect(page.getByRole('dialog', { name: 'Command Palette' })).toHaveCount(0);
+
+  await emitTauriEvent(page, 'margin://open-urls', ['file:///tmp/OtherWindow.md']);
+  await expect(page.getByRole('heading', { name: 'OtherWindow.md' })).toHaveCount(0);
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+    return calls.some((call) => call.command === 'open_native_path');
+  }).toBe(false);
 });
 
 test('can omit the margin notes appendix from native print', async ({ page }) => {
