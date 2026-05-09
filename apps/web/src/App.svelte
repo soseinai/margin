@@ -259,6 +259,8 @@
 		WorkspaceMode
 	} from './lib/app-types';
 
+	const SOSEIN_IMPORT_SYNC_TIMEOUT_MS = 10_000;
+
 	let documentData: LocalDocument | null = null;
 	let annotations: LocalAnnotations | null = null;
 	let editorMarkdown = '';
@@ -320,6 +322,7 @@
 	$: soseinCloudServerUrl = soseinServerUrlForEnvironment(soseinCloudEnvironment);
 	let documentSurface: HTMLElement;
 	let fileInput: HTMLInputElement;
+	let fileInputMode: 'local-open' | 'sosein-import' = 'local-open';
 	let commentTextarea: HTMLElement | null = null;
 	let editingCommentTextarea: HTMLElement | null = null;
 	let commentComposerAttention = false;
@@ -2914,7 +2917,7 @@
 					{
 						key: 'Mod-Enter',
 						run() {
-							saveLocalMarkdown();
+							saveCurrentDocument();
 
 							return true;
 						}
@@ -2925,7 +2928,7 @@
 						run() {
 							if (!shouldHandleWebNativeShortcut()) return false;
 
-							saveLocalMarkdown();
+							saveCurrentDocument();
 
 							return true;
 						}
@@ -2965,7 +2968,7 @@
 						run() {
 							if (!shouldHandleWebNativeShortcut()) return false;
 
-							openLocalMarkdown();
+							openMarkdownDocumentForWorkspace();
 
 							return true;
 						}
@@ -4493,12 +4496,12 @@
 			handleNativeDocumentChanged,
 			openCommandPaletteCommands: () => openCommandPalette('commands'),
 			openCommandPaletteFiles: () => openCommandPalette('files'),
-			openLocalMarkdown,
+			openLocalMarkdown: openMarkdownDocumentForWorkspace,
 			openLocalFolder,
 			openRecentDocument,
 			clearRecentDocuments,
-			saveLocalMarkdown: () => saveLocalMarkdown(),
-			saveLocalMarkdownAs,
+			saveLocalMarkdown: () => saveCurrentDocument(),
+			saveLocalMarkdownAs: saveMarkdownCopyForWorkspace,
 			requestPrintDocument,
 			openWordCountDialog,
 			closeActiveDocumentTab,
@@ -4771,11 +4774,13 @@
 			selectedQuote,
 			createNewDocument,
 			openLocalMarkdown,
+			importSoseinMarkdown,
 			openLocalFolder,
 			openQuickOpen: () => openCommandPalette('files'),
 			openSettingsDialog,
-			saveLocalMarkdown: () => saveLocalMarkdown(),
+			saveLocalMarkdown: () => saveCurrentDocument(),
 			saveLocalMarkdownAs,
+			exportSoseinMarkdown,
 			requestPrintDocument,
 			closeActiveDocumentTab,
 			activatePreviousTab: () => activateAdjacentDocumentTab(-1),
@@ -4809,7 +4814,7 @@
 			soseinDocuments,
 			activateDocumentTab,
 			openNativeMarkdownPath,
-			openSoseinDocument,
+			openSoseinDocument: openSoseinDocumentFromUi,
 			openLocalFolder,
 			openLocalMarkdown,
 			openSoseinWorkspace
@@ -5147,8 +5152,156 @@
 		}
 	}
 
-	async function openSoseinDocument(document: SoseinDocumentSummary | SoseinDocument) {
+	async function importSoseinMarkdown() {
+		error = '';
+		soseinCloudError = '';
+
+		if (!soseinSession) {
+			fileTreePanelOpen = true;
+			soseinCloudError = 'Connect to Sosein Cloud before importing Markdown.';
+
+			return;
+		}
+
+		const nativeOpen = desktopShell
+			? tauriInvoke<NativeMarkdownDocument | null>('choose_markdown_document')
+			: null;
+
+		if (nativeOpen) {
+			try {
+				const document = await nativeOpen;
+
+				if (document) await importSoseinMarkdownFile(document.name, document.markdown);
+			} catch(err) {
+				handleSoseinCloudError(err, 'Unable to import Markdown file');
+			}
+
+			return;
+		}
+
+		const picker = window as FilePickerWindow;
+
+		if (picker.showOpenFilePicker) {
+			try {
+				const [handle] = await picker.showOpenFilePicker({ multiple: false, types: markdownFileTypes });
+
+				if (!handle) return;
+
+				const file = await handle.getFile();
+
+				await importSoseinMarkdownFile(file.name || handle.name || 'Imported.md', await file.text());
+			} catch(err) {
+				if (isAbortError(err)) return;
+
+				handleSoseinCloudError(err, 'Unable to import Markdown file');
+			}
+
+			return;
+		}
+
+		if (!fileInput) {
+			soseinCloudError = 'Markdown import is not available in this browser.';
+
+			return;
+		}
+
+		fileInputMode = 'sosein-import';
+		fileInput.value = '';
+		fileInput.click();
+	}
+
+	async function importSoseinMarkdownFile(fileName: string, serializedMarkdown: string) {
 		if (!soseinSession) return;
+
+		const importedMarkdown = splitMarginCommentBlock(serializedMarkdown).markdown;
+		const title = cloudDocumentTitleFromFileName(fileName);
+
+		soseinDocumentOpening = true;
+		soseinCloudError = '';
+
+		try {
+			const document = await soseinClientForSession().createDocument(title);
+
+			if (!(await openSoseinDocument(document))) return;
+
+			await waitForSoseinEditorSyncReady(document.id);
+			replaceActiveSoseinMarkdown(importedMarkdown);
+			syncActiveDocumentTab();
+			void refreshSoseinDocuments();
+		} catch(err) {
+			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
+			handleSoseinCloudError(err, 'Unable to import Markdown file');
+		} finally {
+			soseinDocumentOpening = false;
+		}
+	}
+
+	async function openSoseinDocumentFromUi(document: SoseinDocumentSummary | SoseinDocument) {
+		await openSoseinDocument(document);
+	}
+
+	async function exportSoseinMarkdown() {
+		error = '';
+		soseinCloudError = '';
+
+		if (!soseinActiveDocument || !documentData) {
+			fileTreePanelOpen = true;
+			soseinCloudError = 'Open a Sosein Cloud document before exporting Markdown.';
+
+			return;
+		}
+
+		if (saveDialogOpen) return;
+
+		saveDialogOpen = true;
+
+		try {
+			const suggestedName = soseinDocumentFileName(soseinActiveDocument.title || documentData.fileName || 'document');
+			const markdown = activeEditorMarkdown();
+			const nativeSavePath = desktopShell
+				? tauriInvoke<string | null>('choose_markdown_save_path', { suggestedName })
+				: null;
+
+			if (nativeSavePath) {
+				const path = await nativeSavePath;
+
+				if (!path) return;
+
+				const request = tauriInvoke<NativeMarkdownDocument>('save_markdown_document', { path, markdown });
+
+				if (!request) throw new Error('Desktop Markdown export is unavailable in this Margin build.');
+
+				await request;
+
+				return;
+			}
+
+			const picker = window as FilePickerWindow;
+
+			if (picker.showSaveFilePicker) {
+				const handle = await picker.showSaveFilePicker({ suggestedName, types: markdownFileTypes });
+				const writable = await handle.createWritable?.();
+
+				if (!writable) throw new Error('This environment cannot write to that file directly');
+
+				await writable.write(markdown);
+				await writable.close();
+
+				return;
+			}
+
+			downloadMarkdown(markdown, suggestedName);
+		} catch(err) {
+			if (isAbortError(err)) return;
+
+			handleSoseinCloudError(err, 'Unable to export Markdown file');
+		} finally {
+			saveDialogOpen = false;
+		}
+	}
+
+	async function openSoseinDocument(document: SoseinDocumentSummary | SoseinDocument) {
+		if (!soseinSession) return false;
 
 		const session = soseinSession;
 
@@ -5164,7 +5317,7 @@
 				closeSoseinDialog();
 				await applyDocumentTab(existingTab);
 
-				return;
+				return true;
 			}
 
 			const client = soseinClientForSession();
@@ -5206,9 +5359,13 @@
 			await connectSoseinEditorSyncForActiveDocument();
 			await tick();
 			updateAnchorPositions();
+
+			return true;
 		} catch(err) {
 			if (isSoseinUnauthorized(err)) disconnectSoseinSession();
 			handleSoseinCloudError(err, 'Unable to open Sosein Cloud document');
+
+			return false;
 		} finally {
 			soseinDocumentOpening = false;
 		}
@@ -5251,6 +5408,33 @@
 		}
 	}
 
+	async function waitForSoseinEditorSyncReady(documentId: string) {
+		const sync = soseinEditorSync;
+
+		if (!sync || sync.documentId !== documentId) {
+			throw new Error('Sosein Cloud sync is not ready yet.');
+		}
+
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+		try {
+			await Promise.race([
+				sync.synced,
+				new Promise<void>((_, reject) => {
+					timeoutId = setTimeout(() => {
+						reject(new Error('Timed out waiting for Sosein Cloud sync before importing Markdown.'));
+					}, SOSEIN_IMPORT_SYNC_TIMEOUT_MS);
+				})
+			]);
+		} finally {
+			if (timeoutId) clearTimeout(timeoutId);
+		}
+
+		if (soseinEditorSync !== sync || soseinActiveDocument?.id !== documentId) {
+			throw new Error('Sosein Cloud document changed before import finished.');
+		}
+	}
+
 	function handleSoseinSyncError(err: unknown) {
 		if (isSoseinUnauthorized(err)) disconnectSoseinSession();
 
@@ -5261,6 +5445,41 @@
 		soseinSyncRun += 1;
 		soseinEditorSync?.destroy();
 		soseinEditorSync = null;
+	}
+
+	function replaceActiveSoseinMarkdown(markdown: string) {
+		if (!soseinActiveDocument) return;
+
+		const view = mainEditor;
+
+		if (soseinEditorSync) {
+			const ytext = soseinEditorSync.ytext;
+			const current = ytext.toString();
+
+			if (current !== markdown) {
+				soseinEditorSync.ydoc.transact(() => {
+					ytext.delete(0, ytext.length);
+					ytext.insert(0, markdown);
+				});
+			}
+		} else if (view) {
+			const current = view.state.doc.toString();
+
+			if (current !== markdown) {
+				view.dispatch({
+					changes: { from: 0, to: current.length, insert: markdown },
+					selection: { anchor: 0 }
+				});
+			}
+		}
+
+		editorMarkdown = markdown;
+		baseMarkdown = markdown;
+		if (documentData) documentData = { ...documentData, markdown };
+		saveState = soseinSyncStatus === 'error' || soseinSyncStatus === 'disconnected' ? 'conflict' : 'saved';
+		saveMessage = soseinSyncStatusLabel(soseinSyncStatus);
+		resetSuggestionDraftState(markdown);
+		clearSelection();
 	}
 
 	function clearSoseinActiveDocument() {
@@ -5326,6 +5545,12 @@
 		if (status === 'disconnected') return 'Cloud disconnected';
 
 		return 'Cloud sync failed';
+	}
+
+	function cloudDocumentTitleFromFileName(fileName: string) {
+		return normalizeSoseinDocumentTitle(
+			fileNameFromPath(fileName).replace(/\.(md|markdown|txt)$/i, '')
+		);
 	}
 
 	function documentLocationLabelFor(
@@ -6110,6 +6335,28 @@
 		createUntitledMarkdownDocument();
 	}
 
+	function openMarkdownDocumentForWorkspace() {
+		if (workspaceMode.kind === 'sosein') {
+			return importSoseinMarkdown();
+		}
+
+		return openLocalMarkdown();
+	}
+
+	function saveCurrentDocument() {
+		if (workspaceMode.kind === 'sosein') return;
+
+		return saveLocalMarkdown();
+	}
+
+	function saveMarkdownCopyForWorkspace() {
+		if (workspaceMode.kind === 'sosein') {
+			return exportSoseinMarkdown();
+		}
+
+		return saveLocalMarkdownAs();
+	}
+
 	function applyLocalDocumentSessionState(
 		sessionState: ReturnType<typeof createUntitledLocalDocumentSession>,
 		options: { fileName: string; resetEditor: boolean; clearCloud?: boolean } = {
@@ -6163,6 +6410,7 @@
 
 	async function openLocalMarkdown() {
 		error = '';
+		fileInputMode = 'local-open';
 
 		const nativeOpen = desktopShell
 			? tauriInvoke<NativeMarkdownDocument | null>('choose_markdown_document')
@@ -6194,6 +6442,12 @@
 
 				error = err instanceof Error ? err.message : 'Unable to open Markdown file';
 			}
+
+			return;
+		}
+
+		if (!fileInput) {
+			error = 'File opening is not available in this browser.';
 
 			return;
 		}
@@ -6238,10 +6492,19 @@
 
 		if (!file) return;
 
+		const mode = fileInputMode;
+		fileInputMode = 'local-open';
+
 		try {
-			await loadLocalMarkdownFile(file, null);
+			if (mode === 'sosein-import') {
+				await importSoseinMarkdownFile(file.name, await file.text());
+			} else {
+				await loadLocalMarkdownFile(file, null);
+			}
 		} catch(err) {
-			error = err instanceof Error ? err.message : 'Unable to open Markdown file';
+			error = err instanceof Error ? err.message : mode === 'sosein-import'
+				? 'Unable to import Markdown file'
+				: 'Unable to open Markdown file';
 		}
 	}
 
@@ -7018,7 +7281,7 @@
 
 		if (!event.shiftKey && key === 's') {
 			event.preventDefault();
-			saveLocalMarkdown();
+			saveCurrentDocument();
 		}
 
 		if (!event.shiftKey && key === 'p') {
@@ -7033,7 +7296,7 @@
 
 		if (!event.shiftKey && key === 'o') {
 			event.preventDefault();
-			openLocalMarkdown();
+			openMarkdownDocumentForWorkspace();
 		}
 
 		if (event.shiftKey && key === 'o') {
@@ -7435,7 +7698,7 @@
 				startOidcLogin={startSoseinOidcLogin}
 				refreshDocuments={refreshSoseinDocuments}
 				createDocument={createSoseinDocument}
-				openDocument={openSoseinDocument}
+				openDocument={openSoseinDocumentFromUi}
 				syncStatusLabel={soseinSyncStatusLabel}
 			/>
 		{:else}
@@ -7618,7 +7881,7 @@
 		openWorkspace={openSoseinWorkspace}
 		refreshDocuments={refreshSoseinDocuments}
 		createDocument={createSoseinDocument}
-		openDocument={openSoseinDocument}
+		openDocument={openSoseinDocumentFromUi}
 		syncStatusLabel={soseinSyncStatusLabel}
 	/>
 

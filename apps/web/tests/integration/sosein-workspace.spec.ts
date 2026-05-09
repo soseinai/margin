@@ -84,6 +84,8 @@ test('cloud workspace mode replaces the local file tree with cloud documents', a
   await expect(cloudPanel.getByText('Alice Example')).toBeVisible();
   await expect(cloudPanel.locator('img.sosein-account-avatar')).toHaveAttribute('src', 'https://example.com/alice.png');
   await expect(cloudPanel.getByRole('button', { name: 'Cloud Plan' })).toBeVisible();
+  await expect(cloudPanel.getByRole('button', { name: 'Import Markdown' })).toHaveCount(0);
+  await expect(cloudPanel.getByRole('button', { name: 'Export Markdown' })).toHaveCount(0);
   await expect(page.locator('.doc-titlebar-shell')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Cloud Documents' })).toHaveCount(0);
   await expect(page.getByText('Open a folder to browse Markdown documents.')).toHaveCount(0);
@@ -400,6 +402,117 @@ test('Sosein Cloud dialog can start local Google OIDC', async ({ page }) => {
 
     return loginCall?.args?.serverUrl;
   }).toBe('http://127.0.0.1:18787');
+});
+
+test('imports a Markdown file into a new cloud document and reopens the persisted body', async ({ page }) => {
+  await installSoseinSyncMock(page, {
+    connectDelayMs: 50,
+    initialMarkdownByDocumentId: {
+      'doc-existing': '# Other Doc\n\nExisting body.'
+    }
+  });
+  await installTauriMock(page, {
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true },
+    documents: [
+      {
+        path: '/tmp/Imported Plan.md',
+        name: 'Imported Plan.md',
+        markdown: '# Imported Plan\n\nBody imported from disk.'
+      }
+    ],
+    chosenDocumentPath: '/tmp/Imported Plan.md',
+    soseinDocuments: [
+      {
+        id: 'doc-existing',
+        title: 'Other Doc',
+        content_type: 'text/markdown',
+        current_snapshot_version: 1,
+        created_at: '2026-05-06T10:00:00Z',
+        updated_at: '2026-05-06T11:00:00Z'
+      }
+    ]
+  });
+  await installStoredSoseinSession(page);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview&workspace=sosein');
+
+  await runCommand(page, 'Import Markdown...');
+
+  await expect(page.getByRole('heading', { name: 'Imported Plan.md' })).toBeVisible();
+  await expect.poll(() => editorMarkdown(page)).toBe('# Imported Plan\n\nBody imported from disk.');
+  await expect.poll(async () => {
+    return page.evaluate(() =>
+      (
+        window as typeof window & {
+          __marginSoseinSync: {
+            snapshot: (documentId: string) => { text: string };
+          };
+        }
+      ).__marginSoseinSync.snapshot('created-2').text
+    );
+  }).toBe('# Imported Plan\n\nBody imported from disk.');
+  await expect(page.getByLabel('Sosein Cloud documents').getByRole('button', { name: 'Imported Plan' })).toBeVisible();
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+    const createCall = calls.find(
+      (call) =>
+        call.command === 'sosein_api_request'
+        && call.args?.method === 'POST'
+        && call.args?.path === '/v1/documents'
+    );
+
+    return createCall?.args?.body;
+  }).toEqual({ title: 'Imported Plan' });
+
+  await page.getByLabel('Sosein Cloud documents').getByRole('button', { name: 'Other Doc' }).click();
+  await expect.poll(() => editorMarkdown(page)).toBe('# Other Doc\n\nExisting body.');
+  await page.getByRole('button', { name: 'Close Imported Plan.md' }).click();
+  await page.getByLabel('Sosein Cloud documents').getByRole('button', { name: 'Imported Plan' }).click();
+
+  await expect.poll(() => editorMarkdown(page)).toBe('# Imported Plan\n\nBody imported from disk.');
+});
+
+test('exports the active cloud document as a plain Markdown copy', async ({ page }) => {
+  await installSoseinSyncMock(page, {
+    initialMarkdownByDocumentId: {
+      'doc-1': '# Cloud Plan\n\nRemote body.'
+    }
+  });
+  await installTauriMock(page, {
+    settings: { theme: 'auto', localUserName: 'Me', soseinCloudEnabled: true },
+    chosenSavePath: '/tmp/Cloud Plan.md',
+    soseinDocuments: [
+      {
+        id: 'doc-1',
+        title: 'Cloud Plan',
+        content_type: 'text/markdown',
+        current_snapshot_version: 3,
+        created_at: '2026-05-06T10:00:00Z',
+        updated_at: '2026-05-06T11:00:00Z'
+      }
+    ]
+  });
+  await installStoredSoseinSession(page);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto('/?desktop-preview&workspace=sosein');
+  await page.getByRole('button', { name: 'Cloud Plan' }).click();
+  await expect(editor(page)).toContainText('Remote body.');
+
+  await replaceEditorMarkdown(page, '# Cloud Plan\n\nEdited for export.');
+  await runCommand(page, 'Export Markdown...');
+
+  await expect.poll(async () => {
+    const calls = await tauriCalls(page);
+
+    return [...calls].reverse().find((call) => call.command === 'save_markdown_document')?.args;
+  }).toEqual({
+    path: '/tmp/Cloud Plan.md',
+    markdown: '# Cloud Plan\n\nEdited for export.'
+  });
+  await expect.poll(() => editorMarkdown(page)).toBe('# Cloud Plan\n\nEdited for export.');
+  await expect(page.getByLabel('Sosein Cloud documents')).toBeVisible();
 });
 
 test('cloud document sync hydrates the editor and publishes local edits to Yjs', async ({ page }) => {
