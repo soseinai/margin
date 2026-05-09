@@ -63,6 +63,7 @@ type TauriMockOptions = {
 
 type SoseinSyncMockOptions = {
   initialMarkdownByDocumentId?: Record<string, string>;
+  connectDelayMs?: number;
 };
 
 export async function openCleanApp(
@@ -585,6 +586,40 @@ export async function installTauriMock(page: Page, options: TauriMockOptions = {
                 };
               }
 
+              if (path === '/v1/documents' && method === 'POST') {
+                const requestBody = args?.body as { title?: string } | undefined;
+                const title = requestBody?.title?.trim() || 'Untitled';
+                const id = `created-${soseinDocuments.length + 1}`;
+                const now = '2026-05-06T12:00:00Z';
+                const document = {
+                  id,
+                  title,
+                  content_type: 'text/markdown',
+                  current_snapshot_version: 1,
+                  created_at: now,
+                  updated_at: now,
+                  latest_snapshot: {
+                    version: 1,
+                    yrs_state_hash: 'test-yrs',
+                    markdown_content: '',
+                    markdown_content_hash: 'test-md'
+                  }
+                };
+
+                soseinDocuments = [...soseinDocuments, document];
+
+                return {
+                  status: 200,
+                  body: {
+                    id: document.id,
+                    title: document.title,
+                    content_type: document.content_type,
+                    latest_snapshot: document.latest_snapshot
+                  },
+                  bodyText: JSON.stringify(document)
+                };
+              }
+
               const documentMatch = /^\/v1\/documents\/([^/]+)$/.exec(path);
 
               if (documentMatch && method === 'GET') {
@@ -690,6 +725,8 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
           delete: (index: number, length: number) => void;
           toString: () => string;
         };
+        on: (eventName: 'update', handler: Handler) => void;
+        off: (eventName: 'update', handler: Handler) => void;
       };
       awareness: {
         setLocalStateField: (field: string, value: unknown) => void;
@@ -704,7 +741,8 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
     };
 
     const providers = new Map<string, Provider>();
-    const initialMarkdownByDocumentId = mockOptions.initialMarkdownByDocumentId ?? {};
+    const persistedMarkdownByDocumentId = { ...(mockOptions.initialMarkdownByDocumentId ?? {}) };
+    const connectDelayMs = mockOptions.connectDelayMs ?? 0;
 
     function providerFor(documentId: string) {
       const provider = providers.get(documentId);
@@ -752,6 +790,9 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
       }) => {
         const handlers = new Map<string, Handler[]>();
         const ytext = ydoc.getText('body');
+        const persistText = () => {
+          if (provider.wsconnected) persistedMarkdownByDocumentId[documentId] = ytext.toString();
+        };
         const provider: Provider = {
           documentId,
           ydoc,
@@ -759,15 +800,23 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
           params: { ticket },
           wsconnected: false,
           connect() {
-            provider.wsconnected = true;
-            const initialMarkdown = initialMarkdownByDocumentId[documentId];
+            const finishConnect = () => {
+              provider.wsconnected = true;
+              const initialMarkdown = persistedMarkdownByDocumentId[documentId];
 
-            if (typeof initialMarkdown === 'string' && ytext.length === 0) {
-              ytext.insert(0, initialMarkdown);
+              if (typeof initialMarkdown === 'string' && ytext.length === 0) {
+                ytext.insert(0, initialMarkdown);
+              }
+
+              provider.emit('status', { status: 'connected' });
+              provider.emit('sync', true);
+            };
+
+            if (connectDelayMs > 0) {
+              window.setTimeout(finishConnect, connectDelayMs);
+            } else {
+              finishConnect();
             }
-
-            provider.emit('status', { status: 'connected' });
-            provider.emit('sync', true);
           },
           disconnect() {
             provider.wsconnected = false;
@@ -775,6 +824,7 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
           },
           destroy() {
             provider.wsconnected = false;
+            ydoc.off('update', persistText);
             providers.delete(documentId);
           },
           on(eventName, handler) {
@@ -788,6 +838,7 @@ export async function installSoseinSyncMock(page: Page, options: SoseinSyncMockO
           }
         };
 
+        ydoc.on('update', persistText);
         providers.set(documentId, provider);
 
         return provider;

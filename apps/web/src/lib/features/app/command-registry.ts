@@ -27,11 +27,13 @@ export function buildCommandPaletteCommandEntries(args: {
 	selectedQuote: string;
 	createNewDocument: () => void | Promise<void>;
 	openLocalMarkdown: () => void | Promise<void>;
+	importSoseinMarkdown: () => void | Promise<void>;
 	openLocalFolder: () => void | Promise<void>;
 	openQuickOpen: () => void | Promise<void>;
 	openSettingsDialog: () => void | Promise<void>;
 	saveLocalMarkdown: () => void | Promise<void>;
 	saveLocalMarkdownAs: () => void | Promise<void>;
+	exportSoseinMarkdown: () => void | Promise<void>;
 	requestPrintDocument: () => void | Promise<void>;
 	closeActiveDocumentTab: () => void | Promise<void>;
 	activatePreviousTab: () => void | Promise<void>;
@@ -60,12 +62,13 @@ export function buildCommandPaletteCommandEntries(args: {
 		{
 			id: 'command:open-document',
 			kind: 'command',
-			title: 'Open Document...',
-			subtitle: 'File',
+			title: args.workspaceKind === 'sosein' ? 'Import Markdown...' : 'Open Document...',
+			subtitle: args.workspaceKind === 'sosein' ? 'Sosein Cloud' : 'File',
 			group: 'Suggested',
 			shortcut: shortcutLabel('O'),
-			keywords: ['file', 'markdown'],
-			action: args.openLocalMarkdown
+			keywords: ['file', 'markdown', 'import', 'cloud'],
+			disabled: args.workspaceKind === 'sosein' && !args.soseinSessionEmail,
+			action: args.workspaceKind === 'sosein' ? args.importSoseinMarkdown : args.openLocalMarkdown
 		},
 		{
 			id: 'command:open-folder',
@@ -111,12 +114,13 @@ export function buildCommandPaletteCommandEntries(args: {
 		{
 			id: 'command:save-as',
 			kind: 'command',
-			title: 'Save Document As...',
-			subtitle: 'File',
+			title: args.workspaceKind === 'sosein' ? 'Export Markdown...' : 'Save Document As...',
+			subtitle: args.workspaceKind === 'sosein' ? 'Plain Markdown copy' : 'File',
 			group: 'File',
 			shortcut: shortcutLabel('Shift+S'),
-			keywords: ['write', 'copy'],
-			action: args.saveLocalMarkdownAs
+			keywords: ['write', 'copy', 'export', 'markdown', 'cloud'],
+			disabled: args.workspaceKind === 'sosein' && !args.soseinActiveDocument,
+			action: args.workspaceKind === 'sosein' ? args.exportSoseinMarkdown : args.saveLocalMarkdownAs
 		},
 		{
 			id: 'command:print',

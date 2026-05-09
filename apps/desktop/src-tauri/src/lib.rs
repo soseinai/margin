@@ -39,6 +39,14 @@ const RECENT_MENU_ID: &str = "file_open_recent";
 #[cfg(not(target_os = "ios"))]
 const LOCAL_WORKSPACE_WINDOW_LABEL: &str = "main";
 #[cfg(not(target_os = "ios"))]
+const FILE_OPEN_LOCAL_LABEL: &str = "Open...";
+#[cfg(not(target_os = "ios"))]
+const FILE_OPEN_CLOUD_LABEL: &str = "Import Markdown...";
+#[cfg(not(target_os = "ios"))]
+const FILE_SAVE_AS_LOCAL_LABEL: &str = "Save As...";
+#[cfg(not(target_os = "ios"))]
+const FILE_SAVE_AS_CLOUD_LABEL: &str = "Export Markdown...";
+#[cfg(not(target_os = "ios"))]
 const RECENT_MENU_ITEM_PREFIX: &str = "file_recent_";
 #[cfg(not(target_os = "ios"))]
 const CLEAR_RECENT_MENU_ITEM_PREFIX: &str = "file_clear_recent_";
@@ -270,6 +278,16 @@ struct WatchedDocumentState {
 #[derive(Default)]
 struct RecentDocumentsMenuState {
     menu: Mutex<Option<Submenu<Wry>>>,
+}
+
+#[cfg(not(target_os = "ios"))]
+#[derive(Default)]
+struct FileMenuState {
+    open_file: Mutex<Option<MenuItem<Wry>>>,
+    open_folder: Mutex<Option<MenuItem<Wry>>>,
+    open_recent: Mutex<Option<Submenu<Wry>>>,
+    save_file: Mutex<Option<MenuItem<Wry>>>,
+    save_file_as: Mutex<Option<MenuItem<Wry>>>,
 }
 
 #[derive(Default)]
@@ -529,11 +547,18 @@ fn set_window_workspace_mode(
     state: State<WindowDocumentState>,
     mode: WindowWorkspaceMode,
 ) {
+    let label = window.label().to_string();
+
     state
         .mode_by_window
         .lock()
         .expect("window workspace mode state poisoned")
-        .insert(window.label().to_string(), mode);
+        .insert(label.clone(), mode);
+
+    #[cfg(not(target_os = "ios"))]
+    if window.is_focused().unwrap_or(false) {
+        update_file_menu_for_window_label(window.app_handle(), &label);
+    }
 }
 
 #[tauri::command]
@@ -594,6 +619,7 @@ fn open_sosein_workspace_window(app: AppHandle) -> Result<(), String> {
         window
             .set_focus()
             .map_err(|err| format!("Unable to focus Sosein Cloud window: {err}"))?;
+        update_file_menu_for_window_label(&app, window.label());
 
         return Ok(());
     }
@@ -617,6 +643,7 @@ fn open_sosein_workspace_window(app: AppHandle) -> Result<(), String> {
         .build()
         .map_err(|err| format!("Unable to open Sosein Cloud window: {err}"))?;
     set_window_workspace_mode_for_label(&state, window.label(), WindowWorkspaceMode::Sosein);
+    update_file_menu_for_window_label(&app, window.label());
 
     Ok(())
 }
@@ -1464,6 +1491,27 @@ mod native_document_tests {
         assert_eq!(insert_payload("insert_bullets"), Some("bullets"));
         assert_eq!(insert_payload("insert_numbers"), Some("numbers"));
         assert_eq!(insert_payload("insert_image"), None);
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn file_menu_presentation_switches_for_cloud_windows() {
+        assert_eq!(
+            file_menu_presentation(WindowWorkspaceMode::Local),
+            FileMenuPresentation {
+                open_file_label: "Open...",
+                save_as_label: "Save As...",
+                local_file_items_enabled: true,
+            }
+        );
+        assert_eq!(
+            file_menu_presentation(WindowWorkspaceMode::Sosein),
+            FileMenuPresentation {
+                open_file_label: "Import Markdown...",
+                save_as_label: "Export Markdown...",
+                local_file_items_enabled: false,
+            }
+        );
     }
 
     #[cfg(not(target_os = "ios"))]
@@ -2470,6 +2518,124 @@ fn recent_document_menu_index(menu_id: &str) -> Option<usize> {
     index.parse().ok()
 }
 
+#[cfg(not(target_os = "ios"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileMenuPresentation {
+    open_file_label: &'static str,
+    save_as_label: &'static str,
+    local_file_items_enabled: bool,
+}
+
+#[cfg(not(target_os = "ios"))]
+fn file_menu_presentation(mode: WindowWorkspaceMode) -> FileMenuPresentation {
+    match mode {
+        WindowWorkspaceMode::Local => FileMenuPresentation {
+            open_file_label: FILE_OPEN_LOCAL_LABEL,
+            save_as_label: FILE_SAVE_AS_LOCAL_LABEL,
+            local_file_items_enabled: true,
+        },
+        WindowWorkspaceMode::Sosein => FileMenuPresentation {
+            open_file_label: FILE_OPEN_CLOUD_LABEL,
+            save_as_label: FILE_SAVE_AS_CLOUD_LABEL,
+            local_file_items_enabled: false,
+        },
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+fn update_file_menu_for_window_label(app: &AppHandle, label: &str) {
+    let window_state = app.state::<WindowDocumentState>();
+    let mode = window_workspace_mode_for_label(&window_state, label);
+
+    update_file_menu_for_workspace_mode(app, mode);
+}
+
+#[cfg(not(target_os = "ios"))]
+fn update_file_menu_for_focused_window(app: &AppHandle) {
+    let Some(window) = focused_webview_window(app) else {
+        update_file_menu_for_workspace_mode(app, WindowWorkspaceMode::Local);
+
+        return;
+    };
+
+    update_file_menu_for_window_label(app, window.label());
+}
+
+#[cfg(not(target_os = "ios"))]
+fn update_file_menu_for_workspace_mode(app: &AppHandle, mode: WindowWorkspaceMode) {
+    let presentation = file_menu_presentation(mode);
+    let state = app.state::<FileMenuState>();
+
+    if let Some(item) = state
+        .open_file
+        .lock()
+        .expect("file menu state poisoned")
+        .as_ref()
+    {
+        if let Err(err) = item.set_text(presentation.open_file_label) {
+            eprintln!("Unable to update File > Open label: {err}");
+        }
+    }
+
+    if let Some(item) = state
+        .open_folder
+        .lock()
+        .expect("file menu state poisoned")
+        .as_ref()
+    {
+        if let Err(err) = item.set_enabled(presentation.local_file_items_enabled) {
+            eprintln!("Unable to update File > Open Folder enabled state: {err}");
+        }
+    }
+
+    if let Some(menu) = state
+        .open_recent
+        .lock()
+        .expect("file menu state poisoned")
+        .as_ref()
+    {
+        if let Err(err) = menu.set_enabled(presentation.local_file_items_enabled) {
+            eprintln!("Unable to update File > Open Recent enabled state: {err}");
+        }
+    }
+
+    if let Some(item) = state
+        .save_file
+        .lock()
+        .expect("file menu state poisoned")
+        .as_ref()
+    {
+        if let Err(err) = item.set_enabled(presentation.local_file_items_enabled) {
+            eprintln!("Unable to update File > Save enabled state: {err}");
+        }
+    }
+
+    if let Some(item) = state
+        .save_file_as
+        .lock()
+        .expect("file menu state poisoned")
+        .as_ref()
+    {
+        if let Err(err) = item.set_text(presentation.save_as_label) {
+            eprintln!("Unable to update File > Save As label: {err}");
+        }
+    };
+}
+
+#[cfg(not(target_os = "ios"))]
+fn window_workspace_mode_for_label(
+    state: &WindowDocumentState,
+    label: &str,
+) -> WindowWorkspaceMode {
+    state
+        .mode_by_window
+        .lock()
+        .expect("window workspace mode state poisoned")
+        .get(label)
+        .copied()
+        .unwrap_or(WindowWorkspaceMode::Local)
+}
+
 fn dispatch_native_open_urls(app: &AppHandle, urls: Vec<String>) {
     if urls.is_empty() {
         return;
@@ -2529,6 +2695,7 @@ fn open_or_focus_local_workspace_window(
         window
             .set_focus()
             .map_err(|err| format!("Unable to focus local Margin window: {err}"))?;
+        update_file_menu_for_window_label(app, window.label());
 
         return Ok((window, false));
     }
@@ -2558,6 +2725,7 @@ fn open_or_focus_local_workspace_window(
     window
         .set_focus()
         .map_err(|err| format!("Unable to focus local Margin window: {err}"))?;
+    update_file_menu_for_window_label(app, window.label());
 
     Ok((window, true))
 }
@@ -2737,7 +2905,8 @@ pub fn run() {
     #[cfg(not(target_os = "ios"))]
     let builder = builder
         .manage(WatchedDocumentState::default())
-        .manage(RecentDocumentsMenuState::default());
+        .manage(RecentDocumentsMenuState::default())
+        .manage(FileMenuState::default());
 
     #[cfg(not(target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -2793,8 +2962,13 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+P"),
             )?;
-            let open_file =
-                MenuItem::with_id(app, "file_open", "Open...", true, Some("CmdOrCtrl+O"))?;
+            let open_file = MenuItem::with_id(
+                app,
+                "file_open",
+                FILE_OPEN_LOCAL_LABEL,
+                true,
+                Some("CmdOrCtrl+O"),
+            )?;
             let open_folder = MenuItem::with_id(
                 app,
                 "file_open_folder",
@@ -2820,7 +2994,7 @@ pub fn run() {
             let save_file_as = MenuItem::with_id(
                 app,
                 "file_save_as",
-                "Save As...",
+                FILE_SAVE_AS_LOCAL_LABEL,
                 true,
                 Some("CmdOrCtrl+Shift+S"),
             )?;
@@ -3050,6 +3224,29 @@ pub fn run() {
             app.set_menu(menu)?;
 
             let app_handle = app.handle().clone();
+            let file_menu_state = app.state::<FileMenuState>();
+            *file_menu_state
+                .open_file
+                .lock()
+                .expect("file menu state poisoned") = Some(open_file.clone());
+            *file_menu_state
+                .open_folder
+                .lock()
+                .expect("file menu state poisoned") = Some(open_folder.clone());
+            *file_menu_state
+                .open_recent
+                .lock()
+                .expect("file menu state poisoned") = Some(open_recent.clone());
+            *file_menu_state
+                .save_file
+                .lock()
+                .expect("file menu state poisoned") = Some(save_file.clone());
+            *file_menu_state
+                .save_file_as
+                .lock()
+                .expect("file menu state poisoned") = Some(save_file_as.clone());
+            update_file_menu_for_focused_window(&app_handle);
+
             let recent_menu_state = app.state::<RecentDocumentsMenuState>();
 
             *recent_menu_state
@@ -3078,6 +3275,13 @@ pub fn run() {
         }
 
         Ok(())
+    });
+
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder.on_window_event(|window, event| {
+        if matches!(event, tauri::WindowEvent::Focused(true)) {
+            update_file_menu_for_window_label(window.app_handle(), window.label());
+        }
     });
 
     #[cfg(not(target_os = "ios"))]

@@ -32,6 +32,7 @@ export type SoseinCodeMirrorSync = {
   ytext: Y.Text;
   provider: SoseinSyncProvider;
   extension: Extension;
+  synced: Promise<void>;
   destroy: () => void;
 };
 
@@ -64,6 +65,10 @@ export async function createSoseinCodeMirrorSync(args: {
 
   let destroyed = false;
   let refreshingTicket = false;
+  let resolveSynced: () => void = () => {};
+  const synced = new Promise<void>((resolve) => {
+    resolveSynced = resolve;
+  });
 
   provider.awareness.setLocalStateField('user', {
     name: args.userName || 'Margin',
@@ -113,6 +118,7 @@ export async function createSoseinCodeMirrorSync(args: {
 
   provider.on('sync', (synced: boolean) => {
     args.onStatus?.(synced ? 'synced' : 'syncing');
+    if (synced) resolveSynced();
   });
 
   const extension = yCollab(ytext, provider.awareness);
@@ -126,6 +132,7 @@ export async function createSoseinCodeMirrorSync(args: {
     ytext,
     provider,
     extension,
+    synced,
     destroy() {
       destroyed = true;
       provider.destroy();
